@@ -15,8 +15,10 @@
 #include <string>
 #include <utility>
 #include <vector>
+
 #include "db/column_family.h"
 #include "file/filename.h"
+#include "logging/event_logger.h"
 #include "logging/log_buffer.h"
 #include "monitoring/statistics.h"
 #include "test_util/sync_point.h"
@@ -1163,6 +1165,16 @@ bool CompactionPicker::GetOverlappingL0Files(
   assert(!start_level_inputs->files.empty());
 
   return true;
+}
+
+void CompactionPicker::PrintLsmState(EventLoggerStream& stream,
+                                     const VersionStorageInfo* vstorage) {
+  stream << "lsm_state";
+  stream.StartArray();
+  for (int level = 0; level < vstorage->num_levels(); ++level) {
+    stream << vstorage->NumLevelFiles(level);
+  }
+  stream.EndArray();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

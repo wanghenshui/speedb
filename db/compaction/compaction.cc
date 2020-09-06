@@ -315,8 +315,8 @@ bool Compaction::IsTrivialMove() const {
   }
 
   if (!(start_level_ != output_level_ && num_input_levels() == 1 &&
-          input(0, 0)->fd.GetPathId() == output_path_id() &&
-          InputCompressionMatchesOutput())) {
+        input(0, 0)->fd.GetPathId() == output_path_id() &&
+        InputCompressionMatchesOutput())) {
     return false;
   }
 
@@ -398,9 +398,19 @@ bool Compaction::KeyNotExistsBeyondOutputLevel(
 void Compaction::MarkFilesBeingCompacted(bool mark_as_compacted) {
   for (size_t i = 0; i < num_input_levels(); i++) {
     for (size_t j = 0; j < inputs_[i].size(); j++) {
-      assert(mark_as_compacted ? !inputs_[i][j]->being_compacted
-                               : inputs_[i][j]->being_compacted);
-      inputs_[i][j]->being_compacted = mark_as_compacted;
+      auto fd = inputs_[i][j];
+      if (mark_as_compacted == fd->being_compacted) {
+        if (cfd_) {
+          Logger* log = cfd_->ioptions()->logger;
+          ROCKS_LOG_ERROR(
+              log, "[%s] error in compaction setting %s fd is %d %lu",
+              cfd_->GetName().c_str(), mark_as_compacted ? "true" : "false",
+              inputs_[i].level, fd->fd.GetNumber());
+          LogFlush(log);
+        }
+        assert(0);
+      }
+      fd->being_compacted = mark_as_compacted;
     }
   }
 }
@@ -577,7 +587,8 @@ bool Compaction::ShouldFormSubcompactions() const {
   } else if (cfd_->ioptions()->compaction_style == kCompactionStyleUniversal) {
     return number_levels_ > 1 && output_level_ > 0;
   } else {
-    return false;
+    return (cfd_->ioptions()->compaction_style == kCompactionStyleHybrid &&
+            start_level_ > 0);
   }
 }
 

@@ -1798,6 +1798,10 @@ class DBImpl : public DB {
   // hold the data set.
   Status ReFitLevel(ColumnFamilyData* cfd, int level, int target_level = -1);
 
+  // lock assumed to be held by caller
+  Status ReFitLevelNoLock(ColumnFamilyData* cfd, int level,
+                          int target_level = -1);
+
   // helper functions for adding and removing from flush & compaction queues
   void AddToCompactionQueue(ColumnFamilyData* cfd);
   ColumnFamilyData* PopFirstFromCompactionQueue();

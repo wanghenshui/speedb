@@ -26,6 +26,7 @@ LIB_SOURCES =                                                   \
   db/compaction/compaction_picker_fifo.cc                       \
   db/compaction/compaction_picker_level.cc                      \
   db/compaction/compaction_picker_universal.cc                  \
+  db/compaction/compaction_picker_hybrid.cc                   \
   db/compaction/sst_partitioner.cc                              \
   db/convenience.cc                                             \
   db/db_filesnapshot.cc                                         \

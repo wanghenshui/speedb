@@ -32,6 +32,7 @@ class LogBuffer;
 class Compaction;
 class VersionStorageInfo;
 struct CompactionInputFiles;
+class EventLoggerStream;
 
 // An abstract class to pick compactions from an existing LSM-tree.
 //
@@ -59,6 +60,10 @@ class CompactionPicker {
       const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
       LogBuffer* log_buffer,
       SequenceNumber earliest_memtable_seqno = kMaxSequenceNumber) = 0;
+
+  virtual void EnableLowPriorityCompaction(bool) {}
+  virtual void PrintLsmState(EventLoggerStream& stream,
+                             const VersionStorageInfo* vstorage);
 
   // Return a compaction object for compacting the range [begin,end] in
   // the specified level.  Returns nullptr if there is nothing in that
@@ -213,7 +218,16 @@ class CompactionPicker {
   std::set<Compaction*>* level0_compactions_in_progress() {
     return &level0_compactions_in_progress_;
   }
+
   std::unordered_set<Compaction*>* compactions_in_progress() {
+    return &compactions_in_progress_;
+  }
+
+  const std::set<Compaction*>* level0_compactions_in_progress() const {
+    return &level0_compactions_in_progress_;
+  }
+
+  const std::unordered_set<Compaction*>* compactions_in_progress() const {
     return &compactions_in_progress_;
   }
 

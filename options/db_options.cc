@@ -763,9 +763,9 @@ void ImmutableDBOptions::Dump(Logger* log) const {
 }
 
 MutableDBOptions::MutableDBOptions()
-    : max_background_jobs(2),
+    : max_background_jobs(9),
       base_background_compactions(-1),
-      max_background_compactions(-1),
+      max_background_compactions(8),
       max_subcompactions(0),
       avoid_flush_during_shutdown(false),
       writable_file_max_buffer_size(1024 * 1024),

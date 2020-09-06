@@ -1471,10 +1471,12 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
     return Status::InvalidArgument("Target level exceeds number of levels");
   }
 
-  SuperVersionContext sv_context(/* create_superversion */ true);
-
   InstrumentedMutexLock guard_lock(&mutex_);
+  return ReFitLevelNoLock(cfd, level, target_level);
+}
 
+Status DBImpl::ReFitLevelNoLock(ColumnFamilyData* cfd, int level,
+                                int target_level) {
   // only allow one thread refitting
   if (refitting_level_) {
     ROCKS_LOG_INFO(immutable_db_options_.info_log,
@@ -1539,7 +1541,9 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
     Status status = versions_->LogAndApply(cfd, mutable_cf_options, &edit,
                                            &mutex_, directories_.GetDbDir());
 
+    SuperVersionContext sv_context(/* create_superversion */ true);
     InstallSuperVersionAndScheduleWork(cfd, &sv_context, mutable_cf_options);
+    sv_context.Clean();
 
     ROCKS_LOG_DEBUG(immutable_db_options_.info_log, "[%s] LogAndApply: %s\n",
                     cfd->GetName().c_str(), status.ToString().data());
@@ -3199,6 +3203,10 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
 
     NotifyOnCompactionCompleted(c->column_family_data(), c.get(), status,
                                 compaction_job_stats, job_context->job_id);
+    // call install to schedule new compaction...
+    InstallSuperVersionAndScheduleWork(c->column_family_data(),
+                                       &job_context->superversion_contexts[0],
+                                       *c->mutable_cf_options());
   }
 
   if (status.ok() || status.IsCompactionTooLarge() ||

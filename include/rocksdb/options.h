@@ -592,7 +592,7 @@ struct DBOptions {
   // Default: 2
   //
   // Dynamically changeable through SetDBOptions() API.
-  int max_background_jobs = 2;
+  int max_background_jobs = 9;
 
   // NOT SUPPORTED ANYMORE: RocksDB automatically decides this based on the
   // value of max_background_jobs. This option is ignored.
@@ -616,7 +616,7 @@ struct DBOptions {
   // Default: -1
   //
   // Dynamically changeable through SetDBOptions() API.
-  int max_background_compactions = -1;
+  int max_background_compactions = 8;
 
   // This value represents the maximum number of threads that will
   // concurrently perform a compaction job by breaking it into multiple,
@@ -646,7 +646,7 @@ struct DBOptions {
   // HIGH priority thread pool. For more information, see
   // Env::SetBackgroundThreads
   // Default: -1
-  int max_background_flushes = -1;
+  int max_background_flushes = 1;
 
   // Specify the maximal size of the info log file. If the log file
   // is larger than `max_log_file_size`, a new info log file will
@@ -1615,10 +1615,14 @@ struct CompactionOptions {
   // If > 0, it will replace the option in the DBOptions for this compaction.
   uint32_t max_subcompactions;
 
+  // hint to use trivial compaction
+  bool use_trivial_compaction;
+
   CompactionOptions()
       : compression(kSnappyCompression),
         output_file_size_limit(std::numeric_limits<uint64_t>::max()),
-        max_subcompactions(0) {}
+        max_subcompactions(0),
+        use_trivial_compaction(false) {}
 };
 
 // For level based compaction, we can configure if we want to skip/force

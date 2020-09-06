@@ -309,7 +309,8 @@ std::map<CompactionStyle, std::string>
         {kCompactionStyleLevel, "kCompactionStyleLevel"},
         {kCompactionStyleUniversal, "kCompactionStyleUniversal"},
         {kCompactionStyleFIFO, "kCompactionStyleFIFO"},
-        {kCompactionStyleNone, "kCompactionStyleNone"}};
+        {kCompactionStyleNone, "kCompactionStyleNone"},
+        {kCompactionStyleHybrid, "kCompactionStyleHybrid"}};
 
 std::map<CompactionPri, std::string> OptionsHelper::compaction_pri_to_string = {
     {kByCompensatedSize, "kByCompensatedSize"},
@@ -694,7 +695,6 @@ Status StringToMap(const std::string& opts_str,
   return Status::OK();
 }
 
-
 Status GetStringFromDBOptions(std::string* opt_string,
                               const DBOptions& db_options,
                               const std::string& delimiter) {
@@ -909,7 +909,8 @@ std::unordered_map<std::string, CompactionStyle>
         {"kCompactionStyleLevel", kCompactionStyleLevel},
         {"kCompactionStyleUniversal", kCompactionStyleUniversal},
         {"kCompactionStyleFIFO", kCompactionStyleFIFO},
-        {"kCompactionStyleNone", kCompactionStyleNone}};
+        {"kCompactionStyleNone", kCompactionStyleNone},
+        {"kCompactionStyleHybrid", kCompactionStyleHybrid}};
 
 std::unordered_map<std::string, CompactionPri>
     OptionsHelper::compaction_pri_string_map = {

@@ -171,7 +171,7 @@ struct CompactionJob::SubcompactionState {
   CompactionJobStats compaction_job_stats;
   uint64_t approx_size = 0;
   // An index that used to speed up ShouldStopBefore().
-  size_t grandparent_index = 0;
+  size_t grandparent_index = 0;  // never stop at the first file
   // The number of bytes overlapping between the current output and
   // grandparent files used in ShouldStopBefore().
   uint64_t overlapped_bytes = 0;
@@ -199,35 +199,46 @@ struct CompactionJob::SubcompactionState {
 
   // Returns true iff we should stop building the current output
   // before processing "internal_key".
-  bool ShouldStopBefore(const Slice& internal_key, uint64_t curr_file_size) {
-    const InternalKeyComparator* icmp =
-        &compaction->column_family_data()->internal_comparator();
+  bool ShouldStopBefore(const Slice& user_key, uint64_t /*curr_file_size*/) {
+    auto ucmp = compaction->column_family_data()->user_comparator();
     const std::vector<FileMetaData*>& grandparents = compaction->grandparents();
 
-    // Scan to find earliest grandparent file that contains key.
-    while (grandparent_index < grandparents.size() &&
-           icmp->Compare(internal_key,
-                         grandparents[grandparent_index]->largest.Encode()) >
-               0) {
-      if (seen_key) {
-        overlapped_bytes += grandparents[grandparent_index]->fd.GetFileSize();
-      }
-      assert(grandparent_index + 1 >= grandparents.size() ||
-             icmp->Compare(
-                 grandparents[grandparent_index]->largest.Encode(),
-                 grandparents[grandparent_index + 1]->smallest.Encode()) <= 0);
+    if (grandparent_index == 0) {
       grandparent_index++;
+      while (grandparent_index < grandparents.size() &&
+             ucmp->Compare(
+                 user_key,
+                 grandparents[grandparent_index]->smallest.user_key()) >= 0) {
+        grandparent_index++;
+      }
+      return false;
     }
-    seen_key = true;
 
-    if (overlapped_bytes + curr_file_size >
-        compaction->max_compaction_bytes()) {
-      // Too much overlap for current output; start new output
-      overlapped_bytes = 0;
+    // Scan to find earliest grandparent file that contains key. ignore the last
+    if (grandparent_index < grandparents.size()) {
+      if (ucmp->Compare(user_key,
+                        grandparents[grandparent_index]->smallest.user_key()) <
+          0) {
+        return false;
+      }
+      grandparent_index++;
+      if (grandparent_index < grandparents.size() &&
+          ucmp->Compare(user_key,
+                        grandparents[grandparent_index]->smallest.user_key()) ==
+              0) {
+        grandparent_index++;
+      }
+
+      while (grandparent_index < grandparents.size() &&
+             ucmp->Compare(
+                 user_key,
+                 grandparents[grandparent_index]->largest.user_key()) >= 0) {
+        grandparent_index++;
+      }
       return true;
+    } else {
+      return false;
     }
-
-    return false;
   }
 };
 
@@ -466,6 +477,20 @@ void CompactionJob::GenSubcompactionBoundaries() {
   std::vector<Slice> bounds;
   int start_lvl = c->start_level();
   int out_lvl = c->output_level();
+  auto const& gp = c->grandparents();
+  if (!gp.empty()) {
+    double increment = (c->max_subcompactions() - 1.0) / gp.size();
+    double count = 0;
+    for (auto f : gp) {
+      if ((int)(count + increment) != (int)count) {
+        boundaries_.emplace_back(f->smallest.user_key());
+        sizes_.emplace_back(0);
+      }
+      count += increment;
+    }
+    sizes_.emplace_back(0);
+    return;
+  }
 
   // Add the starting and/or ending key of certain input files as a potential
   // boundary
@@ -526,6 +551,8 @@ void CompactionJob::GenSubcompactionBoundaries() {
   // earlier in SetInputVersioCompaction::SetInputVersion and will not change
   // when db_mutex_ is released below
   auto* v = compact_->compaction->input_version();
+  // auto &granp = c->grandparents_;
+
   for (auto it = bounds.begin();;) {
     const Slice a = *it;
     ++it;
@@ -551,12 +578,16 @@ void CompactionJob::GenSubcompactionBoundaries() {
   // Group the ranges into subcompactions
   const double min_file_fill_percent = 4.0 / 5;
   int base_level = v->storage_info()->base_level();
-  uint64_t max_output_files = static_cast<uint64_t>(std::ceil(
-      sum / min_file_fill_percent /
-      MaxFileSizeForLevel(
-          *(c->mutable_cf_options()), out_lvl,
-          c->immutable_options()->compaction_style, base_level,
-          c->immutable_options()->level_compaction_dynamic_level_bytes)));
+  size_t maxFileSize = c->max_output_file_size();
+  if (maxFileSize == -1ull) {
+    maxFileSize = MaxFileSizeForLevel(
+        *(c->mutable_cf_options()), out_lvl,
+        c->immutable_options()->compaction_style, base_level,
+        c->immutable_options()->level_compaction_dynamic_level_bytes);
+  }
+
+  uint64_t max_output_files = static_cast<uint64_t>(
+      std::ceil(sum / min_file_fill_percent / maxFileSize));
   uint64_t subcompactions =
       std::min({static_cast<uint64_t>(ranges.size()),
                 static_cast<uint64_t>(c->max_subcompactions()),
@@ -574,6 +605,7 @@ void CompactionJob::GenSubcompactionBoundaries() {
         // need to put an end boundary
         continue;
       }
+
       if (sum >= mean) {
         boundaries_.emplace_back(ExtractUserKey(ranges[i].range.limit));
         sizes_.emplace_back(sum);
@@ -794,8 +826,6 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
   if (!versions_->io_status().ok()) {
     io_status_ = versions_->io_status();
   }
-
-  VersionStorageInfo::LevelSummaryStorage tmp;
   auto vstorage = cfd->current()->storage_info();
   const auto& stats = compaction_stats_;
 
@@ -834,8 +864,7 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
       "MB in(%.1f, %.1f +%.1f blob) out(%.1f +%.1f blob), "
       "read-write-amplify(%.1f) write-amplify(%.1f) %s, records in: %" PRIu64
       ", records dropped: %" PRIu64 " output_compression: %s\n",
-      column_family_name.c_str(), vstorage->LevelSummary(&tmp),
-      bytes_read_per_sec, bytes_written_per_sec,
+      column_family_name.c_str(), "", bytes_read_per_sec, bytes_written_per_sec,
       compact_->compaction->output_level(),
       stats.num_input_files_in_non_output_levels,
       stats.num_input_files_in_output_level, stats.num_output_files,
@@ -891,13 +920,7 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
     stream << "file_prepare_write_nanos"
            << compaction_job_stats_->file_prepare_write_nanos;
   }
-
-  stream << "lsm_state";
-  stream.StartArray();
-  for (int level = 0; level < vstorage->num_levels(); ++level) {
-    stream << vstorage->NumLevelFiles(level);
-  }
-  stream.EndArray();
+  cfd->compaction_picker()->PrintLsmState(stream, vstorage);
 
   if (!blob_files.empty()) {
     stream << "blob_file_head" << blob_files.begin()->first;
@@ -1209,7 +1232,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     // ShouldStopBefore() maintains state based on keys processed so far. The
     // compaction loop always calls it on the "next" key, thus won't tell it the
     // first key. So we do that here.
-    sub_compact->ShouldStopBefore(c_iter->key(),
+    sub_compact->ShouldStopBefore(c_iter->user_key(),
                                   sub_compact->current_output_file_size);
   }
   const auto& c_iter_stats = c_iter->iter_stats();
@@ -1290,7 +1313,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
                 sub_compact->current_output_file_size)) == kRequired) ||
            (sub_compact->compaction->output_level() != 0 &&
             sub_compact->ShouldStopBefore(
-                c_iter->key(), sub_compact->current_output_file_size))) &&
+                c_iter->user_key(), sub_compact->current_output_file_size))) &&
           sub_compact->builder != nullptr) {
         // (2) this key belongs to the next file. For historical reasons, the
         // iterator status after advancing will be given to
@@ -1694,31 +1717,34 @@ Status CompactionJob::FinishCompactionOutputFile(
     tp = sub_compact->builder->GetTableProperties();
   }
 
-  if (s.ok() && current_entries == 0 && tp.num_range_deletions == 0) {
-    // If there is nothing to output, no necessary to generate a sst file.
-    // This happens when the output level is bottom level, at the same time
-    // the sub_compact output nothing.
-    std::string fname =
-        TableFileName(sub_compact->compaction->immutable_options()->cf_paths,
-                      meta->fd.GetNumber(), meta->fd.GetPathId());
-
-    // TODO(AR) it is not clear if there are any larger implications if
-    // DeleteFile fails here
-    Status ds = env_->DeleteFile(fname);
-    if (!ds.ok()) {
-      ROCKS_LOG_WARN(
-          db_options_.info_log,
-          "[%s] [JOB %d] Unable to remove SST file for table #%" PRIu64
-          " at bottom level%s",
-          cfd->GetName().c_str(), job_id_, output_number,
-          meta->marked_for_compaction ? " (need compaction)" : "");
-    }
-
-    // Also need to remove the file from outputs, or it will be added to the
-    // VersionEdit.
+  if (s.ok()) {
     assert(!sub_compact->outputs.empty());
-    sub_compact->outputs.pop_back();
-    meta = nullptr;
+    if (current_entries == 0 && tp.num_range_deletions == 0) {
+      // If there is nothing to output, no necessary to generate a sst file.
+      // This happens when the output level is bottom level, at the same time
+      // the sub_compact output nothing.
+      std::string fname =
+          TableFileName(sub_compact->compaction->immutable_options()->cf_paths,
+                        meta->fd.GetNumber(), meta->fd.GetPathId());
+
+      // TODO(AR) it is not clear if there are any larger implications if
+      // DeleteFile fails here
+      Status ds = env_->DeleteFile(fname);
+      if (!ds.ok()) {
+        ROCKS_LOG_WARN(
+            db_options_.info_log,
+            "[%s] [JOB %d] Unable to remove SST file for table #%" PRIu64
+            " at bottom level%s",
+            cfd->GetName().c_str(), job_id_, output_number,
+            meta->marked_for_compaction ? " (need compaction)" : "");
+      }
+
+      // Also need to remove the file from outputs, or it will be added to the
+      // VersionEdit.
+      assert(!sub_compact->outputs.empty());
+      sub_compact->outputs.pop_back();
+      meta = nullptr;
+    }
   }
 
   if (s.ok() && (current_entries > 0 || tp.num_range_deletions > 0)) {
@@ -2111,6 +2137,7 @@ void CompactionJob::LogCompaction() {
            << "compaction_started"
            << "compaction_reason"
            << GetCompactionReasonString(compaction->compaction_reason());
+
     for (size_t i = 0; i < compaction->num_input_levels(); ++i) {
       stream << ("files_L" + ToString(compaction->level(i)));
       stream.StartArray();

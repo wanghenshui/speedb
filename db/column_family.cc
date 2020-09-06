@@ -19,9 +19,11 @@
 #include "db/blob/blob_file_cache.h"
 #include "db/compaction/compaction_picker.h"
 #include "db/compaction/compaction_picker_fifo.h"
+#include "db/compaction/compaction_picker_hybrid.h"
 #include "db/compaction/compaction_picker_level.h"
 #include "db/compaction/compaction_picker_universal.h"
 #include "db/db_impl/db_impl.h"
+#include "db/db_impl/external_delay.h"
 #include "db/internal_stats.h"
 #include "db/job_context.h"
 #include "db/range_del_aggregator.h"
@@ -230,6 +232,7 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
     result.min_write_buffer_number_to_merge = 1;
   }
 
+  result.compaction_style = kCompactionStyleHybrid;
   if (result.num_levels < 1) {
     result.num_levels = 1;
   }
@@ -241,6 +244,10 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
   if (result.compaction_style == kCompactionStyleUniversal &&
       db_options.allow_ingest_behind && result.num_levels < 3) {
     result.num_levels = 3;
+  }
+
+  if (result.compaction_style == kCompactionStyleHybrid) {
+    HybridCompactionPicker::SetOptions(result);
   }
 
   if (result.max_write_buffer_number < 2) {
@@ -587,6 +594,9 @@ ColumnFamilyData::ColumnFamilyData(
                      "Compactions can only be done via CompactFiles\n",
                      GetName().c_str());
 #endif  // !ROCKSDB_LITE
+    } else if (ioptions_.compaction_style == kCompactionStyleHybrid) {
+      compaction_picker_.reset(
+          new HybridCompactionPicker(ioptions_, &internal_comparator_));
     } else {
       ROCKS_LOG_ERROR(ioptions_.logger,
                       "Unable to recognize the specified compaction style %d. "
@@ -840,8 +850,9 @@ ColumnFamilyData::GetWriteStallConditionAndCause(
     int num_unflushed_memtables, int num_l0_files,
     uint64_t num_compaction_needed_bytes,
     const MutableCFOptions& mutable_cf_options,
-    const ImmutableCFOptions& immutable_cf_options) {
-  if (num_unflushed_memtables >= mutable_cf_options.max_write_buffer_number) {
+    const ImmutableCFOptions& /* immutable_cf_options */) {
+  if (0 &&
+      num_unflushed_memtables >= mutable_cf_options.max_write_buffer_number) {
     return {WriteStallCondition::kStopped, WriteStallCause::kMemtableLimit};
   } else if (!mutable_cf_options.disable_auto_compactions &&
              num_l0_files >= mutable_cf_options.level0_stop_writes_trigger) {
@@ -852,11 +863,7 @@ ColumnFamilyData::GetWriteStallConditionAndCause(
                  mutable_cf_options.hard_pending_compaction_bytes_limit) {
     return {WriteStallCondition::kStopped,
             WriteStallCause::kPendingCompactionBytes};
-  } else if (mutable_cf_options.max_write_buffer_number > 3 &&
-             num_unflushed_memtables >=
-                 mutable_cf_options.max_write_buffer_number - 1 &&
-             num_unflushed_memtables - 1 >=
-                 immutable_cf_options.min_write_buffer_number_to_merge) {
+  } else if (num_unflushed_memtables >= 2) {
     return {WriteStallCondition::kDelayed, WriteStallCause::kMemtableLimit};
   } else if (!mutable_cf_options.disable_auto_compactions &&
              mutable_cf_options.level0_slowdown_writes_trigger >= 0 &&
@@ -879,6 +886,32 @@ WriteStallCondition ColumnFamilyData::RecalculateWriteStallConditions(
   if (current_ != nullptr) {
     auto* vstorage = current_->storage_info();
     auto write_controller = column_family_set_->write_controller_;
+    size_t memTableRate =
+        imm()->NumNotFlushed() > mutable_cf_options.max_write_buffer_number
+            ? write_controller->max_delayed_write_rate() *
+                  pow(0.5, imm()->NumNotFlushed() -
+                               mutable_cf_options.max_write_buffer_number)
+            : -1ull;
+    size_t L0Rate =
+        vstorage->NumLevelFiles(0) >
+                mutable_cf_options.level0_slowdown_writes_trigger
+            ? write_controller->max_delayed_write_rate() *
+                  pow(0.75,
+                      vstorage->NumLevelFiles(0) -
+                          mutable_cf_options.level0_slowdown_writes_trigger)
+            : -1ull;
+    size_t rate = std::min(L0Rate, memTableRate);
+    if (rate != -1ull) {
+      ExternalDelay::setExternalDelay(
+          rate, 1 + 1.0 / mutable_cf_options.write_buffer_size);
+      ROCKS_LOG_WARN(
+          ioptions_.info_log,
+          "[%s] Stalling writes , numL0Files %lu, numMemFiles %lu, rate %lu",
+          name_.c_str(), (size_t)vstorage->NumLevelFiles(0),
+          (size_t)imm()->NumNotFlushed(), rate);
+    } else {
+      ExternalDelay::reduceExternalDelay();
+    }
     uint64_t compaction_needed_bytes =
         vstorage->estimated_compaction_needed_bytes();
 
@@ -929,6 +962,7 @@ WriteStallCondition ColumnFamilyData::RecalculateWriteStallConditions(
           SetupDelay(write_controller, compaction_needed_bytes,
                      prev_compaction_needed_bytes_, was_stopped,
                      mutable_cf_options.disable_auto_compactions);
+
       internal_stats_->AddCFStats(InternalStats::MEMTABLE_LIMIT_SLOWDOWNS, 1);
       ROCKS_LOG_WARN(
           ioptions_.logger,
@@ -1081,6 +1115,8 @@ Compaction* ColumnFamilyData::PickCompaction(
   SequenceNumber earliest_mem_seqno =
       std::min(mem_->GetEarliestSequenceNumber(),
                imm_.current()->GetEarliestSequenceNumber(false));
+  compaction_picker_->EnableLowPriorityCompaction(imm()->NumNotFlushed() < 2);
+
   auto* result = compaction_picker_->PickCompaction(
       GetName(), mutable_options, mutable_db_options, current_->storage_info(),
       log_buffer, earliest_mem_seqno);
