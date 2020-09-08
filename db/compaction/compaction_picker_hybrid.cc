@@ -110,10 +110,12 @@ Compaction* HybridCompactionPicker::PickCompaction(
     LogBuffer* log_buffer, SequenceNumber) {
   // one thread running
   static port::Mutex mutex;
+
   MutexLock mutexLock(&mutex);
 
   if (curNumOfHyperLevels_ == 0) {
     InitCf(mutable_cf_options, vstorage);
+
     size_t curDbSize = sizeToCompact_[curNumOfHyperLevels_] * spaceAmpFactor_;
     ROCKS_LOG_BUFFER(log_buffer, "[%s] Hybrid: init %u %u %lu \n",
                      cf_name.c_str(), curNumOfHyperLevels_, maxNumHyperLevels_,
@@ -131,6 +133,7 @@ Compaction* HybridCompactionPicker::PickCompaction(
   for (uint hyperLevelNum = 1; hyperLevelNum <= curNumOfHyperLevels_;
        hyperLevelNum++) {
     bool rearangeNeeded = LevelNeedsRearange(hyperLevelNum, vstorage, -1u);
+
     if (rearangeNeeded && MayRunRearange(hyperLevelNum, runningDesc)) {
       Compaction* ret = RearangeLevel(
           hyperLevelNum, cf_name, mutable_cf_options, mutable_db_options,
@@ -153,6 +156,7 @@ Compaction* HybridCompactionPicker::PickCompaction(
   }
 
   // check db size to see if we need to move to upper level
+
   if (MayRunCompaction(curNumOfHyperLevels_, runningDesc) &&
       !runningDesc.rearangeRunning) {
     Compaction* ret = CheckDbSize(cf_name, mutable_cf_options,
@@ -315,6 +319,7 @@ Compaction* HybridCompactionPicker::RearangeLevel(
       }
     }
   }
+
   return 0;
 }
 
@@ -530,7 +535,7 @@ Compaction* HybridCompactionPicker::PickLevel0Compaction(
           smallest = (*iter)->smallest.user_key();
         }
       } else {
-        largest = (*iter)->largest.user_key();
+        largest = (*iter)->smallest.user_key();
       }
     }
     if (intersecting) {
@@ -563,11 +568,7 @@ Compaction* HybridCompactionPicker::PickLevelCompaction(
 
   uint outputLevel = lastLevelInHyper + 1;
   uint nSubCompactions = 1;
-  size_t dbSize = vstorage->NumLevelBytes(LastLevel());
-  size_t compactionSize =
-      std::max(dbSize / 32, (size_t)mutable_cf_options.write_buffer_size);
-
-  std::vector<CompactionInputFiles> inputs;
+  size_t compactionOutputFileSize = LLONG_MAX;
   std::vector<FileMetaData*> grandparents;
   if (hyperLevelNum != curNumOfHyperLevels_) {
     // find output level
@@ -592,14 +593,10 @@ Compaction* HybridCompactionPicker::PickLevelCompaction(
     if (hyperLevelNum >= curNumOfHyperLevels_ - 2) {
       grandparents = vstorage->LevelFiles(LastLevel());
     }
-    if (!BuildLevelCompaction(inputs, compactionSize, hyperLevelNum,
-                              outputLevel, vstorage, cfName, log_buffer)) {
-      assert(0);
-      return nullptr;
-    }
   } else {
     size_t lastHyperLevelSize =
         CalculateHyperlevelSize(hyperLevelNum, vstorage);
+    size_t dbSize = vstorage->NumLevelBytes(LastLevel());
     lastHyperLevelSize *= spaceAmpFactor_;
     if (dbSize && lastHyperLevelSize > dbSize) {
       nSubCompactions += lastHyperLevelSize * 10 / dbSize - 10;
@@ -607,20 +604,28 @@ Compaction* HybridCompactionPicker::PickLevelCompaction(
         nSubCompactions = 4;
       }
     }
-    if (!BuildLastLevelCompaction(inputs, compactionSize, nSubCompactions,
-                                  grandparents, vstorage, cfName, log_buffer)) {
-      assert(0);
-      return nullptr;
+    if (vstorage->LevelFiles(LastLevel()).size() < 32) {
+      compactionOutputFileSize =
+          std::max(dbSize / 32, (size_t)mutable_cf_options.write_buffer_size);
     }
+  }
+  std::vector<CompactionInputFiles> inputs;
+  if (!SelectNBuffers(inputs, 4, outputLevel, hyperLevelNum, vstorage, cfName,
+                      log_buffer)) {
+    assert(0);
+    return nullptr;
   }
   // trivial compaction
   if (inputs.size() == 1) {
     grandparents.clear();
-    compactionSize = LLONG_MAX;
+    compactionOutputFileSize = LLONG_MAX;
+  } else if (hyperLevelNum == curNumOfHyperLevels_) {
+    grandparents = inputs.back().files;
   }
+
   return new Compaction(
       vstorage, ioptions_, mutable_cf_options, mutable_db_options,
-      std::move(inputs), outputLevel, compactionSize, LLONG_MAX,
+      std::move(inputs), outputLevel, compactionOutputFileSize, LLONG_MAX,
       /* max_grandparent_overlap_bytes */ 0,
       GetCompressionType(ioptions_, vstorage, mutable_cf_options, outputLevel,
                          1),
@@ -770,16 +775,84 @@ std::vector<FileMetaData*>::const_iterator HybridCompactionPicker::locateFile(
   return iter;
 }
 
-// get an open range (lowerbound upperbound)
-//  all the keys in the selected files should be in the middle
-// use smallest key to locate the first file.
+void HybridCompactionPicker::selectNBufferFromFirstLevel(
+    const std::vector<FileMetaData*>& levelFiles,
+    const std::vector<FileMetaData*>& targetLevelFiles, uint maxNBuffers,
+    std::vector<FileMetaData*>& outFiles, UserKey& smallestKey,
+    UserKey& largestKey, UserKey& lowerBound, UserKey& upperBound) {
+  if (levelFiles.empty()) {
+    return;
+  }
+
+  auto levelIter = levelFiles.begin();
+  smallestKey = (*levelIter)->smallest.user_key();
+  largestKey = (*levelIter)->largest.user_key();
+  auto targetBegin =
+      locateFile(targetLevelFiles, smallestKey, targetLevelFiles.begin());
+  if (targetBegin == targetLevelFiles.end() ||
+      ucmp_->Compare(largestKey, (*targetBegin)->smallest.user_key()) < 0) {
+    // no intersection with upper level so insist on zero intersection to enable
+    // minimum write amp (and allow parallelism)
+    if (targetBegin != targetLevelFiles.end()) {
+      upperBound = (*targetBegin)->smallest.user_key();
+      if (targetBegin != targetLevelFiles.begin()) {
+        auto prev = targetBegin;
+        prev--;
+        lowerBound = (*prev)->largest.user_key();
+      }
+    } else if (!targetLevelFiles.empty()) {
+      auto prev = targetLevelFiles.back();
+      lowerBound = prev->largest.user_key();
+    }
+  } else {
+    // intersection exists so expand the selection to N buffers
+    if (targetBegin != targetLevelFiles.begin()) {
+      auto prev = targetBegin;
+      prev--;
+      lowerBound = (*prev)->largest.user_key();
+    }
+    auto targetEnd = locateFile(targetLevelFiles, largestKey, targetBegin);
+    uint count = 0;
+    while (targetEnd != targetLevelFiles.end() && count < maxNBuffers) {
+      targetEnd++;
+      count++;
+    }
+    if (targetEnd != targetLevelFiles.end()) {
+      upperBound = (*targetEnd)->largest.user_key();
+    }
+  }
+
+  // now we will take up to N files from the current level;
+  for (uint i = 0; i < maxNBuffers; i++) {
+    outFiles.push_back(*levelIter);
+    levelIter++;
+    if (levelIter == levelFiles.end() ||
+        (upperBound.size() > 0 &&
+         ucmp_->Compare(upperBound, (*levelIter)->largest.user_key()) < 0)) {
+      break;
+    }
+  }
+  largestKey = outFiles.back()->largest.user_key();
+
+  if (levelIter != levelFiles.end() &&
+      (upperBound.size() == 0 ||
+       ucmp_->Compare(upperBound, (*levelIter)->smallest.user_key()) > 0)) {
+    upperBound = (*levelIter)->smallest.user_key();
+  }
+}
+
+// get two ranges
+// (smallExcluded, largeExcluded) all the keys in the selected files should be
+// in the middle [smallestKey, largestKey] the slected file should contains keys
+// in the range
 void HybridCompactionPicker::expandSelection(
     const std::vector<FileMetaData*>& levelFiles,
     std::vector<FileMetaData*>& outFiles, UserKey& lowerBound,
-    UserKey& upperBound, const UserKey& smallest, const std::string& cf_name,
-    LogBuffer* log_buffer) {
+    UserKey& upperBound, const UserKey& smallest, const UserKey& largest,
+    const std::string& cf_name, LogBuffer* log_buffer) {
   // find all the files that holds data between lowerBound
   // and upperBound (openRange)
+
   if (levelFiles.empty()) {
     return;
   }
@@ -809,20 +882,18 @@ void HybridCompactionPicker::expandSelection(
         lowerBound = (*prevf)->largest.user_key();
       }
     }
-
     // we are at the spot take all the files in the range smallest largest that
     // have largestKey <= upperbound
-    int i = 0;
     for (; f != levelFiles.end(); f++) {
-      if (upperBound.size() == 0) {
-        if (i++ > 4) {
-          break;
-        }
-      } else if (ucmp_->Compare((*f)->largest.user_key(), upperBound) >= 0) {
+      if ((largest.size() != 0 &&
+           ucmp_->Compare((*f)->smallest.user_key(), largest) > 0) ||
+          (upperBound.size() != 0 &&
+           ucmp_->Compare((*f)->largest.user_key(), upperBound) >= 0)) {
         break;
+      } else {
+        // file is contained
+        outFiles.push_back(*f);
       }
-      // file is contained
-      outFiles.push_back(*f);
     }
 
     // setup the large borders
@@ -831,227 +902,139 @@ void HybridCompactionPicker::expandSelection(
          ucmp_->Compare((*f)->smallest.user_key(), upperBound) < 0)) {
       upperBound = (*f)->smallest.user_key();
     }
+  }
 
-    if (outFiles.size() == 0) {
-      ROCKS_LOG_BUFFER(log_buffer,
-                       "[%s] Hybrid: expand selection selected no files in "
-                       "range (%s [%s ] %s) ! \n",
-                       cf_name.c_str(), PrintableString(lowerBound),
-                       PrintableString(smallest), PrintableString(upperBound));
-      if (0) {
-        for (auto ff : levelFiles) {
-          ROCKS_LOG_BUFFER(log_buffer, "%s %s",
-                           PrintableString(ff->smallest.user_key()),
-                           PrintableString(ff->largest.user_key()));
-        }
+  if (outFiles.size() == 0) {
+    ROCKS_LOG_BUFFER(
+        log_buffer,
+        "[%s] Hybrid: expand selection selected no files %s %s %s %s! \n",
+        cf_name.c_str(), PrintableString(smallest), PrintableString(largest),
+        PrintableString(lowerBound), PrintableString(upperBound));
+    if (0) {
+      for (auto ff : levelFiles) {
+        ROCKS_LOG_BUFFER(log_buffer, "%s %s",
+                         PrintableString(ff->smallest.user_key()),
+                         PrintableString(ff->largest.user_key()));
       }
     }
   }
 }
 
-void HybridCompactionPicker::BuildInput(
-    std::vector<CompactionInputFiles>& inputs, uint hyperLevelNum,
-    const VersionStorageInfo* vstorage) {
-  uint lastLevel = LastLevelInHyper(hyperLevelNum);
+// currently only on the last level
+bool HybridCompactionPicker::SelectNBuffers(
+    std::vector<CompactionInputFiles>& inputs, uint nBuffers, uint outputLevel,
+    uint hyperLevelNum, VersionStorageInfo* vstorage,
+    const std::string& cf_name, LogBuffer* log_buffer) {
+  // go down start with last level
+  uint startLevel = LastLevelInHyper(hyperLevelNum);
   uint firstLevel = FirstLevelInHyper(hyperLevelNum) + 3;
-  uint startLevel = firstLevel;
-
-  while (startLevel < lastLevel && vstorage->LevelFiles(startLevel).empty()) {
-    startLevel++;
+  while (startLevel > firstLevel && vstorage->LevelFiles(startLevel).empty()) {
+    startLevel--;
   }
-  inputs.resize(lastLevel - startLevel + 2);
+  assert(startLevel >= firstLevel);
   uint count = 0;
-  for (uint s = startLevel; s <= lastLevel; s++) {
+  for (uint s = startLevel; s >= firstLevel; s--) {
     auto& levelFiles = vstorage->LevelFiles(s);
     if (!levelFiles.empty()) {
-      inputs[count].level = s;
       count++;
     }
   }
-  inputs.resize(count);
-}
 
-bool HybridCompactionPicker::BuildLevelCompaction(
-    std::vector<CompactionInputFiles>& inputs, size_t compactionSize,
-    uint hyperLevelNum, uint outputLevel, const VersionStorageInfo* vstorage,
-    const std::string& cf_name, LogBuffer* log_buffer) {
-  BuildInput(inputs, hyperLevelNum, vstorage);
-  compactionSize /= inputs.size();
-  auto& fInput = inputs.back();
-  uint startLevel = fInput.level;
-  auto const& fl = vstorage->LevelFiles(startLevel);
-  auto flIter = fl.begin();
-  auto smallestKey = (*flIter)->smallest.user_key();
-  auto largestKey = (*flIter)->largest.user_key();
+  UserKey lowerBound, upperBound;
+  UserKey smallestKey, largestKey;
 
-  // set boundaries if applicabel
-  auto const& targetLevelFiles = vstorage->LevelFiles(outputLevel);
-  UserKey upperBound, lowerBound;
-  if (!targetLevelFiles.empty()) {
-    auto targetBegin =
-        locateFile(targetLevelFiles, smallestKey, targetLevelFiles.begin());
-    if (targetBegin != targetLevelFiles.end()) {
-      assert(ucmp_->Compare((*targetBegin)->smallest.user_key(), largestKey) >
-             0);
-      upperBound = (*targetBegin)->smallest.user_key();
-      if (targetBegin != targetLevelFiles.begin()) {
-        auto prev = targetBegin - 1;
-        lowerBound = (*prev)->largest.user_key();
-      }
-    } else {
-      lowerBound = targetLevelFiles.back()->largest.user_key();
-    }
-  }
+  // select buffers from start level
+  inputs.resize(count + 1);
+  count--;
 
-  do {
-    if (!upperBound.empty() &&
-        ucmp_->Compare(upperBound, (*flIter)->largest.user_key()) <= 0) {
-      break;
-    }
-    fInput.files.push_back(*flIter);
-    if ((*flIter)->fd.GetFileSize() >= compactionSize) {
-      break;
-    }
-    compactionSize -= (*flIter)->fd.GetFileSize();
-    flIter++;
-  } while (flIter != fl.end());
+  inputs[count].level = startLevel;
+  selectNBufferFromFirstLevel(vstorage->LevelFiles(startLevel),
+                              vstorage->LevelFiles(outputLevel), nBuffers,
+                              inputs[count].files, smallestKey, largestKey,
+                              lowerBound, upperBound);
   if (lowerBound.empty()) {
-    lowerBound = prevSubCompactionBoundary_[hyperLevelNum];
-    if (!lowerBound.empty() && ucmp_->Compare(lowerBound, smallestKey) > 0) {
-      lowerBound.clear();
+    auto prevPlace = prevSubCompactionBoundary_[hyperLevelNum];
+    if (!prevPlace.empty() && ucmp_->Compare(prevPlace, smallestKey) < 0) {
     }
   }
 
-  if (flIter != fl.end()) {
-    if (upperBound.empty() ||
-        ucmp_->Compare(upperBound, (*flIter)->smallest.user_key()) > 0) {
-      upperBound = (*flIter)->smallest.user_key();
+  ROCKS_LOG_BUFFER(log_buffer,
+                   "[%s] Hybrid: partial compaction started from %lu to %lu "
+                   "keys are %s %s %s %s \n",
+                   cf_name.c_str(), startLevel, outputLevel,
+                   PrintableString(smallestKey), PrintableString(largestKey),
+                   PrintableString(lowerBound), PrintableString(upperBound));
+
+  for (uint level = startLevel - 1; level >= firstLevel; level--) {
+    if (!vstorage->LevelFiles(level).empty()) {
+      count--;
+      inputs[count].level = level;
+      expandSelection(vstorage->LevelFiles(level), inputs[count].files,
+                      lowerBound, upperBound, smallestKey, largestKey, cf_name,
+                      log_buffer);
+      auto& fl = inputs[count].files;
+      if (!fl.empty()) {
+        if (ucmp_->Compare((*fl.begin())->smallest.user_key(), smallestKey) <
+            0) {
+          smallestKey = (*fl.begin())->smallest.user_key();
+        }
+        if (ucmp_->Compare((*fl.rbegin())->largest.user_key(), largestKey) >
+            0) {
+          largestKey = (*fl.rbegin())->largest.user_key();
+        }
+      }
+      ROCKS_LOG_BUFFER(log_buffer,
+                       "[%s] Hybrid: partial compaction select %lu files from "
+                       "level %u %s %s %s %s\n",
+                       cf_name.c_str(), inputs[count].files.size(), level,
+                       PrintableString(smallestKey),
+                       PrintableString(largestKey), PrintableString(lowerBound),
+                       PrintableString(upperBound));
+    }
+  }
+  assert(count == 0);
+  count = inputs.size() - 1;
+  inputs[count].level = outputLevel;
+  auto& fl = vstorage->LevelFiles(outputLevel);
+  uint startPlace = 0;
+  for (; startPlace < fl.size(); startPlace++) {
+    if (ucmp_->Compare(fl[startPlace]->largest.user_key(), smallestKey) >= 0) {
+      break;
+    }
+  }
+  for (; startPlace < fl.size(); startPlace++) {
+    if (ucmp_->Compare(fl[startPlace]->smallest.user_key(), largestKey) > 0) {
+      break;
+    } else {
+      assert(outputLevel == LastLevel());
+      inputs[count].files.push_back(fl[startPlace]);
+    }
+  }
+  // trivial move ?
+  // one level with data at count -1
+
+  if (inputs[count].empty()) {
+    bool trivial_move = true;
+    for (uint inp = 0; inp + 2 < count; inp++) {
+      if (!inputs[inp].empty()) {
+        trivial_move = false;
+        break;
+      }
+    }
+    if (trivial_move) {
+      inputs[0] = inputs[count - 1];
+      inputs.resize(1);
     }
   }
   prevSubCompactionBoundary_[hyperLevelNum] = upperBound;
 
+#if 0  
   ROCKS_LOG_BUFFER(log_buffer,
-                   "[%s] Hybrid: partial compaction on hyperLevel %u selected "
-                   "%lu files out of %lu, range is (%s [%s %s] %s)",
-                   cf_name.c_str(), hyperLevelNum, fInput.files.size(),
-                   fl.size(), PrintableString(lowerBound),
-                   PrintableString(smallestKey), PrintableString(largestKey),
-                   PrintableString(upperBound));
-
-  // now expand on all the other levels
-  bool foundNonEmpty = false;
-  for (int i = inputs.size() - 2; i >= 0; i--) {
-    auto& inputEntry = inputs[i];
-    expandSelection(vstorage->LevelFiles(inputEntry.level), inputEntry.files,
-                    lowerBound, upperBound, smallestKey, cf_name, log_buffer);
-    ROCKS_LOG_BUFFER(log_buffer,
-                     "[%s] Hybrid: expand compaction on hyperlevel %u level %u "
-                     "selected %lu files range is (%s [%s %s] %s)",
-                     cf_name.c_str(), hyperLevelNum, inputEntry.level,
-                     inputEntry.files.size(), PrintableString(lowerBound),
-                     PrintableString(smallestKey), PrintableString(largestKey),
-                     PrintableString(upperBound));
-    foundNonEmpty |= inputEntry.files.size() > 0;
-  }
-  if (!foundNonEmpty && inputs.size() > 1) {
-    // trivial move!!
-    inputs[0] = inputs.back();
-    inputs.resize(1);
-  }
-  return true;
-}
-
-bool HybridCompactionPicker::BuildLastLevelCompaction(
-    std::vector<CompactionInputFiles>& inputs, size_t subCompactionSize,
-    uint nSubCompactions,
-    std::vector<FileMetaData*>& gp,  // out size is up to nsubcompactions
-    const VersionStorageInfo* vstorage, const std::string& cf_name,
-    LogBuffer* log_buffer) {
-  uint startLevel = LastLevelInHyper(curNumOfHyperLevels_);
-  auto const& fl = vstorage->LevelFiles(startLevel);
-  auto smallestKey = fl.front()->smallest.user_key();
-  auto largestKey = fl.front()->largest.user_key();
-
-  auto const& targetLevelFiles = vstorage->LevelFiles(LastLevel());
-
-  auto targetBegin =
-      locateFile(targetLevelFiles, smallestKey, targetLevelFiles.begin());
-  if (targetBegin == targetLevelFiles.end() ||
-      ucmp_->Compare((*targetBegin)->smallest.user_key(), largestKey) > 0) {
-    return BuildLevelCompaction(inputs, subCompactionSize * nSubCompactions,
-                                curNumOfHyperLevels_, LastLevel(), vstorage,
-                                cf_name, log_buffer);
-  }  // else
-
-  UserKey lowerBound;
-  if (targetBegin != targetLevelFiles.begin()) {
-    auto prev = targetBegin - 1;
-    lowerBound = (*prev)->largest.user_key();
-  } else {
-    lowerBound = prevSubCompactionBoundary_[curNumOfHyperLevels_];
-    if (!lowerBound.empty() && ucmp_->Compare(lowerBound, smallestKey) > 0) {
-      lowerBound.clear();
-    }
-  }
-  BuildInput(inputs, curNumOfHyperLevels_, vstorage);
-
-  inputs.resize(inputs.size() + 1);
-  auto& tf = inputs.back();
-  tf.level = LastLevel();
-
-  for (uint i = 0; i < nSubCompactions; i++) {
-    size_t targetSize = subCompactionSize;
-    while (targetBegin != targetLevelFiles.end()) {
-      auto tmp = *targetBegin;
-      targetBegin++;
-      tf.files.push_back(tmp);
-      if (tmp->fd.GetFileSize() >= targetSize) {
-        gp.push_back(tmp);
-        break;
-      }
-      targetSize -= tmp->fd.GetFileSize();
-    }
-  }
-
-  while (targetBegin != targetLevelFiles.end() &&
-         ucmp_->Compare((*targetBegin)->smallest.user_key(), largestKey) < 0) {
-    tf.files.push_back(*targetBegin);
-    gp.push_back(*targetBegin);
-    targetBegin++;
-  }
-
-  UserKey upperBound;
-  if (targetBegin != targetLevelFiles.end()) {
-    prevSubCompactionBoundary_[curNumOfHyperLevels_] = upperBound =
-        (*targetBegin)->smallest.user_key();
-  } else {
-    prevSubCompactionBoundary_[curNumOfHyperLevels_].clear();
-  }
-
-  ROCKS_LOG_BUFFER(log_buffer,
-                   "[%s] Hybrid: last level partial compaction hyperLevel %u "
-                   "selected %lu files out of %lu, range is (%s [%s %s] %s)",
-                   cf_name.c_str(), curNumOfHyperLevels_, tf.files.size(),
-                   targetLevelFiles.size(), PrintableString(lowerBound),
-                   PrintableString(smallestKey), PrintableString(largestKey),
-                   PrintableString(upperBound));
-  // now we will expand the selction based on lowerbound , smallest and
-  // upperbound
-  bool foundNonEmpty = false;
-  for (int i = inputs.size() - 2; i >= 0; i--) {
-    auto& inputEntry = inputs[i];
-    expandSelection(vstorage->LevelFiles(inputEntry.level), inputEntry.files,
-                    lowerBound, upperBound, smallestKey, cf_name, log_buffer);
-    ROCKS_LOG_BUFFER(log_buffer,
-                     "[%s] Hybrid: expand compaction on hyperlevel %u level %u "
-                     "selected %lu files range is (%s [%s %s] %s)",
-                     cf_name.c_str(), curNumOfHyperLevels_, inputEntry.level,
-                     inputEntry.files.size(), PrintableString(lowerBound),
-                     PrintableString(smallestKey), PrintableString(largestKey),
-                     PrintableString(upperBound));
-    foundNonEmpty |= inputEntry.files.size() > 0;
-  }
-  assert(foundNonEmpty);
+		   "[%s] Hybrid: partial compaction select %lu files from lastlevel %u\n"
+		   , cf_name.c_str(),
+		     inputs[count].files.size(),
+		     outputLevel);
+#endif
   return true;
 }
 

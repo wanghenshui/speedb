@@ -118,7 +118,6 @@ class HybridCompactionPicker : public CompactionPicker {
     } else if (space_amp < 110) {
       space_amp = 110;
     }
-    options.OptimizeForPointLookup(0);
   }
 
  private:
@@ -225,27 +224,27 @@ class HybridCompactionPicker : public CompactionPicker {
   bool NeedToRunLevelCompaction(uint hyperLevelNum,
                                 const VersionStorageInfo* vstorage) const;
 
+  bool SelectNBuffers(std::vector<CompactionInputFiles>& inputs, uint nBuffers,
+                      uint outputLevel, uint firstLevel,
+                      VersionStorageInfo* vstorage, const std::string& cf_name,
+                      LogBuffer* log_buffer);
+
   void expandSelection(const std::vector<FileMetaData*>& levelFiles,
                        std::vector<FileMetaData*>& outFiles,
                        UserKey& smallestExcludedKey,
                        UserKey& largestExcludedKey, const UserKey& smallest,
-                       const std::string& cf_name, LogBuffer* log_buffer);
+                       const UserKey& largest, const std::string& cf_name,
+                       LogBuffer* log_buffer);
 
-  bool BuildLevelCompaction(std::vector<CompactionInputFiles>& inputs,
-                            size_t compactionSize, uint hyperLevelNum,
-                            uint outputLevel,
-                            const VersionStorageInfo* vstorage,
-                            const std::string& cf_name, LogBuffer* log_buffer);
+  void selectNBufferFromFirstLevel(
+      const std::vector<FileMetaData*>& levelFiles,
+      const std::vector<FileMetaData*>& targetLevelFiles, uint maxNBuffers,
+      std::vector<FileMetaData*>& outFiles, UserKey& smallestKey,
+      UserKey& largestKey, UserKey& smallestExcludedKey,
+      UserKey& largestExcludedKey);
 
-  bool BuildLastLevelCompaction(
-      std::vector<CompactionInputFiles>& inputs, size_t subCompactionSize,
-      uint nSubCompactions,
-      std::vector<FileMetaData*>& gp,  // out size is up to nsubcompactions
-      const VersionStorageInfo* vstorage, const std::string& cf_name,
-      LogBuffer* log_buffer);
-
-  void BuildInput(std::vector<CompactionInputFiles>& inputs, uint hyperLevelNum,
-                  const VersionStorageInfo* vstorage);
+  std::vector<FileMetaData*>::const_iterator locateFileLarger(
+      const std::vector<FileMetaData*>& filesList, const UserKey& key);
 
   std::vector<FileMetaData*>::const_iterator locateFile(
       const std::vector<FileMetaData*>& filesList, const UserKey& key,

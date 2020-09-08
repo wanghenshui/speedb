@@ -1452,8 +1452,10 @@ void DBImpl::NotifyOnCompactionCompleted(
   }
   mutex_.Lock();
   current->Unref();
-  // no need to signal bg_cv_ as it will be signaled at the end of the
-  // flush process.
+  // due to trivial compaction we may need to schedule some compaction here
+  SchedulePendingCompaction(cfd);
+  MaybeScheduleFlushOrCompaction();
+
 #else
   (void)cfd;
   (void)c;
@@ -1471,12 +1473,10 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
     return Status::InvalidArgument("Target level exceeds number of levels");
   }
 
-  InstrumentedMutexLock guard_lock(&mutex_);
-  return ReFitLevelNoLock(cfd, level, target_level);
-}
+  SuperVersionContext sv_context(/* create_superversion */ true);
 
-Status DBImpl::ReFitLevelNoLock(ColumnFamilyData* cfd, int level,
-                                int target_level) {
+  InstrumentedMutexLock guard_lock(&mutex_);
+
   // only allow one thread refitting
   if (refitting_level_) {
     ROCKS_LOG_INFO(immutable_db_options_.info_log,
@@ -1540,10 +1540,7 @@ Status DBImpl::ReFitLevelNoLock(ColumnFamilyData* cfd, int level,
 
     Status status = versions_->LogAndApply(cfd, mutable_cf_options, &edit,
                                            &mutex_, directories_.GetDbDir());
-
-    SuperVersionContext sv_context(/* create_superversion */ true);
     InstallSuperVersionAndScheduleWork(cfd, &sv_context, mutable_cf_options);
-    sv_context.Clean();
 
     ROCKS_LOG_DEBUG(immutable_db_options_.info_log, "[%s] LogAndApply: %s\n",
                     cfd->GetName().c_str(), status.ToString().data());
@@ -1559,6 +1556,7 @@ Status DBImpl::ReFitLevelNoLock(ColumnFamilyData* cfd, int level,
     return status;
   }
 
+  sv_context.Clean();
   refitting_level_ = false;
   return Status::OK();
 }
@@ -3203,10 +3201,6 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
 
     NotifyOnCompactionCompleted(c->column_family_data(), c.get(), status,
                                 compaction_job_stats, job_context->job_id);
-    // call install to schedule new compaction...
-    InstallSuperVersionAndScheduleWork(c->column_family_data(),
-                                       &job_context->superversion_contexts[0],
-                                       *c->mutable_cf_options());
   }
 
   if (status.ok() || status.IsCompactionTooLarge() ||
