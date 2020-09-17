@@ -749,8 +749,15 @@ void DBImpl::NotifyOnFlushBegin(ColumnFamilyData* cfd, FileMetaData* file_meta,
     }
   }
   mutex_.Lock();
-// no need to signal bg_cv_ as it will be signaled at the end of the
-// flush process.
+
+  // old message
+  // no need to signal bg_cv_ as it will be signaled at the end of the
+  // flush process.
+
+  // due to trivial compaction we may need to schedule some here
+  SchedulePendingCompaction(cfd);
+  MaybeScheduleFlushOrCompaction();
+
 #else
   (void)cfd;
   (void)file_meta;
