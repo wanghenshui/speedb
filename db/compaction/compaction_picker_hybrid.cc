@@ -558,6 +558,20 @@ Compaction* HybridCompactionPicker::PickLevel0Compaction(
       false /* deletion_compaction */, CompactionReason::kLevelL0FilesNum);
 }
 
+static void buildGrandparents(std::vector<FileMetaData*>& grandparents,
+                              const std::vector<FileMetaData*>& lastLevlfiles,
+                              size_t desiredSize) {
+  size_t accSize = 0;
+  auto minSize = desiredSize * 3 / 5;
+  for (auto f : lastLevlfiles) {
+    accSize += f->fd.file_size;
+    if (accSize > minSize) {
+      grandparents.push_back(f);
+      accSize = 0;
+    }
+  }
+}
+
 Compaction* HybridCompactionPicker::PickLevelCompaction(
     LogBuffer* log_buffer, uint hyperLevelNum, const std::string& cfName,
     const MutableCFOptions& mutable_cf_options,
@@ -604,14 +618,12 @@ Compaction* HybridCompactionPicker::PickLevelCompaction(
         nSubCompactions = 4;
       }
     }
-    if (vstorage->LevelFiles(LastLevel()).size() < 32) {
-      compactionOutputFileSize =
-          std::max(dbSize / 32, (size_t)mutable_cf_options.write_buffer_size);
-    }
+    compactionOutputFileSize =
+        std::max(dbSize / 32, (size_t)mutable_cf_options.write_buffer_size);
   }
   std::vector<CompactionInputFiles> inputs;
-  if (!SelectNBuffers(inputs, 4, outputLevel, hyperLevelNum, vstorage, cfName,
-                      log_buffer)) {
+  if (!SelectNBuffers(inputs, nSubCompactions, outputLevel, hyperLevelNum,
+                      vstorage, cfName, log_buffer)) {
     assert(0);
     return nullptr;
   }
@@ -620,7 +632,8 @@ Compaction* HybridCompactionPicker::PickLevelCompaction(
     grandparents.clear();
     compactionOutputFileSize = LLONG_MAX;
   } else if (hyperLevelNum == curNumOfHyperLevels_) {
-    grandparents = inputs.back().files;
+    buildGrandparents(grandparents, inputs.back().files,
+                      compactionOutputFileSize);
   }
 
   return new Compaction(

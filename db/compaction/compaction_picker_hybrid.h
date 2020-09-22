@@ -225,7 +225,7 @@ class HybridCompactionPicker : public CompactionPicker {
                                 const VersionStorageInfo* vstorage) const;
 
   bool SelectNBuffers(std::vector<CompactionInputFiles>& inputs, uint nBuffers,
-                      uint outputLevel, uint firstLevel,
+                      uint outputLevel, uint hyperLevelNum,
                       VersionStorageInfo* vstorage, const std::string& cf_name,
                       LogBuffer* log_buffer);
 
