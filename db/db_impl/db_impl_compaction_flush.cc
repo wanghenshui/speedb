@@ -754,10 +754,6 @@ void DBImpl::NotifyOnFlushBegin(ColumnFamilyData* cfd, FileMetaData* file_meta,
   // no need to signal bg_cv_ as it will be signaled at the end of the
   // flush process.
 
-  // due to trivial compaction we may need to schedule some here
-  SchedulePendingCompaction(cfd);
-  MaybeScheduleFlushOrCompaction();
-
 #else
   (void)cfd;
   (void)file_meta;
@@ -799,6 +795,7 @@ void DBImpl::NotifyOnFlushCompleted(
   mutex_.Lock();
   // no need to signal bg_cv_ as it will be signaled at the end of the
   // flush process.
+
 #else
   (void)cfd;
   (void)mutable_cf_options;
@@ -1459,9 +1456,6 @@ void DBImpl::NotifyOnCompactionCompleted(
   }
   mutex_.Lock();
   current->Unref();
-  // due to trivial compaction we may need to schedule some compaction here
-  SchedulePendingCompaction(cfd);
-  MaybeScheduleFlushOrCompaction();
 
 #else
   (void)cfd;
@@ -3205,9 +3199,14 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       sfm->OnCompactionCompletion(c.get());
     }
 #endif  // ROCKSDB_LITE
-
-    NotifyOnCompactionCompleted(c->column_family_data(), c.get(), status,
-                                compaction_job_stats, job_context->job_id);
+    {
+      auto cfd = c->column_family_data();
+      NotifyOnCompactionCompleted(cfd, c.get(), status, compaction_job_stats,
+                                  job_context->job_id);
+      // due to trivial compaction we may need to schedule some compaction here
+      SchedulePendingCompaction(cfd);
+      MaybeScheduleFlushOrCompaction();
+    }
   }
 
   if (status.ok() || status.IsCompactionTooLarge() ||

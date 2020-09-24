@@ -633,7 +633,7 @@ Compaction* HybridCompactionPicker::PickLevelCompaction(
     compactionOutputFileSize = LLONG_MAX;
   } else if (hyperLevelNum == curNumOfHyperLevels_) {
     buildGrandparents(grandparents, inputs.back().files,
-                      compactionOutputFileSize);
+                      0 * compactionOutputFileSize);
   }
 
   return new Compaction(
