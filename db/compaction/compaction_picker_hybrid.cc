@@ -115,7 +115,6 @@ Compaction* HybridCompactionPicker::PickCompaction(
 
   if (curNumOfHyperLevels_ == 0) {
     InitCf(mutable_cf_options, vstorage);
-
     size_t curDbSize = sizeToCompact_[curNumOfHyperLevels_] * spaceAmpFactor_;
     ROCKS_LOG_BUFFER(log_buffer, "[%s] Hybrid: init %u %u %lu \n",
                      cf_name.c_str(), curNumOfHyperLevels_, maxNumHyperLevels_,
@@ -381,7 +380,8 @@ Compaction* HybridCompactionPicker::CheckDbSize(
         CalculateHyperlevelSize(curNumOfHyperLevels_, vstorage);
     auto firstLevel = FirstLevelInHyper(curNumOfHyperLevels_);
 
-    if ((lastHyperLevelSize * spaceAmp < actualDbSize &&
+    if (actualDbSize > sizeToCompact_[curNumOfHyperLevels_] * spaceAmp * 1.2 ||
+        (lastHyperLevelSize * spaceAmp < actualDbSize &&
          !vstorage->LevelFiles(firstLevel + 3).empty()) ||
         !vstorage->LevelFiles(firstLevel + 1).empty()) {
       curNumOfHyperLevels_++;

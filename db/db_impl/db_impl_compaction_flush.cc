@@ -3102,6 +3102,11 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
         c->column_family_data()->current()->storage_info()->LevelSummary(&tmp));
     *made_progress = true;
 
+    auto cfd = c->column_family_data();
+    c->ReleaseCompactionFiles(status);
+    c.reset();
+    SchedulePendingCompaction(cfd);
+    MaybeScheduleFlushOrCompaction();
     // Clear Instrument
     ThreadStatusUtil::ResetThreadStatus();
     TEST_SYNC_POINT_CALLBACK("DBImpl::BackgroundCompaction:AfterCompaction",
@@ -3203,9 +3208,6 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       auto cfd = c->column_family_data();
       NotifyOnCompactionCompleted(cfd, c.get(), status, compaction_job_stats,
                                   job_context->job_id);
-      // due to trivial compaction we may need to schedule some compaction here
-      SchedulePendingCompaction(cfd);
-      MaybeScheduleFlushOrCompaction();
     }
   }
 

@@ -175,12 +175,45 @@ struct CompactionJob::SubcompactionState {
   // The number of bytes overlapping between the current output and
   // grandparent files used in ShouldStopBefore().
   uint64_t overlapped_bytes = 0;
-  // A flag determine whether the key has been seen in ShouldStopBefore()
-  bool seen_key = false;
+  // the first key in the current file
+  Slice first_key_prefix;
 
-  SubcompactionState(Compaction* c, Slice* _start, Slice* _end, uint64_t size)
-      : compaction(c), start(_start), end(_end), approx_size(size) {
+  SubcompactionState(Compaction* c, Slice* _start, Slice* _end,
+                     uint64_t size = 0)
+      : compaction(c),
+        start(_start),
+        end(_end),
+        outfile(nullptr),
+        builder(nullptr),
+        current_output_file_size(0),
+        total_bytes(0),
+        num_output_records(0),
+        approx_size(size),
+        grandparent_index(0),
+        overlapped_bytes(0) {
     assert(compaction != nullptr);
+  }
+
+  SubcompactionState(SubcompactionState&& o) { *this = std::move(o); }
+
+  SubcompactionState& operator=(SubcompactionState&& o) {
+    compaction = std::move(o.compaction);
+    start = std::move(o.start);
+    end = std::move(o.end);
+    status = std::move(o.status);
+    outputs = std::move(o.outputs);
+    outfile = std::move(o.outfile);
+    builder = std::move(o.builder);
+    current_output_file_size = std::move(o.current_output_file_size);
+    total_bytes = std::move(o.total_bytes);
+    num_output_records = std::move(o.num_output_records);
+    compaction_job_stats = std::move(o.compaction_job_stats);
+    approx_size = std::move(o.approx_size);
+    grandparent_index = std::move(o.grandparent_index);
+    overlapped_bytes = std::move(o.overlapped_bytes);
+    first_key_prefix = std::move(o.first_key_prefix);
+
+    return *this;
   }
 
   // Adds the key and value to the builder
@@ -202,7 +235,6 @@ struct CompactionJob::SubcompactionState {
   bool ShouldStopBefore(const Slice& user_key, uint64_t /*curr_file_size*/) {
     auto ucmp = compaction->column_family_data()->user_comparator();
     const std::vector<FileMetaData*>& grandparents = compaction->grandparents();
-
     if (grandparent_index == 0) {
       grandparent_index++;
       while (grandparent_index < grandparents.size() &&
@@ -211,34 +243,53 @@ struct CompactionJob::SubcompactionState {
                  grandparents[grandparent_index]->smallest.user_key()) >= 0) {
         grandparent_index++;
       }
+      if (user_key.size() >= sizeof(uint64_t)) {
+        first_key_prefix =
+            std::string(user_key.ToString(), 0, sizeof(uint64_t));
+      }
       return false;
+    }
+
+    bool ret = false;
+    if (!first_key_prefix.empty()) {
+      std::string prefix(user_key.ToString(), 0, sizeof(uint64_t));
+      if (ucmp->Compare(prefix, first_key_prefix) > 0) {
+        ret = true;
+      }
     }
 
     // Scan to find earliest grandparent file that contains key. ignore the last
     if (grandparent_index < grandparents.size()) {
       if (ucmp->Compare(user_key,
-                        grandparents[grandparent_index]->smallest.user_key()) <
+                        grandparents[grandparent_index]->smallest.user_key()) >=
           0) {
-        return false;
-      }
-      grandparent_index++;
-      if (grandparent_index < grandparents.size() &&
-          ucmp->Compare(user_key,
-                        grandparents[grandparent_index]->smallest.user_key()) ==
-              0) {
         grandparent_index++;
-      }
+        if (grandparent_index < grandparents.size() &&
+            ucmp->Compare(
+                user_key,
+                grandparents[grandparent_index]->smallest.user_key()) == 0) {
+          grandparent_index++;
+        }
 
-      while (grandparent_index < grandparents.size() &&
-             ucmp->Compare(
-                 user_key,
-                 grandparents[grandparent_index]->largest.user_key()) >= 0) {
-        grandparent_index++;
+        while (grandparent_index < grandparents.size() &&
+               ucmp->Compare(
+                   user_key,
+                   grandparents[grandparent_index]->largest.user_key()) >= 0) {
+          grandparent_index++;
+        }
+        ret = true;
       }
-      return true;
-    } else {
-      return false;
     }
+    if (ret == true) {
+      if (user_key.size() >= sizeof(uint64_t)) {
+        first_key_prefix =
+            std::string(user_key.ToString(), 0, sizeof(uint64_t));
+      } else {
+        first_key_prefix = std::string();
+      }
+    }
+
+    return ret;
   }
 };
 
