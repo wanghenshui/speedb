@@ -176,7 +176,7 @@ struct CompactionJob::SubcompactionState {
   // grandparent files used in ShouldStopBefore().
   uint64_t overlapped_bytes = 0;
   // the first key in the current file
-  Slice first_key_prefix;
+  std::string first_key_prefix;
 
   SubcompactionState(Compaction* c, Slice* _start, Slice* _end,
                      uint64_t size = 0)
@@ -234,8 +234,11 @@ struct CompactionJob::SubcompactionState {
   // before processing "internal_key".
   bool ShouldStopBefore(const Slice& user_key, uint64_t /*curr_file_size*/) {
     auto ucmp = compaction->column_family_data()->user_comparator();
+    auto ext = compaction->mutable_cf_options()->prefix_extractor.get();
+
     const std::vector<FileMetaData*>& grandparents = compaction->grandparents();
     if (grandparent_index == 0) {
+      // first key never break hear...
       grandparent_index++;
       while (grandparent_index < grandparents.size() &&
              ucmp->Compare(
@@ -243,22 +246,22 @@ struct CompactionJob::SubcompactionState {
                  grandparents[grandparent_index]->smallest.user_key()) >= 0) {
         grandparent_index++;
       }
-      if (user_key.size() >= sizeof(uint64_t)) {
-        first_key_prefix =
-            std::string(user_key.ToString(), 0, sizeof(uint64_t));
+      if (ext) {
+        first_key_prefix = ext->Transform(user_key).ToString();
       }
       return false;
     }
 
     bool ret = false;
-    if (!first_key_prefix.empty()) {
-      std::string prefix(user_key.ToString(), 0, sizeof(uint64_t));
-      if (ucmp->Compare(prefix, first_key_prefix) > 0) {
+    if (ext) {
+      std::string prefix = ext->Transform(user_key).ToString();
+      if (prefix != first_key_prefix) {
+        first_key_prefix = prefix;
         ret = true;
       }
     }
 
-    // Scan to find earliest grandparent file that contains key. ignore the last
+    // second confition to break at gp
     if (grandparent_index < grandparents.size()) {
       if (ucmp->Compare(user_key,
                         grandparents[grandparent_index]->smallest.user_key()) >=
@@ -278,14 +281,6 @@ struct CompactionJob::SubcompactionState {
           grandparent_index++;
         }
         ret = true;
-      }
-    }
-    if (ret == true) {
-      if (user_key.size() >= sizeof(uint64_t)) {
-        first_key_prefix =
-            std::string(user_key.ToString(), 0, sizeof(uint64_t));
-      } else {
-        first_key_prefix = std::string();
       }
     }
 
@@ -1802,12 +1797,15 @@ Status CompactionJob::FinishCompactionOutputFile(
     // Output to event logger and fire events.
     sub_compact->current_output()->table_properties =
         std::make_shared<TableProperties>(tp);
-    ROCKS_LOG_INFO(db_options_.info_log,
-                   "[%s] [JOB %d] Generated table #%" PRIu64 ": %" PRIu64
-                   " keys, %" PRIu64 " bytes%s",
-                   cfd->GetName().c_str(), job_id_, output_number,
-                   current_entries, current_bytes,
-                   meta->marked_for_compaction ? " (need compaction)" : "");
+    ROCKS_LOG_INFO(
+        db_options_.info_log,
+        "[%s] [JOB %d] Generated table #%" PRIu64 ": %" PRIu64 " keys, %" PRIu64
+        " bytes%s"
+        " [%s %s]",
+        cfd->GetName().c_str(), job_id_, output_number, current_entries,
+        current_bytes, meta->marked_for_compaction ? " (need compaction)" : "",
+        meta->smallest.user_key().ToString(true).c_str(),
+        meta->largest.user_key().ToString(true).c_str());
   }
   std::string fname;
   FileDescriptor output_fd;

@@ -867,6 +867,11 @@ Status DBImpl::IncreaseFullHistoryTsLow(ColumnFamilyData* cfd,
 Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
                                     ColumnFamilyHandle* column_family,
                                     const Slice* begin, const Slice* end) {
+  if (1) {
+    env_->SleepForMicroseconds(1000000);
+    return Status();
+  }
+
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
   auto cfd = cfh->cfd();
 
@@ -1646,6 +1651,11 @@ Status DBImpl::RunManualCompaction(
     const CompactRangeOptions& compact_range_options, const Slice* begin,
     const Slice* end, bool exclusive, bool disallow_trivial_move,
     uint64_t max_file_num_to_ignore) {
+  if (1) {
+    env_->SleepForMicroseconds(1000000);
+    return Status();
+  }
+
   assert(input_level == ColumnFamilyData::kCompactAllLevels ||
          input_level >= 0);
 

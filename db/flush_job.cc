@@ -450,11 +450,14 @@ Status FlushJob::WriteLevel0Table() {
     ROCKS_LOG_INFO(db_options_.info_log,
                    "[%s] [JOB %d] Level-0 flush table #%" PRIu64 ": %" PRIu64
                    " bytes %s"
-                   "%s",
+                   "%s"
+                   "[%s %s]",
                    cfd_->GetName().c_str(), job_context_->job_id,
                    meta_.fd.GetNumber(), meta_.fd.GetFileSize(),
                    s.ToString().c_str(),
-                   meta_.marked_for_compaction ? " (needs compaction)" : "");
+                   meta_.marked_for_compaction ? " (needs compaction)" : "",
+                   meta_.smallest.user_key().ToString(true).c_str(),
+                   meta_.largest.user_key().ToString(true).c_str());
 
     if (s.ok() && output_file_directory_ != nullptr && sync_output_directory_) {
       s = output_file_directory_->Fsync(IOOptions(), nullptr);
