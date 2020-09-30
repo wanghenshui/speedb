@@ -6,6 +6,8 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
+#include <time.h>
+
 #include <cinttypes>
 
 #include "db/builder.h"
@@ -22,6 +24,7 @@
 #include "util/concurrent_task_limiter_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
+int64_t s_LastCompactionTime;
 
 bool DBImpl::EnoughRoomForCompaction(
     ColumnFamilyData* cfd, const std::vector<CompactionInputFiles>& inputs,
@@ -867,8 +870,11 @@ Status DBImpl::IncreaseFullHistoryTsLow(ColumnFamilyData* cfd,
 Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
                                     ColumnFamilyHandle* column_family,
                                     const Slice* begin, const Slice* end) {
-  if (1) {
-    env_->SleepForMicroseconds(1000000);
+  int64_t curTime;
+  env_->GetCurrentTime(&curTime);
+  if (bg_bottom_compaction_scheduled_ > 0 || bg_compaction_scheduled_ > 0 ||
+      curTime - s_LastCompactionTime < 5) {
+    env_->SleepForMicroseconds(10000000);
     return Status();
   }
 
@@ -1651,8 +1657,12 @@ Status DBImpl::RunManualCompaction(
     const CompactRangeOptions& compact_range_options, const Slice* begin,
     const Slice* end, bool exclusive, bool disallow_trivial_move,
     uint64_t max_file_num_to_ignore) {
-  if (1) {
-    env_->SleepForMicroseconds(1000000);
+  // dont allow manual compcation unless we are very unbusy
+  int64_t curTime;
+  env_->GetCurrentTime(&curTime);
+  if (bg_bottom_compaction_scheduled_ > 0 || bg_compaction_scheduled_ > 0 ||
+      curTime - s_LastCompactionTime < 5) {
+    env_->SleepForMicroseconds(10000000);
     return Status();
   }
 
@@ -2961,6 +2971,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       TEST_SYNC_POINT("DBImpl::BackgroundCompaction():AfterPickCompaction");
 
       if (c != nullptr) {
+        env_->GetCurrentTime(&s_LastCompactionTime);
         bool enough_room = EnoughRoomForCompaction(
             cfd, *(c->inputs()), &sfm_reserved_compact_space, log_buffer);
 
