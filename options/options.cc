@@ -559,10 +559,14 @@ ColumnFamilyOptions* ColumnFamilyOptions::OptimizeForPointLookup(
   if (block_cache_size_mb) {
     block_based_options.block_cache =
         NewLRUCache(static_cast<size_t>(block_cache_size_mb * 1024 * 1024));
+  } else {
+    block_based_options.cache_index_and_filter_blocks = false;
   }
+
   table_factory.reset(new BlockBasedTableFactory(block_based_options));
   memtable_prefix_bloom_size_ratio = 0.03;
   memtable_whole_key_filtering = true;
+
   return this;
 }
 
