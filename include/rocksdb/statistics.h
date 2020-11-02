@@ -490,6 +490,10 @@ enum Histograms : uint32_t {
   // Error handler statistics
   ERROR_HANDLER_AUTORESUME_RETRY_COUNT,
 
+  DB_GET_MEMTABLE,
+  DB_GET_SST,
+  DB_GET_POST,
+
   HISTOGRAM_ENUM_MAX,
 };
 

@@ -262,6 +262,9 @@ const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
     {NUM_SST_READ_PER_LEVEL, "rocksdb.num.sst.read.per.level"},
     {ERROR_HANDLER_AUTORESUME_RETRY_COUNT,
      "rocksdb.error.handler.autoresume.retry.count"},
+    {DB_GET_MEMTABLE, "rocksdb.db.get.mem.micros"},
+    {DB_GET_SST, "rocksdb.db.get.sst.micros"},
+    {DB_GET_POST, "rocksdb.db.get.post.micros"},
 };
 
 std::shared_ptr<Statistics> CreateDBStatistics() {

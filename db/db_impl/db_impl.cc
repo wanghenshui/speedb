@@ -1761,6 +1761,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
   bool done = false;
   std::string* timestamp = ts_sz > 0 ? get_impl_options.timestamp : nullptr;
   if (!skip_memtable) {
+    StopWatch memTableSw(immutable_db_options_.clock, stats_, DB_GET_MEMTABLE);
     // Get value associated with key
     if (get_impl_options.get_value) {
       if (sv->mem->Get(lkey, get_impl_options.value->GetSelf(), timestamp, &s,
@@ -1802,6 +1803,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
     }
   }
   if (!done) {
+    StopWatch SstSw(immutable_db_options_.clock, stats_, DB_GET_SST);
     PERF_TIMER_GUARD(get_from_output_files_time);
     sv->current->Get(
         read_options, lkey, get_impl_options.value, timestamp, &s,
@@ -1816,6 +1818,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
 
   {
     PERF_TIMER_GUARD(get_post_process_time);
+    StopWatch sw1(immutable_db_options_.clock, stats_, DB_GET_POST);
 
     ReturnAndCleanupSuperVersion(cfd, sv);
 
