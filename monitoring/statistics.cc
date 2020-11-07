@@ -263,8 +263,10 @@ const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
     {ERROR_HANDLER_AUTORESUME_RETRY_COUNT,
      "rocksdb.error.handler.autoresume.retry.count"},
     {DB_GET_MEMTABLE, "rocksdb.db.get.mem.micros"},
-    {DB_GET_SST, "rocksdb.db.get.sst.micros"},
-    {DB_GET_POST, "rocksdb.db.get.post.micros"},
+    {DB_GET_INDEX1, "rocksdb.db.get.index1.micros"},
+    {DB_GET_INDEX2, "rocksdb.db.get.index2.micros"},
+    {DB_GET_FILTER1, "rocksdb.db.get.filter1.micros"},
+    {DB_GET_FILTER2, "rocksdb.db.get.filter2.micros"},
 };
 
 std::shared_ptr<Statistics> CreateDBStatistics() {

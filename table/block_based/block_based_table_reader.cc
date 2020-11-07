@@ -1074,15 +1074,19 @@ Status BlockBasedTable::ReadMetaIndexBlock(
   // TODO(sanjay): Skip this if footer.metaindex_handle() size indicates
   // it is an empty block.
   std::unique_ptr<Block> metaindex;
-  Status s = ReadBlockFromFile(
-      rep_->file.get(), prefetch_buffer, rep_->footer, ro,
-      rep_->footer.metaindex_handle(), &metaindex, rep_->ioptions,
-      true /* decompress */, true /*maybe_compressed*/, BlockType::kMetaIndex,
-      UncompressionDict::GetEmptyDict(), rep_->persistent_cache_options,
-      0 /* read_amp_bytes_per_bit */, GetMemoryAllocator(rep_->table_options),
-      false /* for_compaction */, rep_->blocks_definitely_zstd_compressed,
-      nullptr /* filter_policy */);
+  Status s;
+  {
+    StopWatch sw(rep_->ioptions.clock, rep_->ioptions.stats, DB_GET_INDEX1);
 
+    s = ReadBlockFromFile(
+        rep_->file.get(), prefetch_buffer, rep_->footer, ro,
+        rep_->footer.metaindex_handle(), &metaindex, rep_->ioptions,
+        true /* decompress */, true /*maybe_compressed*/, BlockType::kMetaIndex,
+        UncompressionDict::GetEmptyDict(), rep_->persistent_cache_options,
+        0 /* read_amp_bytes_per_bit */, GetMemoryAllocator(rep_->table_options),
+        false /* for_compaction */, rep_->blocks_definitely_zstd_compressed,
+        nullptr /* filter_policy */);
+  }
   if (!s.ok()) {
     ROCKS_LOG_ERROR(rep_->ioptions.logger,
                     "Encountered error while reading data from properties"
@@ -1090,7 +1094,7 @@ Status BlockBasedTable::ReadMetaIndexBlock(
                     s.ToString().c_str());
     return s;
   }
-
+  StopWatch sw(rep_->ioptions.clock, rep_->ioptions.stats, DB_GET_INDEX2);
   *metaindex_block = std::move(metaindex);
   // meta block uses bytewise comparator.
   iter->reset(metaindex_block->get()->NewDataIterator(
@@ -1899,8 +1903,11 @@ Status BlockBasedTable::RetrieveBlock(
   std::unique_ptr<TBlocklike> block;
 
   {
-    StopWatch sw(rep_->ioptions.clock, rep_->ioptions.stats,
-                 READ_BLOCK_GET_MICROS);
+    auto p = READ_BLOCK_GET_MICROS;
+    if (block_type == BlockType::kFilter) {
+      p = DB_GET_FILTER1;
+    }
+    StopWatch sw(rep_->ioptions.clock, rep_->ioptions.stats, p);
     s = ReadBlockFromFile(
         rep_->file.get(), prefetch_buffer, rep_->footer, ro, handle, &block,
         rep_->ioptions, do_uncompress, maybe_compressed, block_type,
@@ -1934,7 +1941,6 @@ Status BlockBasedTable::RetrieveBlock(
   }
 
   block_entry->SetOwnedValue(block.release());
-
   assert(s.ok());
   return s;
 }
