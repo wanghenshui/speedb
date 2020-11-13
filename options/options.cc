@@ -560,6 +560,10 @@ ColumnFamilyOptions* ColumnFamilyOptions::OptimizeForPointLookup(
     block_based_options.block_cache =
         NewLRUCache(static_cast<size_t>(block_cache_size_mb * 1024 * 1024));
   } else {
+#if Mike  // Please Check with no cache !!
+    block_based_options.block_cache.reset();
+    block_based_options.use_block_cache = false;
+#endif
     block_based_options.cache_index_and_filter_blocks = false;
   }
 

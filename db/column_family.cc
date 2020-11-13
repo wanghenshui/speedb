@@ -225,6 +225,8 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
     result.arena_block_size =
         ((result.arena_block_size + align - 1) / align) * align;
   }
+
+  result.compaction_options_universal.max_size_amplification_percent = 140;
   result.min_write_buffer_number_to_merge =
       std::min(result.min_write_buffer_number_to_merge,
                result.max_write_buffer_number - 1);
@@ -233,6 +235,7 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
   }
 
   result.compaction_style = kCompactionStyleHybrid;
+
   if (result.num_levels < 1) {
     result.num_levels = 1;
   }

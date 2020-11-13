@@ -64,6 +64,8 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
     result.write_buffer_manager.reset(
         new WriteBufferManager(result.db_write_buffer_size));
   }
+  result.max_background_compactions = 8;
+
   auto bg_job_limits = DBImpl::GetBGJobLimits(
       result.max_background_flushes, result.max_background_compactions,
       result.max_background_jobs, true /* parallelize_compactions */);
@@ -72,8 +74,10 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
   result.env->IncBackgroundThreadsIfNeeded(bg_job_limits.max_flushes,
                                            Env::Priority::HIGH);
 
+  result.bytes_per_sync = 0;
   if (result.rate_limiter.get() != nullptr) {
-    if (result.bytes_per_sync == 0) {
+    result.rate_limiter.reset();
+    if (0 && result.bytes_per_sync == 0) {
       result.bytes_per_sync = 1024 * 1024;
     }
   }
@@ -110,6 +114,8 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
     //   Besides this bug, we believe the features are fundamentally compatible.
     result.recycle_log_file_num = 0;
   }
+
+  result.use_direct_io_for_flush_and_compaction = true;
 
   if (result.wal_dir.empty()) {
     // Use dbname as default
