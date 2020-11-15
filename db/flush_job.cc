@@ -447,6 +447,11 @@ Status FlushJob::WriteLevel0Table() {
       }
       LogFlush(db_options_.info_log);
     }
+    std::string smallestStr =
+        meta_.smallest.Valid() ? meta_.smallest.user_key().ToString(true) : "";
+    std::string largestStr =
+        meta_.largest.Valid() ? meta_.largest.user_key().ToString(true) : "";
+
     ROCKS_LOG_INFO(db_options_.info_log,
                    "[%s] [JOB %d] Level-0 flush table #%" PRIu64 ": %" PRIu64
                    " bytes %s"
@@ -456,8 +461,7 @@ Status FlushJob::WriteLevel0Table() {
                    meta_.fd.GetNumber(), meta_.fd.GetFileSize(),
                    s.ToString().c_str(),
                    meta_.marked_for_compaction ? " (needs compaction)" : "",
-                   meta_.smallest.user_key().ToString(true).c_str(),
-                   meta_.largest.user_key().ToString(true).c_str());
+                   smallestStr.c_str(), largestStr.c_str());
 
     if (s.ok() && output_file_directory_ != nullptr && sync_output_directory_) {
       s = output_file_directory_->Fsync(IOOptions(), nullptr);
