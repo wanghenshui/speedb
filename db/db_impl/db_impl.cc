@@ -1647,11 +1647,20 @@ Status DBImpl::Get(const ReadOptions& read_options,
 Status DBImpl::Get(const ReadOptions& read_options,
                    ColumnFamilyHandle* column_family, const Slice& key,
                    PinnableSlice* value, std::string* timestamp) {
+  if (mutable_db_options_.io_trace) {
+    ROCKS_LOG_INFO(immutable_db_options_.info_log, "(%lu) get %s ",
+                   env_->GetThreadID(), key.ToString(true).c_str());
+  }
+
   GetImplOptions get_impl_options;
   get_impl_options.column_family = column_family;
   get_impl_options.value = value;
   get_impl_options.timestamp = timestamp;
   Status s = GetImpl(read_options, key, get_impl_options);
+  if (mutable_db_options_.io_trace) {
+    ROCKS_LOG_INFO(immutable_db_options_.info_log, "(%lu) get completed",
+                   env_->GetThreadID());
+  }
   return s;
 }
 

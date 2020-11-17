@@ -446,13 +446,13 @@ void WriteBatch::Clear() {
 
 uint32_t WriteBatch::Count() const { return WriteBatchInternal::Count(this); }
 
-void WriteBatch::Confess(Logger* logger) const {
+void WriteBatch::Confess(Logger* logger, size_t thread_id) const {
   BatchContentLogger batchLogger;
 
   batchLogger.data = "write batch confess [";
   Iterate(&batchLogger);
   batchLogger.data.append("]");
-  ROCKS_LOG_INFO(logger, "%s", batchLogger.data.c_str());
+  ROCKS_LOG_INFO(logger, "(%lu) %s", thread_id, batchLogger.data.c_str());
 }
 
 uint32_t WriteBatch::ComputeContentFlags() const {

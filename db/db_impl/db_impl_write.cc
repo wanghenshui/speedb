@@ -77,7 +77,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
                          PreReleaseCallback* pre_release_callback) {
   if (mutable_db_options_.io_trace) {
     if (my_batch) {
-      my_batch->Confess(immutable_db_options_.logger);
+      my_batch->Confess(immutable_db_options_.logger, env_->GetThreadID());
     }
   }
 
@@ -471,6 +471,11 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   if (status.ok()) {
     status = w.FinalStatus();
   }
+  if (mutable_db_options_.io_trace) {
+    ROCKS_LOG_INFO(immutable_db_options_.info_log, "(%lu) write completed",
+                   env_->GetThreadID());
+  }
+
   return status;
 }
 

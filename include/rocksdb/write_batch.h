@@ -347,7 +347,7 @@ class WriteBatch : public WriteBatchBase {
   struct ProtectionInfo;
   size_t GetProtectionBytesPerKey() const;
 
-  void Confess(Logger* logger) const;
+  void Confess(Logger* logger, size_t thread_id) const;
 
  private:
   friend class WriteBatchInternal;
