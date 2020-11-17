@@ -68,12 +68,19 @@ Status DBImpl::WriteWithCallback(const WriteOptions& write_options,
 // The main write queue. This is the only write queue that updates LastSequence.
 // When using one write queue, the same sequence also indicates the last
 // published sequence.
+
 Status DBImpl::WriteImpl(const WriteOptions& write_options,
                          WriteBatch* my_batch, WriteCallback* callback,
                          uint64_t* log_used, uint64_t log_ref,
                          bool disable_memtable, uint64_t* seq_used,
                          size_t batch_cnt,
                          PreReleaseCallback* pre_release_callback) {
+  if (mutable_db_options_.io_trace) {
+    if (my_batch) {
+      my_batch->Confess(immutable_db_options_.logger);
+    }
+  }
+
   ExternalDelay::enforce(env_, last_batch_group_size_);
 
   assert(!seq_per_batch_ || batch_cnt != 0);

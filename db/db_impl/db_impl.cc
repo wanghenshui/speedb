@@ -733,6 +733,10 @@ void DBImpl::StartPeriodicWorkScheduler() {
     periodic_work_scheduler_ = PeriodicWorkScheduler::Default();
     TEST_SYNC_POINT_CALLBACK("DBImpl::StartPeriodicWorkScheduler:Init",
                              &periodic_work_scheduler_);
+    thread_options_change_.reset(new ROCKSDB_NAMESPACE::RepeatableThread(
+        [this]() { DBImpl::OptionsLoad(); }, "opt_ch",
+        immutable_db_options_.clock,
+        static_cast<uint64_t>(5 * kMicrosInSecond)));
   }
 
   periodic_work_scheduler_->Register(
@@ -865,6 +869,17 @@ void DBImpl::PersistStats() {
   }
   TEST_SYNC_POINT("DBImpl::PersistStats:End");
 #endif  // !ROCKSDB_LITE
+}
+
+void DBImpl::OptionsLoad() {
+  // for now the only work is to set io trace
+
+  std::string full_path_to_trace = (immutable_db_options_.db_log_dir.empty()
+                                        ? dbname_
+                                        : immutable_db_options_.db_log_dir) +
+                                   "/" + "trace";
+  auto status = env_->FileExists(full_path_to_trace);
+  mutable_db_options_.io_trace = status.ok();
 }
 
 bool DBImpl::FindStatsByTime(uint64_t start_time, uint64_t end_time,

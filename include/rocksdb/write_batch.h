@@ -38,6 +38,7 @@ class Slice;
 class ColumnFamilyHandle;
 struct SavePoints;
 struct SliceParts;
+class Logger;
 
 struct SavePoint {
   size_t size;  // size of rep_
@@ -345,6 +346,8 @@ class WriteBatch : public WriteBatchBase {
 
   struct ProtectionInfo;
   size_t GetProtectionBytesPerKey() const;
+
+  void Confess(Logger* logger) const;
 
  private:
   friend class WriteBatchInternal;

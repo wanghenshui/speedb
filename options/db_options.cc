@@ -780,7 +780,8 @@ MutableDBOptions::MutableDBOptions()
       wal_bytes_per_sync(0),
       strict_bytes_per_sync(false),
       compaction_readahead_size(0),
-      max_background_flushes(-1) {}
+      max_background_flushes(-1),
+      io_trace(false) {}
 
 MutableDBOptions::MutableDBOptions(const DBOptions& options)
     : max_background_jobs(options.max_background_jobs),
@@ -801,7 +802,8 @@ MutableDBOptions::MutableDBOptions(const DBOptions& options)
       wal_bytes_per_sync(options.wal_bytes_per_sync),
       strict_bytes_per_sync(options.strict_bytes_per_sync),
       compaction_readahead_size(options.compaction_readahead_size),
-      max_background_flushes(options.max_background_flushes) {}
+      max_background_flushes(options.max_background_flushes),
+      io_trace(false) {}
 
 void MutableDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log, "            Options.max_background_jobs: %d",

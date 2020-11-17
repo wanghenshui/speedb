@@ -1787,6 +1787,9 @@ class DBImpl : public DB {
 
   size_t EstimateInMemoryStatsHistorySize() const;
 
+  // Allow change mutable options while running
+  void OptionsLoad();
+
   // Return the minimum empty level that could hold the total data in the
   // input level. Return the input level, if such level could not be found.
   int FindMinimumEmptyLevelFitting(ColumnFamilyData* cfd,
@@ -2241,6 +2244,11 @@ class DBImpl : public DB {
   // PeriodicWorkTestScheduler.
   PeriodicWorkScheduler* periodic_work_scheduler_;
 #endif
+
+  // handle for get of mutable options allow changing options on fly (impact
+  // after few seconds)
+
+  std::unique_ptr<ROCKSDB_NAMESPACE::RepeatableThread> thread_options_change_;
 
   // When set, we use a separate queue for writes that don't write to memtable.
   // In 2PC these are the writes at Prepare phase.

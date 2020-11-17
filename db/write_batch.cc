@@ -247,6 +247,83 @@ class TimestampAssigner : public WriteBatch::Handler {
 };
 const std::vector<Slice> TimestampAssigner::kEmptyTimestampList;
 
+struct BatchContentLogger : public WriteBatch::Handler {
+  std::string data;
+
+  Status PutCF(uint32_t, const Slice& key, const Slice&) override {
+    data.append("Put:");
+    data.append(key.ToString(true));
+    data.append(",");
+    return Status::OK();
+  }
+
+  Status DeleteCF(uint32_t, const Slice& key) override {
+    data.append("Delete:");
+    data.append(key.ToString(true));
+    data.append(",");
+    return Status::OK();
+  }
+
+  Status SingleDeleteCF(uint32_t, const Slice& key) override {
+    data.append("SingleDelee:");
+    data.append(key.ToString(true));
+    data.append(",");
+    return Status::OK();
+  }
+
+  Status DeleteRangeCF(uint32_t, const Slice& key, const Slice& key2) override {
+    data.append("delete range:");
+    data.append(key.ToString(true));
+    data.append(" - ");
+    data.append(key2.ToString(true));
+    data.append(",");
+
+    return Status::OK();
+  }
+
+  Status MergeCF(uint32_t, const Slice& key, const Slice&) override {
+    data.append("Merge:");
+    data.append(key.ToString(true));
+    data.append(",");
+    return Status::OK();
+  }
+
+  Status PutBlobIndexCF(uint32_t, const Slice& key, const Slice&) override {
+    data.append("Put Blob:");
+    data.append(key.ToString(true));
+    data.append(",");
+    return Status::OK();
+  }
+
+  Status MarkBeginPrepare(bool unprepare) override {
+    data.append("Begin Prepare:");
+    data.append(unprepare ? "true" : "false");
+    data.append(",");
+    return Status::OK();
+  }
+
+  Status MarkEndPrepare(const Slice& key) override {
+    data.append("end prepareb:");
+    data.append(key.ToString(true));
+    data.append(",");
+    return Status::OK();
+  }
+
+  Status MarkCommit(const Slice& key) override {
+    data.append("commit:");
+    data.append(key.ToString(true));
+    data.append(",");
+    return Status::OK();
+  }
+
+  Status MarkRollback(const Slice& key) override {
+    data.append("rollback:");
+    data.append(key.ToString(true));
+    data.append(",");
+    return Status::OK();
+  }
+};
+
 }  // anon namespace
 
 struct SavePoints {
@@ -368,6 +445,15 @@ void WriteBatch::Clear() {
 }
 
 uint32_t WriteBatch::Count() const { return WriteBatchInternal::Count(this); }
+
+void WriteBatch::Confess(Logger* logger) const {
+  BatchContentLogger batchLogger;
+
+  batchLogger.data = "write batch confess [";
+  Iterate(&batchLogger);
+  batchLogger.data.append("]");
+  ROCKS_LOG_INFO(logger, "%s", batchLogger.data.c_str());
+}
 
 uint32_t WriteBatch::ComputeContentFlags() const {
   auto rv = content_flags_.load(std::memory_order_relaxed);
