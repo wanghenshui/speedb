@@ -157,12 +157,24 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       status = UnorderedWriteMemtable(write_options, my_batch, callback,
                                       log_ref, seq, sub_batch_cnt);
     }
+    if (mutable_db_options_.io_trace) {
+      ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                     "(%lu) write completed (unordered)", env_->GetThreadID());
+    }
+
     return status;
   }
 
   if (immutable_db_options_.enable_pipelined_write) {
-    return PipelinedWriteImpl(write_options, my_batch, callback, log_used,
-                              log_ref, disable_memtable, seq_used);
+    Status status =
+        PipelinedWriteImpl(write_options, my_batch, callback, log_used, log_ref,
+                           disable_memtable, seq_used);
+    if (mutable_db_options_.io_trace) {
+      ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                     "(%lu) write completed (pipe)", env_->GetThreadID());
+    }
+
+    return status;
   }
 
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
@@ -215,6 +227,11 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       *seq_used = w.sequence;
     }
     // write is complete and leader has updated sequence
+    if (mutable_db_options_.io_trace) {
+      ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                     "(%lu) write completed (leader)", env_->GetThreadID());
+    }
+
     return w.FinalStatus();
   }
   // else we are the leader of the write batch group
@@ -470,6 +487,10 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
 
   if (status.ok()) {
     status = w.FinalStatus();
+  }
+  if (mutable_db_options_.io_trace) {
+    ROCKS_LOG_INFO(immutable_db_options_.info_log, "(%lu) write completed",
+                   env_->GetThreadID());
   }
   if (mutable_db_options_.io_trace) {
     ROCKS_LOG_INFO(immutable_db_options_.info_log, "(%lu) write completed",
