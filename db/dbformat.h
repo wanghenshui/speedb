@@ -311,7 +311,7 @@ class InternalKey {
     return rep_;
   }
 
-  Slice user_key() const { return ExtractUserKey(rep_); }
+  Slice user_key() const { return Valid() ? ExtractUserKey(rep_) : Slice(); }
   size_t size() const { return rep_.size(); }
 
   void Set(const Slice& _user_key, SequenceNumber s, ValueType t) {

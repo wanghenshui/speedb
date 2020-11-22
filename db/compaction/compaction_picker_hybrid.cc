@@ -14,7 +14,7 @@
 namespace ROCKSDB_NAMESPACE {
 
 #define PrintableString(__key) \
-  (__key.empty() ? "empty" : __key.ToString(true).c_str())
+  (((__key).empty()) ? "empty" : (__key).ToString(true).c_str())
 
 #define kRearangeCompaction (CompactionReason::kFIFOTtl)
 
