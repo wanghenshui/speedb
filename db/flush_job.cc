@@ -447,10 +447,14 @@ Status FlushJob::WriteLevel0Table() {
       }
       LogFlush(db_options_.info_log);
     }
-    std::string smallestStr =
-        meta_.smallest.Valid() ? meta_.smallest.user_key().ToString(true) : "";
-    std::string largestStr =
-        meta_.largest.Valid() ? meta_.largest.user_key().ToString(true) : "";
+
+    // fixme just for test
+    std::string smallestStr = 0 && meta_.smallest.Valid()
+                                  ? meta_.smallest.user_key().ToString(true)
+                                  : "";
+    std::string largestStr = 0 && meta_.largest.Valid()
+                                 ? meta_.largest.user_key().ToString(true)
+                                 : "";
 
     ROCKS_LOG_INFO(db_options_.info_log,
                    "[%s] [JOB %d] Level-0 flush table #%" PRIu64 ": %" PRIu64
