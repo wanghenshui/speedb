@@ -250,9 +250,12 @@ const std::vector<Slice> TimestampAssigner::kEmptyTimestampList;
 struct BatchContentLogger : public WriteBatch::Handler {
   std::string data;
 
-  Status PutCF(uint32_t, const Slice& key, const Slice&) override {
+  Status PutCF(uint32_t, const Slice& key, const Slice& v) override {
     data.append("Put:");
     data.append(key.ToString(true));
+    char tmp[64];
+    sprintf(tmp, "-%lu", v.size());
+    data.append(tmp);
     data.append(",");
     return Status::OK();
   }
@@ -281,9 +284,12 @@ struct BatchContentLogger : public WriteBatch::Handler {
     return Status::OK();
   }
 
-  Status MergeCF(uint32_t, const Slice& key, const Slice&) override {
+  Status MergeCF(uint32_t, const Slice& key, const Slice& v) override {
     data.append("Merge:");
     data.append(key.ToString(true));
+    char tmp[64];
+    sprintf(tmp, "-%lu", v.size());
+    data.append(tmp);
     data.append(",");
     return Status::OK();
   }
