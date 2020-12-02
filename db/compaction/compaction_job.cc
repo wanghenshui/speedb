@@ -177,6 +177,7 @@ struct CompactionJob::SubcompactionState {
   uint64_t overlapped_bytes = 0;
   // the first key in the current file
   std::string first_key_prefix;
+  static const uint64_t max_file_size = 1 << 30;  // 1GB
 
   SubcompactionState(Compaction* c, Slice* _start, Slice* _end,
                      uint64_t size = 0)
@@ -232,10 +233,13 @@ struct CompactionJob::SubcompactionState {
 
   // Returns true iff we should stop building the current output
   // before processing "internal_key".
-  bool ShouldStopBefore(const Slice& user_key, uint64_t /*curr_file_size*/) {
+  bool ShouldStopBefore(const Slice& user_key, uint64_t curr_file_size) {
     auto ucmp = compaction->column_family_data()->user_comparator();
     auto ext = compaction->mutable_cf_options()->prefix_extractor.get();
 
+    if (curr_file_size > max_file_size) {
+      return true;
+    }
     const std::vector<FileMetaData*>& grandparents = compaction->grandparents();
     if (grandparent_index == 0) {
       // first key never break hear...
