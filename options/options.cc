@@ -555,20 +555,17 @@ ColumnFamilyOptions* ColumnFamilyOptions::OptimizeForPointLookup(
   block_based_options.data_block_index_type =
       BlockBasedTableOptions::kDataBlockBinaryAndHash;
   block_based_options.data_block_hash_table_util_ratio = 0.75;
-  block_based_options.filter_policy.reset(NewBloomFilterPolicy(12));
+  if (!block_based_options.filter_policy.get()) {
+    block_based_options.filter_policy.reset(NewBloomFilterPolicy(12));
+    memtable_prefix_bloom_size_ratio = 0.03;
+  }
+  block_based_options.cache_index_and_filter_blocks = false;
   if (block_cache_size_mb) {
     block_based_options.block_cache =
         NewLRUCache(static_cast<size_t>(block_cache_size_mb * 1024 * 1024));
-  } else {
-#if Mike  // Please Check with no cache !!
-    block_based_options.block_cache.reset();
-    block_based_options.use_block_cache = false;
-#endif
-    block_based_options.cache_index_and_filter_blocks = false;
   }
 
   table_factory.reset(new BlockBasedTableFactory(block_based_options));
-  memtable_prefix_bloom_size_ratio = 0.03;
   memtable_whole_key_filtering = true;
 
   return this;
