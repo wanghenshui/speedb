@@ -251,7 +251,7 @@ class HybridCompactionPicker : public CompactionPicker {
       const std::vector<FileMetaData*>& filesList, const UserKey& key,
       const std::vector<FileMetaData*>::const_iterator& start);
 
-  virtual void EnableLowPriorityCompaction(bool enable) override {
+  void EnableLowPriorityCompaction(bool enable) override {
     enableLow_ = enable;
   };
 

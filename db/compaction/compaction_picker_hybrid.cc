@@ -197,13 +197,8 @@ Compaction* HybridCompactionPicker::PickCompaction(
           PickLevel0Compaction(log_buffer, cf_name, mutable_cf_options,
                                mutable_db_options, vstorage, multiplier_[0]);
       if (ret) {
-        ROCKS_LOG_BUFFER(
-            log_buffer, "[%s] Hybrid: compacting L0 to level %d   %lu %lu %g\n",
-            cf_name.c_str(), ret->output_level(),
-            level0WriteRateMonitor_->lastMessureTime,
-            level0WriteRateMonitor_->numberOfL0Files,
-            level0WriteRateMonitor_->avgTimeForFile);
-
+        ROCKS_LOG_BUFFER(log_buffer, "[%s] Hybrid: compacting L0 to level %d\n",
+                         ret->output_level());
         RegisterCompaction(ret);
         return ret;
       }
