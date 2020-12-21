@@ -197,7 +197,7 @@ Compaction* HybridCompactionPicker::PickCompaction(
                                mutable_db_options, vstorage, multiplier_[0]);
       if (ret) {
         ROCKS_LOG_BUFFER(log_buffer, "[%s] Hybrid: compacting L0 to level %d\n",
-                         ret->output_level());
+                         cf_name.c_str(), ret->output_level());
         RegisterCompaction(ret);
         return ret;
       }
@@ -605,6 +605,13 @@ Compaction* HybridCompactionPicker::PickLevelCompaction(
     if (hyperLevelNum >= curNumOfHyperLevels_ - 2) {
       grandparents = vstorage->LevelFiles(LastLevel());
     }
+
+    // rush the compaction to prevent stall
+    const uint firstLevelInHyper = FirstLevelInHyper(hyperLevelNum);
+    if (!vstorage->LevelFiles(firstLevelInHyper + 4).empty()) {
+      nSubCompactions++;
+    }
+
   } else {
     size_t lastHyperLevelSize =
         CalculateHyperlevelSize(hyperLevelNum, vstorage);
@@ -615,6 +622,10 @@ Compaction* HybridCompactionPicker::PickLevelCompaction(
       if (nSubCompactions > 4) {
         nSubCompactions = 4;
       }
+    }
+    const uint firstLevelInHyper = FirstLevelInHyper(hyperLevelNum);
+    if (!vstorage->LevelFiles(firstLevelInHyper + 4).empty()) {
+      nSubCompactions++;
     }
     compactionOutputFileSize =
         std::max(dbSize / 32, (size_t)mutable_cf_options.write_buffer_size);
