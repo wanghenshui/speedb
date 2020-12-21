@@ -309,9 +309,12 @@ bool Compaction::IsTrivialMove() const {
 
   // Used in universal compaction, where trivial move can be done if the
   // input files are non overlapping
-  if ((mutable_cf_options_.compaction_options_universal.allow_trivial_move) &&
-      (output_level_ != 0)) {
-    return is_trivial_move_;
+  // used in hybrid compaction to move forward few level
+  if (output_level_ != 0 && is_trivial_move_) {
+    return true;
+  }
+  if (num_input_levels() != 1) {
+    return false;
   }
 
   if (!(start_level_ != output_level_ && num_input_levels() == 1 &&

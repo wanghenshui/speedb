@@ -28,7 +28,6 @@ HybridCompactionPicker::HybridCompactionPicker(
       enableLow_(false),
       spaceAmpFactor_(0),
       ucmp_(icmp->user_comparator()) {
-  level0WriteRateMonitor_ = new Level0WriteRateMonitor;
   // init the vectors with zeros
   for (uint hyperLevelNum = 0; hyperLevelNum <= s_maxNumHyperLevels;
        hyperLevelNum++) {
@@ -287,33 +286,37 @@ Compaction* HybridCompactionPicker::RearangeLevel(
     }
   }
 
-  std::vector<CompactionInputFiles> inputs(1);
-
-  // we always move one level so no needs to have more than one place
   for (uint outputLevel = lastLevelInHyper; outputLevel > firstLevelInHyper;
        outputLevel--) {
     if (vstorage->LevelFiles(outputLevel).empty()) {
+      std::vector<CompactionInputFiles> inputs;
       // if the level is empty move levels above to it...
-      for (uint inputLevel = outputLevel - 1; inputLevel >= firstLevelInHyper;
-           inputLevel--) {
-        if (!vstorage->LevelFiles(inputLevel).empty()) {  //
-          inputs[0].level = inputLevel;
-          inputs[0].files = vstorage->LevelFiles(inputLevel);
-          return new Compaction(
-              vstorage, ioptions_, mutable_cf_options, mutable_db_options,
-              std::move(inputs), outputLevel, -1LL,
-              /* max_grandparent_overlap_bytes */ LLONG_MAX, 0,
-              GetCompressionType(ioptions_, vstorage, mutable_cf_options,
-                                 outputLevel, 1),
-              GetCompressionOptions(mutable_cf_options, vstorage, outputLevel),
-              /* max_subcompactions */ 1, /* grandparents */ {},
-              /* is manual */ false, 0, false /* deletion_compaction */,
-              kRearangeCompaction);
+      for (uint inputLevel = firstLevelInHyper; inputLevel < outputLevel;
+           inputLevel++) {
+        if (!vstorage->LevelFiles(inputLevel).empty()) {
+          inputs.push_back(CompactionInputFiles());
+          inputs.back().level = inputLevel;
+          inputs.back().files = vstorage->LevelFiles(inputLevel);
         }
       }
+      if (inputs.empty()) {
+        return 0;
+      }
+
+      auto c = new Compaction(
+          vstorage, ioptions_, mutable_cf_options, mutable_db_options,
+          std::move(inputs), outputLevel, -1LL,
+          /* max_grandparent_overlap_bytes */ LLONG_MAX, 0,
+          GetCompressionType(ioptions_, vstorage, mutable_cf_options,
+                             outputLevel, 1),
+          GetCompressionOptions(mutable_cf_options, vstorage, outputLevel),
+          /* max_subcompactions */ 1, /* grandparents */ {},
+          /* is manual */ false, 0, false /* deletion_compaction */,
+          kRearangeCompaction);
+      c->set_is_trivial_move(true);
+      return c;
     }
   }
-
   return 0;
 }
 

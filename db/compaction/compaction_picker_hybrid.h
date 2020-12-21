@@ -7,6 +7,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+// The file contains the class CompactionPickerHybrid, which is an
+// implementation of the abstruct class CompactionPicker (rocksdb)
+
 #pragma once
 
 #include <mutex>
@@ -16,41 +19,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-// The file contains the class CompactionPickerHybrid, which is an
-// implementation of the abstruct class CompactionPicker (rocksdb)
-
-struct Level0WriteRateMonitor {
-  Level0WriteRateMonitor()
-      : lastMessureTime(0), numberOfL0Files(0), avgTimeForFile(0) {}
-
-  void UpdateRate(size_t curTime, size_t curNumOfL0files) {
-    if (lastMessureTime >= curTime || curNumOfL0files == numberOfL0Files) {
-      return;
-    }
-    if (curNumOfL0files > numberOfL0Files) {
-      size_t nFilesAdded = curNumOfL0files - numberOfL0Files;
-      if (lastMessureTime != 0) {
-        double curTimeForFile = 1.0 * (curTime - lastMessureTime) / nFilesAdded;
-        if (avgTimeForFile == 0 || nFilesAdded >= 8) {
-          avgTimeForFile = curTimeForFile;
-        } else {
-          avgTimeForFile = (avgTimeForFile * (8 - nFilesAdded) +
-                            curTimeForFile * nFilesAdded) /
-                           8;
-        }
-      }
-    }
-    lastMessureTime = curTime;
-    numberOfL0Files = curNumOfL0files;
-  }
-
-  size_t getTimeForFile() { return (size_t)avgTimeForFile; }
-
-  size_t lastMessureTime;
-  size_t numberOfL0Files;
-  double avgTimeForFile;
-};
-
+// short descriptors of the running compactions
 struct HybridCompactionDescriptor {
   uint nCompactions;
   uint startLevel;
@@ -74,25 +43,23 @@ static const size_t s_levelsInHyperLevel = (s_maxLevelsToMerge + 4) * 2;
 
 class HybridCompactionPicker : public CompactionPicker {
  public:
-  // to allow maximum parallelisim
- public:
   HybridCompactionPicker(const ImmutableOptions& ioptions,
                          const InternalKeyComparator* icmp);
 
   ~HybridCompactionPicker() override{};
 
  public:
+  // pick a compaction
   virtual Compaction* PickCompaction(
       const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
       const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
       LogBuffer* log_buffer,
       SequenceNumber earliest_memtable_seqno = kMaxSequenceNumber) override;
-  // .
+
+  // check if the cf needs compaction
   bool NeedsCompaction(const VersionStorageInfo* vstorage) const override;
 
-  // set num levels to 121 (max supported) this allow a db size with is
-  // 1,000,000 times larger than buffet size. the actual number of levels used
-  // is depened on the current size
+  // set and optimize the cf options to work with hybrid compaction
   static void SetOptions(ColumnFamilyOptions& options) {
     options.compaction_style = kCompactionStyleHybrid;
     // one for L0 and one for L(last in case of max db)
@@ -122,14 +89,18 @@ class HybridCompactionPicker : public CompactionPicker {
   }
 
  private:
+  // build a descriptor of all the running compactions.
   void BuildCompactionDescriptors(HybridComactionsDescribtors& out) const;
 
+  // reatange: move level to the highest level in the hyper that is empty
   Compaction* RearangeLevel(uint HyperlevelNum, const std::string& cf_name,
                             const MutableCFOptions& mutable_cf_options,
                             const MutableDBOptions& mutable_db_options,
                             VersionStorageInfo* vstorage,
                             uint curCompactionStartPoint);
 
+  // level 0 compaction is merging Level 0 files to the highest level that is
+  // free in hyper level 1
   Compaction* PickLevel0Compaction(LogBuffer* log_buffer,
                                    const std::string& cf_name,
                                    const MutableCFOptions& mutable_cf_options,
@@ -137,26 +108,27 @@ class HybridCompactionPicker : public CompactionPicker {
                                    VersionStorageInfo* vstorage,
                                    size_t mergeWidth);
 
+  // other level compaction pick few levels and merge them to the
+  // highest level that is free in next hype level
   Compaction* PickLevelCompaction(LogBuffer* log_buffer, uint HyperlevelNum,
                                   const std::string& cf_name,
                                   const MutableCFOptions& mutable_cf_options,
                                   const MutableDBOptions& mutable_db_options,
                                   VersionStorageInfo* vstorage);
 
-  Compaction* ReduceNumOfSortedRun(const std::string& cf_name,
-                                   const MutableCFOptions& mutable_cf_options,
-                                   const MutableDBOptions& mutable_db_options,
-                                   VersionStorageInfo* vstorage);
-
+  // checking the database size (creating a new hyper level if the size is too
+  // large)
   Compaction* CheckDbSize(const std::string& cf_name,
                           const MutableCFOptions& mutable_cf_options,
                           const MutableDBOptions& mutable_db_options,
                           VersionStorageInfo* vstorage, LogBuffer* log_buffer);
+
   Compaction* MoveSstToLastLevel(const std::string& cf_name,
                                  const MutableCFOptions& mutable_cf_options,
                                  const MutableDBOptions& mutable_db_options,
                                  VersionStorageInfo* vstorage,
                                  LogBuffer* log_buffer);
+
   Compaction* PickReduceNumLevels(LogBuffer* log_buffer, uint hyperLevelNum,
                                   const std::string& cfName,
                                   const MutableCFOptions& mutable_cf_options,
@@ -271,7 +243,6 @@ class HybridCompactionPicker : public CompactionPicker {
   uint lastLevelThreads_;
   size_t sizeToCompact_[s_maxNumHyperLevels + 1];
   size_t multiplier_[s_maxNumHyperLevels + 1];
-  Level0WriteRateMonitor* level0WriteRateMonitor_;  // should be part of the cfd
   size_t lastLevelSizeCompactionStart_;
   bool enableLow_;
   double spaceAmpFactor_;

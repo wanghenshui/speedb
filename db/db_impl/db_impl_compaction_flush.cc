@@ -3071,28 +3071,32 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     // Move files to next level
     int32_t moved_files = 0;
     int64_t moved_bytes = 0;
-    for (unsigned int l = 0; l < c->num_input_levels(); l++) {
-      if (c->level(l) == c->output_level()) {
-        continue;
-      }
-      for (size_t i = 0; i < c->num_input_files(l); i++) {
-        FileMetaData* f = c->input(l, i);
-        c->edit()->DeleteFile(c->level(l), f->fd.GetNumber());
-        c->edit()->AddFile(c->output_level(), f->fd.GetNumber(),
-                           f->fd.GetPathId(), f->fd.GetFileSize(), f->smallest,
-                           f->largest, f->fd.smallest_seqno,
-                           f->fd.largest_seqno, f->marked_for_compaction,
-                           f->oldest_blob_file_number, f->oldest_ancester_time,
-                           f->file_creation_time, f->file_checksum,
-                           f->file_checksum_func_name);
 
-        ROCKS_LOG_BUFFER(
-            log_buffer,
-            "[%s] Moving #%" PRIu64 " to level-%d %" PRIu64 " bytes\n",
-            c->column_family_data()->GetName().c_str(), f->fd.GetNumber(),
-            c->output_level(), f->fd.GetFileSize());
-        ++moved_files;
-        moved_bytes += f->fd.GetFileSize();
+    // trivial move algoithm has changed we can now push forward several levels
+    auto output_level = c->output_level();
+    for (size_t l = c->num_input_levels(); l > 0;) {
+      l--;
+      if (c->num_input_files(l)) {
+        for (size_t i = 0; i < c->num_input_files(l); i++) {
+          FileMetaData* f = c->input(l, i);
+          c->edit()->DeleteFile(c->level(l), f->fd.GetNumber());
+          c->edit()->AddFile(output_level, f->fd.GetNumber(), f->fd.GetPathId(),
+                             f->fd.GetFileSize(), f->smallest, f->largest,
+                             f->fd.smallest_seqno, f->fd.largest_seqno,
+                             f->marked_for_compaction,
+                             f->oldest_blob_file_number,
+                             f->oldest_ancester_time, f->file_creation_time,
+                             f->file_checksum, f->file_checksum_func_name);
+
+          ++moved_files;
+          moved_bytes += f->fd.GetFileSize();
+        }
+        ROCKS_LOG_BUFFER(log_buffer,
+                         "[%s] Moving #%d files from level %d" PRIu64
+                         " to level-%d %" PRIu64 " bytes\n",
+                         c->column_family_data()->GetName().c_str(),
+                         c->num_input_files(l), l, output_level, moved_bytes);
+        output_level--;
       }
     }
 
@@ -3106,21 +3110,15 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                                        *c->mutable_cf_options());
 
     VersionStorageInfo::LevelSummaryStorage tmp;
-    c->column_family_data()->internal_stats()->IncBytesMoved(c->output_level(),
-                                                             moved_bytes);
-    {
-      event_logger_.LogToBuffer(log_buffer)
-          << "job" << job_context->job_id << "event"
-          << "trivial_move"
-          << "destination_level" << c->output_level() << "files" << moved_files
-          << "total_files_size" << moved_bytes;
-    }
     ROCKS_LOG_BUFFER(
         log_buffer,
         "[%s] Moved #%d files to level-%d %" PRIu64 " bytes %s: %s\n",
         c->column_family_data()->GetName().c_str(), moved_files,
         c->output_level(), moved_bytes, status.ToString().c_str(),
         c->column_family_data()->current()->storage_info()->LevelSummary(&tmp));
+
+    c->column_family_data()->internal_stats()->IncBytesMoved(c->output_level(),
+                                                             moved_bytes);
     *made_progress = true;
 
     auto cfd = c->column_family_data();
