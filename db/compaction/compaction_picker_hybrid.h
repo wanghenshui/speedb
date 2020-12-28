@@ -247,6 +247,11 @@ class HybridCompactionPicker : public CompactionPicker {
   bool enableLow_;
   double spaceAmpFactor_;
   const Comparator* ucmp_;
-  UserKey prevSubCompactionBoundary_[s_maxNumHyperLevels];
+  struct PrevPlace {
+    PrevPlace() : outputLevel(0) {}
+    uint outputLevel;
+    UserKey lastKey;
+  };
+  PrevPlace prevSubCompaction_[s_maxNumHyperLevels];
 };
 }  // namespace ROCKSDB_NAMESPACE

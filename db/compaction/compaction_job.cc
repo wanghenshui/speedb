@@ -177,7 +177,7 @@ struct CompactionJob::SubcompactionState {
   uint64_t overlapped_bytes = 0;
   // the first key in the current file
   std::string first_key_prefix;
-  static const uint64_t max_file_size = 1 << 30;  // 1GB
+  std::vector<size_t> max_sizes;
 
   SubcompactionState(Compaction* c, Slice* _start, Slice* _end,
                      uint64_t size = 0)
@@ -193,6 +193,20 @@ struct CompactionJob::SubcompactionState {
         grandparent_index(0),
         overlapped_bytes(0) {
     assert(compaction != nullptr);
+    const std::vector<FileMetaData*>& grandparents = compaction->grandparents();
+    auto maxFileSize = compaction->max_output_file_size();
+    max_sizes.resize(grandparents.size() + 1);
+    size_t gpIndex = 0;
+    for (auto& f : grandparents) {
+      // if almost reached the size than split to two files
+      if (f->fd.file_size > maxFileSize / 2) {
+        max_sizes[gpIndex] = maxFileSize / 3;
+      } else {
+        max_sizes[gpIndex] = -1ull;
+      }
+      gpIndex++;
+    }
+    max_sizes[gpIndex] = -1ull;
   }
 
   SubcompactionState(SubcompactionState&& o) { *this = std::move(o); }
@@ -213,7 +227,7 @@ struct CompactionJob::SubcompactionState {
     grandparent_index = std::move(o.grandparent_index);
     overlapped_bytes = std::move(o.overlapped_bytes);
     first_key_prefix = std::move(o.first_key_prefix);
-
+    max_sizes = std::move(o.max_sizes);
     return *this;
   }
 
@@ -237,9 +251,6 @@ struct CompactionJob::SubcompactionState {
     auto ucmp = compaction->column_family_data()->user_comparator();
     auto ext = compaction->mutable_cf_options()->prefix_extractor.get();
 
-    if (curr_file_size > max_file_size) {
-      return true;
-    }
     const std::vector<FileMetaData*>& grandparents = compaction->grandparents();
     if (grandparent_index == 0) {
       // first key never break hear...
@@ -256,6 +267,12 @@ struct CompactionJob::SubcompactionState {
       return false;
     }
 
+    // first condition near the max size
+    if (grandparent_index < max_sizes.size() &&
+        curr_file_size > max_sizes[grandparent_index]) {
+      max_sizes[grandparent_index] = -1ull;
+      return true;
+    }
     bool ret = false;
     if (ext) {
       std::string prefix = ext->Transform(user_key).ToString();

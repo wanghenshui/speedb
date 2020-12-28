@@ -590,8 +590,7 @@ bool Compaction::ShouldFormSubcompactions() const {
   } else if (cfd_->ioptions()->compaction_style == kCompactionStyleUniversal) {
     return number_levels_ > 1 && output_level_ > 0;
   } else {
-    return (cfd_->ioptions()->compaction_style == kCompactionStyleHybrid &&
-            start_level_ > 0);
+    return (cfd_->ioptions()->compaction_style == kCompactionStyleHybrid);
   }
 }
 
