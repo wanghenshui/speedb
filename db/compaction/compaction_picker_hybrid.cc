@@ -593,7 +593,7 @@ Compaction* HybridCompactionPicker::PickLevelCompaction(
   std::vector<FileMetaData*> grandparents;
   if (hyperLevelNum != curNumOfHyperLevels_) {
     // find output level
-    if (prevSubCompaction_[hyperLevelNum].empty()) {
+    if (!prevSubCompaction_[hyperLevelNum].empty()) {
       outputLevel = prevSubCompaction_[hyperLevelNum].outputLevel;
     } else {
       uint nextLevelEnd = LastLevelInHyper(hyperLevelNum + 1);
