@@ -96,8 +96,7 @@ class HybridCompactionPicker : public CompactionPicker {
   Compaction* RearangeLevel(uint HyperlevelNum, const std::string& cf_name,
                             const MutableCFOptions& mutable_cf_options,
                             const MutableDBOptions& mutable_db_options,
-                            VersionStorageInfo* vstorage,
-                            uint curCompactionStartPoint);
+                            VersionStorageInfo* vstorage);
 
   // level 0 compaction is merging Level 0 files to the highest level that is
   // free in hyper level 1
@@ -174,8 +173,7 @@ class HybridCompactionPicker : public CompactionPicker {
   uint LastLevel() const { return LastLevelInHyper(curNumOfHyperLevels_) + 1; }
 
   bool LevelNeedsRearange(uint hyperLevelNum,
-                          const VersionStorageInfo* vstorage,
-                          uint curCompactionStartPoint) const;
+                          const VersionStorageInfo* vstorage) const;
   static size_t CalculateHyperlevelSize(uint hyperLevelNum,
                                         const VersionStorageInfo* vstorage);
 
@@ -185,6 +183,7 @@ class HybridCompactionPicker : public CompactionPicker {
   bool MayRunRearange(
       uint hyperLevelNum,
       const HybridComactionsDescribtors& compactionJobsPerLevel) const;
+
   bool MayRunCompaction(
       uint hyperLevelNum,
       const HybridComactionsDescribtors& compactionJobsPerLevel) const;
@@ -248,7 +247,9 @@ class HybridCompactionPicker : public CompactionPicker {
   double spaceAmpFactor_;
   const Comparator* ucmp_;
   struct PrevPlace {
-    PrevPlace() : outputLevel(0) {}
+    PrevPlace() : outputLevel(-1u) {}
+    bool empty() const { return outputLevel == -1u; }
+    void setEmpty() { outputLevel = -1u; }
     uint outputLevel;
     UserKey lastKey;
   };
