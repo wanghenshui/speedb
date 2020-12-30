@@ -65,6 +65,7 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
         new WriteBufferManager(result.db_write_buffer_size));
   }
   result.max_background_compactions = 8;
+  result.max_background_flushes = 1;
 
   auto bg_job_limits = DBImpl::GetBGJobLimits(
       result.max_background_flushes, result.max_background_compactions,
