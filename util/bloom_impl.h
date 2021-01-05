@@ -169,7 +169,7 @@ class FastLocalBloomImpl {
       return 6;
     } else if (millibits_per_key <= 11720) {
       return 7;
-    } else if (millibits_per_key <= 14001) {
+    } else if (1 || millibits_per_key <= 14001) {
       // Would be something like <= 13800 but sacrificing *slightly* for
       // more settings using <= 8 probes.
       return 8;
@@ -353,7 +353,7 @@ class LegacyNoLocalityBloomImpl {
     // We intentionally round down to reduce probing cost a little bit
     int num_probes = static_cast<int>(bits_per_key * 0.69);  // 0.69 =~ ln(2)
     if (num_probes < 1) num_probes = 1;
-    if (num_probes > 30) num_probes = 30;
+    if (num_probes > 8) num_probes = 8;
     return num_probes;
   }
 
