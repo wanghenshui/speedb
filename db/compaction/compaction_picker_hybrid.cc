@@ -84,8 +84,8 @@ bool HybridCompactionPicker::NeedsCompaction(
     }
   }
   // reduce number of sorted run ....
-  if (0 && runningDesc[0].nCompactions == 0 &&
-      compactions_in_progress()->empty() && enableLow_) {
+  if (runningDesc[0].nCompactions == 0 && compactions_in_progress()->empty() &&
+      enableLow_) {
     for (uint hyperLevelNum = 1; hyperLevelNum <= curNumOfHyperLevels_;
          hyperLevelNum++) {
       auto l = LastLevelInHyper(hyperLevelNum);
@@ -238,7 +238,7 @@ Compaction* HybridCompactionPicker::PickCompaction(
   }
 
   // no compaction check for reduction
-  if (0 && enableLow_ && runningDesc[0].nCompactions == 0 &&
+  if (enableLow_ && runningDesc[0].nCompactions == 0 &&
       compactions_in_progress()->empty()) {
     uint max = 0;
     uint maxH = 0;
