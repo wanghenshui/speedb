@@ -13,9 +13,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-#define PrintableString(__key) \
-  (((__key).empty()) ? "empty" : (__key).ToString(true).c_str())
-
 #define kRearangeCompaction (CompactionReason::kFIFOTtl)
 
 HybridCompactionPicker::HybridCompactionPicker(
@@ -924,21 +921,6 @@ void HybridCompactionPicker::expandSelection(
       upperBound = (*f)->smallest.user_key();
     }
   }
-
-  if (outFiles.size() == 0) {
-    ROCKS_LOG_BUFFER(
-        log_buffer,
-        "[%s] Hybrid: expand selection selected no files %s %s %s %s! \n",
-        cf_name.c_str(), PrintableString(smallest), PrintableString(largest),
-        PrintableString(lowerBound), PrintableString(upperBound));
-    if (0) {
-      for (auto ff : levelFiles) {
-        ROCKS_LOG_BUFFER(log_buffer, "%s %s",
-                         PrintableString(ff->smallest.user_key()),
-                         PrintableString(ff->largest.user_key()));
-      }
-    }
-  }
 }
 
 // currently only on the last level
@@ -989,11 +971,10 @@ bool HybridCompactionPicker::SelectNBuffers(
   }
 
   ROCKS_LOG_BUFFER(log_buffer,
-                   "[%s] Hybrid: partial compaction started from %lu to %lu "
-                   "keys are %s %s %s %s \n",
+                   "[%s] Hybrid: partial compaction started from %lu to %lu  "
+                   "files selected %lu \n",
                    cf_name.c_str(), startLevel, outputLevel,
-                   PrintableString(smallestKey), PrintableString(largestKey),
-                   PrintableString(lowerBound), PrintableString(upperBound));
+                   inputs[count].files.size());
 
   for (uint level = startLevel - 1; level >= firstLevel; level--) {
     if (!vstorage->LevelFiles(level).empty()) {
@@ -1015,11 +996,8 @@ bool HybridCompactionPicker::SelectNBuffers(
       }
       ROCKS_LOG_BUFFER(log_buffer,
                        "[%s] Hybrid: partial compaction select %lu files from "
-                       "level %u %s %s %s %s\n",
-                       cf_name.c_str(), inputs[count].files.size(), level,
-                       PrintableString(smallestKey),
-                       PrintableString(largestKey), PrintableString(lowerBound),
-                       PrintableString(upperBound));
+                       "level %u\n",
+                       cf_name.c_str(), inputs[count].files.size(), level);
     }
   }
   assert(count == 0);
@@ -1060,13 +1038,6 @@ bool HybridCompactionPicker::SelectNBuffers(
 
   prevSubCompaction_[hyperLevelNum].lastKey = upperBound;
 
-#if 0  
-  ROCKS_LOG_BUFFER(log_buffer,
-		   "[%s] Hybrid: partial compaction select %lu files from lastlevel %u\n"
-		   , cf_name.c_str(),
-		     inputs[count].files.size(),
-		     outputLevel);
-#endif
   return true;
 }
 
