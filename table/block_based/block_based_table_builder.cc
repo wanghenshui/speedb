@@ -247,6 +247,7 @@ class BlockBasedTableBuilder::BlockBasedTablePropertiesCollector
 };
 
 struct BlockBasedTableBuilder::Rep {
+  const bool cache_data_blocks;
   const ImmutableOptions ioptions;
   const MutableCFOptions moptions;
   const BlockBasedTableOptions table_options;
@@ -403,7 +404,9 @@ struct BlockBasedTableBuilder::Rep {
 
   Rep(const BlockBasedTableOptions& table_opt, const TableBuilderOptions& tbo,
       WritableFileWriter* f)
-      : ioptions(tbo.ioptions),
+      : cache_data_blocks(tbo.level_at_creation >= 0 &&
+                          tbo.level_at_creation < 20),
+        ioptions(tbo.ioptions),
         moptions(tbo.moptions),
         table_options(table_opt),
         internal_comparator(tbo.internal_comparator),
@@ -1247,23 +1250,25 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
     io_s = r->file->Append(Slice(trailer, kBlockTrailerSize));
     if (io_s.ok()) {
       assert(s.ok());
-      if (is_data_block &&
-          r->table_options.prepopulate_block_cache ==
-              BlockBasedTableOptions::PrepopulateBlockCache::kFlushOnly) {
-        if (type == kNoCompression) {
-          s = InsertBlockInCache(block_contents, handle);
-        } else if (raw_block_contents != nullptr) {
-          s = InsertBlockInCache(*raw_block_contents, handle);
+      if (!is_data_block || r->cache_data_blocks) {
+        if (is_data_block &&
+            r->table_options.prepopulate_block_cache ==
+                BlockBasedTableOptions::PrepopulateBlockCache::kFlushOnly) {
+          if (type == kNoCompression) {
+            s = InsertBlockInCache(block_contents, handle);
+          } else if (raw_block_contents != nullptr) {
+            s = InsertBlockInCache(*raw_block_contents, handle);
+          }
+          if (!s.ok()) {
+            r->SetStatus(s);
+          }
         }
+        // TODO:: Should InsertBlockInCompressedCache take into account error
+        // from InsertBlockInCache or ignore and overwrite it.
+        s = InsertBlockInCompressedCache(block_contents, type, handle);
         if (!s.ok()) {
           r->SetStatus(s);
         }
-      }
-      // TODO:: Should InsertBlockInCompressedCache take into account error from
-      // InsertBlockInCache or ignore and overwrite it.
-      s = InsertBlockInCompressedCache(block_contents, type, handle);
-      if (!s.ok()) {
-        r->SetStatus(s);
       }
     } else {
       r->SetIOStatus(io_s);

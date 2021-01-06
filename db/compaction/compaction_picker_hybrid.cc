@@ -632,7 +632,8 @@ Compaction* HybridCompactionPicker::PickLevelCompaction(
     if (!vstorage->LevelFiles(firstLevelInHyper + 4).empty()) {
       nSubCompactions++;
     }
-    compactionOutputFileSize = std::min(size_t(1 << 30), dbSize / 8);
+    compactionOutputFileSize =
+        std::min(mutable_cf_options.target_file_size_base, dbSize / 32);
   }
   std::vector<CompactionInputFiles> inputs;
   if (!SelectNBuffers(inputs, lowPriority ? 1 : nSubCompactions * 4,
