@@ -100,17 +100,14 @@ class HybridCompactionPicker : public CompactionPicker {
 
   // level 0 compaction is merging Level 0 files to the highest level that is
   // free in hyper level 1
-  Compaction* PickLevel0Compaction(LogBuffer* log_buffer,
-                                   const std::string& cf_name,
-                                   const MutableCFOptions& mutable_cf_options,
+  Compaction* PickLevel0Compaction(const MutableCFOptions& mutable_cf_options,
                                    const MutableDBOptions& mutable_db_options,
                                    VersionStorageInfo* vstorage,
                                    size_t mergeWidth);
 
   // other level compaction pick few levels and merge them to the
   // highest level that is free in next hype level
-  Compaction* PickLevelCompaction(LogBuffer* log_buffer, uint HyperlevelNum,
-                                  const std::string& cf_name,
+  Compaction* PickLevelCompaction(uint HyperlevelNum,
                                   const MutableCFOptions& mutable_cf_options,
                                   const MutableDBOptions& mutable_db_options,
                                   VersionStorageInfo* vstorage,
@@ -199,15 +196,13 @@ class HybridCompactionPicker : public CompactionPicker {
 
   bool SelectNBuffers(std::vector<CompactionInputFiles>& inputs, uint nBuffers,
                       uint outputLevel, uint hyperLevelNum,
-                      VersionStorageInfo* vstorage, const std::string& cf_name,
-                      LogBuffer* log_buffer);
+                      VersionStorageInfo* vstorage);
 
   void expandSelection(const std::vector<FileMetaData*>& levelFiles,
                        std::vector<FileMetaData*>& outFiles,
                        UserKey& smallestExcludedKey,
                        UserKey& largestExcludedKey, const UserKey& smallest,
-                       const UserKey& largest, const std::string& cf_name,
-                       LogBuffer* log_buffer);
+                       const UserKey& largest);
 
   void selectNBufferFromFirstLevel(
       const std::vector<FileMetaData*>& levelFiles,
