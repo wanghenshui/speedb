@@ -964,7 +964,7 @@ bool HybridCompactionPicker::SelectNBuffers(
   count--;
 
   nBuffers =
-      std::max(nBuffers, (uint)vstorage->LevelFiles(LastLevel()).size() / 100);
+      std::max(nBuffers, (uint)vstorage->LevelFiles(LastLevel()).size() / 10);
 
   inputs[count].level = startLevel;
   selectNBufferFromFirstLevel(vstorage->LevelFiles(startLevel),
