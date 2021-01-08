@@ -95,10 +95,10 @@ bool HybridCompactionPicker::NeedsCompaction(
       if (hyperLevelNum == curNumOfHyperLevels_) {
         l++;
       }
-      for (; f < l; f++) {
-        if (!vstorage->LevelFiles(f).empty()) {
-          return true;
-        }
+      if (f < l && CalculateHyperlevelSize(hyperLevelNum, vstorage) *
+                           spaceAmpFactor_ * 2 >=
+                       CalculateHyperlevelSize(hyperLevelNum + 1, vstorage)) {
+        return true;
       }
     }
   }
@@ -239,24 +239,22 @@ Compaction* HybridCompactionPicker::PickCompaction(
   // no compaction check for reduction
   if (vstorage->LevelFiles(0).size() + 2 < multiplier_[0] &&
       runningDesc[0].nCompactions == 0 && compactions_in_progress()->empty()) {
-    uint max = 0;
     uint maxH = 0;
     for (uint hyperLevelNum = 1; hyperLevelNum <= curNumOfHyperLevels_;
          hyperLevelNum++) {
       auto l = LastLevelInHyper(hyperLevelNum);
       auto f = FirstLevelInHyper(hyperLevelNum);
-      if (hyperLevelNum == curNumOfHyperLevels_) {
-        l++;
-      }
       if (!prevSubCompaction_[hyperLevelNum - 1].empty()) {
         f = prevSubCompaction_[hyperLevelNum - 1].outputLevel + 1;
       }
-      for (; f < l; f++) {
-        if (!vstorage->LevelFiles(f).empty() && l - f > max) {
-          max = l - f;
-          maxH = hyperLevelNum;
-          break;
-        }
+
+      if (hyperLevelNum == curNumOfHyperLevels_) {
+        l++;
+      }
+      if (f < l && CalculateHyperlevelSize(hyperLevelNum, vstorage) *
+                           spaceAmpFactor_ * 2 >=
+                       CalculateHyperlevelSize(hyperLevelNum + 1, vstorage)) {
+        maxH = hyperLevelNum;
       }
     }
     if (maxH) {
