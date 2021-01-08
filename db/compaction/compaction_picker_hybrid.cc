@@ -251,9 +251,10 @@ Compaction* HybridCompactionPicker::PickCompaction(
       if (hyperLevelNum == curNumOfHyperLevels_) {
         l++;
       }
-      if (f < l && CalculateHyperlevelSize(hyperLevelNum, vstorage) *
-                           spaceAmpFactor_ * 2 >=
-                       CalculateHyperlevelSize(hyperLevelNum + 1, vstorage)) {
+      if (f < l && !vstorage->LevelFiles(l).empty() &&
+          CalculateHyperlevelSize(hyperLevelNum, vstorage) * spaceAmpFactor_ *
+                  2 >
+              CalculateHyperlevelSize(hyperLevelNum + 1, vstorage)) {
         maxH = hyperLevelNum;
       }
     }
