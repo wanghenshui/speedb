@@ -202,14 +202,14 @@ class HybridCompactionPicker : public CompactionPicker {
                        std::vector<FileMetaData*>& outFiles,
                        UserKey& smallestExcludedKey,
                        UserKey& largestExcludedKey, const UserKey& smallest,
-                       const UserKey& largest);
+                       const UserKey& largest, bool& lastFileWasSelected);
 
   void selectNBufferFromFirstLevel(
       const std::vector<FileMetaData*>& levelFiles,
       const std::vector<FileMetaData*>& targetLevelFiles, uint maxNBuffers,
       std::vector<FileMetaData*>& outFiles, UserKey& smallestKey,
       UserKey& largestKey, UserKey& smallestExcludedKey,
-      UserKey& largestExcludedKey);
+      UserKey& largestExcludedKey, bool& lastFileWasSelected);
 
   std::vector<FileMetaData*>::const_iterator locateFileLarger(
       const std::vector<FileMetaData*>& filesList, const UserKey& key);

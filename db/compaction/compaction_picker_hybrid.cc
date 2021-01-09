@@ -92,12 +92,10 @@ bool HybridCompactionPicker::NeedsCompaction(
         f = prevSubCompaction_[hyperLevelNum - 1].outputLevel + 1;
       }
 
-      if (hyperLevelNum == curNumOfHyperLevels_) {
-        l++;
-      }
-      if (f < l && CalculateHyperlevelSize(hyperLevelNum, vstorage) *
-                           spaceAmpFactor_ * 2 >=
-                       CalculateHyperlevelSize(hyperLevelNum + 1, vstorage)) {
+      if (f <= l && !vstorage->LevelFiles(l).empty() &&
+          CalculateHyperlevelSize(hyperLevelNum, vstorage) * spaceAmpFactor_ *
+                  2 >=
+              CalculateHyperlevelSize(hyperLevelNum + 1, vstorage)) {
         return true;
       }
     }
@@ -248,10 +246,7 @@ Compaction* HybridCompactionPicker::PickCompaction(
         f = prevSubCompaction_[hyperLevelNum - 1].outputLevel + 1;
       }
 
-      if (hyperLevelNum == curNumOfHyperLevels_) {
-        l++;
-      }
-      if (f < l && !vstorage->LevelFiles(l).empty() &&
+      if (f <= l && !vstorage->LevelFiles(l).empty() &&
           CalculateHyperlevelSize(hyperLevelNum, vstorage) * spaceAmpFactor_ *
                   2 >
               CalculateHyperlevelSize(hyperLevelNum + 1, vstorage)) {
@@ -457,12 +452,6 @@ bool HybridCompactionPicker::LevelNeedsRearange(
 
   uint firstLevelInHyper = FirstLevelInHyper(hyperLevelNum);
   uint lastLevelInHyper = LastLevelInHyper(hyperLevelNum);
-  if (!prevSubCompaction_[hyperLevelNum - 1].empty()) {
-    firstLevelInHyper = prevSubCompaction_[hyperLevelNum - 1].outputLevel + 1;
-    if (firstLevelInHyper >= lastLevelInHyper) {
-      return false;
-    }
-  }
 
   bool foundNonEmpty = false;
   for (uint level = firstLevelInHyper; level <= lastLevelInHyper; level++) {
@@ -643,7 +632,6 @@ Compaction* HybridCompactionPicker::PickLevelCompaction(
   std::vector<CompactionInputFiles> inputs;
   if (!SelectNBuffers(inputs, lowPriority ? 1 : nSubCompactions * 4,
                       outputLevel, hyperLevelNum, vstorage)) {
-    assert(0);
     return nullptr;
   }
   // trivial compaction
@@ -771,6 +759,10 @@ bool HybridCompactionPicker::NeedToRunLevelCompaction(
   if (hyperLevelNum == 0) {
     return vstorage->LevelFiles(0).size() >= multiplier_[0];
   }
+  const uint lastLevelInHyper = LastLevelInHyper(hyperLevelNum);
+  if (vstorage->LevelFiles(lastLevelInHyper).empty()) {
+    return false;
+  }
 
   int forceCompactLevel =
       LastLevelInHyper(hyperLevelNum) - multiplier_[hyperLevelNum] - 6;
@@ -802,7 +794,8 @@ void HybridCompactionPicker::selectNBufferFromFirstLevel(
     const std::vector<FileMetaData*>& levelFiles,
     const std::vector<FileMetaData*>& targetLevelFiles, uint maxNBuffers,
     std::vector<FileMetaData*>& outFiles, UserKey& smallestKey,
-    UserKey& largestKey, UserKey& lowerBound, UserKey& upperBound) {
+    UserKey& largestKey, UserKey& lowerBound, UserKey& upperBound,
+    bool& lastFileWasSelected) {
   if (levelFiles.empty()) {
     return;
   }
@@ -861,6 +854,7 @@ void HybridCompactionPicker::selectNBufferFromFirstLevel(
   if (levelIter != levelFiles.end() &&
       (upperBound.size() == 0 ||
        ucmp_->Compare(upperBound, (*levelIter)->smallest.user_key()) > 0)) {
+    lastFileWasSelected = false;
     upperBound = (*levelIter)->smallest.user_key();
   }
 }
@@ -872,7 +866,8 @@ void HybridCompactionPicker::selectNBufferFromFirstLevel(
 void HybridCompactionPicker::expandSelection(
     const std::vector<FileMetaData*>& levelFiles,
     std::vector<FileMetaData*>& outFiles, UserKey& lowerBound,
-    UserKey& upperBound, const UserKey& smallest, const UserKey& largest) {
+    UserKey& upperBound, const UserKey& smallest, const UserKey& largest,
+    bool& lastFileWasSelected) {
   // find all the files that holds data between lowerBound
   // and upperBound (openRange)
 
@@ -924,6 +919,7 @@ void HybridCompactionPicker::expandSelection(
         (upperBound.size() == 0 ||
          ucmp_->Compare((*f)->smallest.user_key(), upperBound) < 0)) {
       upperBound = (*f)->smallest.user_key();
+      lastFileWasSelected = false;
     }
   }
 }
@@ -965,11 +961,12 @@ bool HybridCompactionPicker::SelectNBuffers(
   nBuffers =
       std::max(nBuffers, (uint)vstorage->LevelFiles(LastLevel()).size() / 10);
 
+  bool lastFileWasSelected = true;
   inputs[count].level = startLevel;
   selectNBufferFromFirstLevel(vstorage->LevelFiles(startLevel),
                               vstorage->LevelFiles(LastLevel()), nBuffers,
                               inputs[count].files, smallestKey, largestKey,
-                              lowerBound, upperBound);
+                              lowerBound, upperBound, lastFileWasSelected);
   auto prevPlace = prevSubCompaction_[hyperLevelNum].lastKey;
   if (!prevPlace.empty()) {
     if (ucmp_->Compare(prevPlace, smallestKey) < 0 &&
@@ -983,7 +980,8 @@ bool HybridCompactionPicker::SelectNBuffers(
       count--;
       inputs[count].level = level;
       expandSelection(vstorage->LevelFiles(level), inputs[count].files,
-                      lowerBound, upperBound, smallestKey, largestKey);
+                      lowerBound, upperBound, smallestKey, largestKey,
+                      lastFileWasSelected);
       auto& fl = inputs[count].files;
       if (!fl.empty()) {
         if (ucmp_->Compare((*fl.begin())->smallest.user_key(), smallestKey) <
@@ -1032,8 +1030,11 @@ bool HybridCompactionPicker::SelectNBuffers(
   }
 
   prevSubCompaction_[hyperLevelNum].outputLevel = outputLevel;
-
-  prevSubCompaction_[hyperLevelNum].lastKey = upperBound;
+  if (!lastFileWasSelected) {
+    prevSubCompaction_[hyperLevelNum].lastKey = upperBound;
+  } else {
+    prevSubCompaction_[hyperLevelNum].lastKey.clear();
+  }
 
   return true;
 }
