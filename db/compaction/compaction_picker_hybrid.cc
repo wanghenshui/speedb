@@ -451,11 +451,18 @@ bool HybridCompactionPicker::LevelNeedsRearange(
     return false;
   }
 
-  uint firstLevelInHyper = FirstLevelInHyper(hyperLevelNum);
-  uint lastLevelInHyper = LastLevelInHyper(hyperLevelNum);
+  uint firstLevel = FirstLevelInHyper(hyperLevelNum);
+  uint lastLevel = LastLevelInHyper(hyperLevelNum);
+
+  if (!prevSubCompaction_[hyperLevelNum - 1].empty()) {
+    firstLevel = prevSubCompaction_[hyperLevelNum - 1].outputLevel + 1;
+    if (firstLevel > lastLevel) {
+      return false;
+    }
+  }
 
   bool foundNonEmpty = false;
-  for (uint level = firstLevelInHyper; level <= lastLevelInHyper; level++) {
+  for (uint level = firstLevel; level <= lastLevel; level++) {
     bool isEmpty = vstorage->LevelFiles(level).empty();
     if (!foundNonEmpty) {
       foundNonEmpty = !isEmpty;
