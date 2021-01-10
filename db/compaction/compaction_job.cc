@@ -301,7 +301,7 @@ struct CompactionJob::SubcompactionState {
                    grandparents[grandparent_index]->largest.user_key()) >= 0) {
           grandparent_index++;
         }
-        ret = curr_file_size >= 4ul << 20;  // 4MB
+        ret = true;
       }
     }
 
