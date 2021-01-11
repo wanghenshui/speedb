@@ -556,7 +556,7 @@ ColumnFamilyOptions* ColumnFamilyOptions::OptimizeForPointLookup(
       BlockBasedTableOptions::kDataBlockBinaryAndHash;
   block_based_options.data_block_hash_table_util_ratio = 0.75;
   if (!block_based_options.filter_policy.get()) {
-    block_based_options.filter_policy.reset(NewBloomFilterPolicy(20));
+    block_based_options.filter_policy.reset(NewBloomFilterPolicy(32));
   }
   block_based_options.cache_index_and_filter_blocks = false;
   if (block_cache_size_mb) {
