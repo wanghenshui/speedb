@@ -753,6 +753,7 @@ bool HybridCompactionPicker::MayStartLevelCompaction(
   }
   // check that there is a free target
   if (hyperLevelNum != curNumOfHyperLevels_ &&
+      prevSubCompaction_[hyperLevelNum].empty() &&
       !vstorage->LevelFiles(LastLevelInHyper(hyperLevelNum) + 1).empty()) {
     return false;
   }
