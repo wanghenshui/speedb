@@ -81,8 +81,7 @@ bool HybridCompactionPicker::NeedsCompaction(
     }
   }
   // reduce number of sorted run ....
-  if (0 && runningDesc[0].nCompactions == 0 &&
-      compactions_in_progress()->empty() &&
+  if (runningDesc[0].nCompactions == 0 && compactions_in_progress()->empty() &&
       vstorage->LevelFiles(0).size() + 2 < multiplier_[0]) {
     for (uint hyperLevelNum = 1; hyperLevelNum <= curNumOfHyperLevels_;
          hyperLevelNum++) {
@@ -93,10 +92,7 @@ bool HybridCompactionPicker::NeedsCompaction(
         f = prevSubCompaction_[hyperLevelNum - 1].outputLevel + 1;
       }
 
-      if (f <= l && !vstorage->LevelFiles(l).empty() &&
-          CalculateHyperlevelSize(hyperLevelNum, vstorage) * spaceAmpFactor_ *
-                  2 >=
-              CalculateHyperlevelSize(hyperLevelNum + 1, vstorage)) {
+      if (f <= l && !vstorage->LevelFiles(l).empty()) {
         return true;
       }
     }
@@ -236,9 +232,10 @@ Compaction* HybridCompactionPicker::PickCompaction(
   }
 
   // no compaction check for reduction
-  if (0 && vstorage->LevelFiles(0).size() + 2 < multiplier_[0] &&
+  if (vstorage->LevelFiles(0).size() + 2 < multiplier_[0] &&
       runningDesc[0].nCompactions == 0 && compactions_in_progress()->empty()) {
     uint maxH = 0;
+    uint max = 0;
     for (uint hyperLevelNum = 1; hyperLevelNum <= curNumOfHyperLevels_;
          hyperLevelNum++) {
       auto l = LastLevelInHyper(hyperLevelNum);
@@ -247,10 +244,15 @@ Compaction* HybridCompactionPicker::PickCompaction(
         f = prevSubCompaction_[hyperLevelNum - 1].outputLevel + 1;
       }
 
-      if (f <= l && !vstorage->LevelFiles(l).empty() &&
-          CalculateHyperlevelSize(hyperLevelNum, vstorage) * spaceAmpFactor_ *
-                  2 >
-              CalculateHyperlevelSize(hyperLevelNum + 1, vstorage)) {
+      if (f > l || vstorage->LevelFiles(l).empty()) {
+        continue;
+      }
+
+      while (vstorage->LevelFiles(f).empty()) {
+        f++;
+      }
+      if (l - f >= max) {
+        max = l - f;
         maxH = hyperLevelNum;
       }
     }
@@ -598,15 +600,19 @@ Compaction* HybridCompactionPicker::PickLevelCompaction(
   std::vector<FileMetaData*> grandparents;
   if (hyperLevelNum != curNumOfHyperLevels_) {
     // find output level
+    uint nextLevelEnd = LastLevelInHyper(hyperLevelNum + 1);
+    while (outputLevel < nextLevelEnd &&
+           vstorage->LevelFiles(outputLevel + 1).empty()) {
+      outputLevel++;
+    }
     if (!prevSubCompaction_[hyperLevelNum].empty()) {
-      outputLevel = prevSubCompaction_[hyperLevelNum].outputLevel;
-    } else {
-      uint nextLevelEnd = LastLevelInHyper(hyperLevelNum + 1);
-      while (outputLevel < nextLevelEnd &&
-             vstorage->LevelFiles(outputLevel + 1).empty()) {
-        outputLevel++;
+      auto k =
+          vstorage->LevelFiles(lastLevelInHyper).back()->largest.user_key();
+      if (ucmp_->Compare(k, prevSubCompaction_[hyperLevelNum].lastKey) > 0) {
+        outputLevel = prevSubCompaction_[hyperLevelNum].outputLevel;
       }
     }
+
     if (hyperLevelNum + 2 >= curNumOfHyperLevels_) {
       grandparents = vstorage->LevelFiles(LastLevel());
     }
@@ -621,7 +627,7 @@ Compaction* HybridCompactionPicker::PickLevelCompaction(
         CalculateHyperlevelSize(hyperLevelNum, vstorage);
     size_t dbSize = vstorage->NumLevelBytes(LastLevel());
     if (dbSize == 0) {
-      dbSize = (size_t)mutable_cf_options.write_buffer_size;
+      dbSize = (size_t)mutable_cf_options.write_buffer_size * 8;
     }
     lastHyperLevelSize *= spaceAmpFactor_;
     if (dbSize && lastHyperLevelSize > dbSize) {
@@ -634,8 +640,8 @@ Compaction* HybridCompactionPicker::PickLevelCompaction(
     if (!vstorage->LevelFiles(firstLevelInHyper + 4).empty()) {
       nSubCompactions++;
     }
-    compactionOutputFileSize =
-        std::min(mutable_cf_options.target_file_size_base, dbSize / 32);
+
+    compactionOutputFileSize = std::min(1ul << 30, dbSize / 8);
   }
   std::vector<CompactionInputFiles> inputs;
   if (!SelectNBuffers(inputs, lowPriority ? 1 : nSubCompactions * 4,
@@ -836,6 +842,7 @@ void HybridCompactionPicker::selectNBufferFromFirstLevel(
       prev--;
       lowerBound = (*prev)->largest.user_key();
     }
+
     auto targetEnd = locateFile(targetLevelFiles, largestKey, targetBegin);
     if (targetEnd != targetLevelFiles.end()) {
       auto count = targetEnd - targetBegin + 1;
@@ -924,11 +931,15 @@ void HybridCompactionPicker::expandSelection(
     }
 
     // setup the large borders
-    if (f != levelFiles.end() &&
-        (upperBound.size() == 0 ||
-         ucmp_->Compare((*f)->smallest.user_key(), upperBound) < 0)) {
-      upperBound = (*f)->smallest.user_key();
-      lastFileWasSelected = false;
+    if (f != levelFiles.end()) {
+      if (upperBound.size() == 0 ||
+          ucmp_->Compare((*f)->smallest.user_key(), upperBound) < 0) {
+        upperBound = (*f)->smallest.user_key();
+      }
+      if (upperBound.size() == 0 ||
+          ucmp_->Compare((*f)->largest.user_key(), upperBound) > 0) {
+        lastFileWasSelected = false;
+      }
     }
   }
 }
@@ -940,6 +951,11 @@ bool HybridCompactionPicker::SelectNBuffers(
   // go down start with last level
   uint startLevel = LastLevelInHyper(hyperLevelNum);
   uint firstLevel = FirstLevelInHyper(hyperLevelNum) + 3;
+
+  if (vstorage->LevelFiles(startLevel).empty()) {
+    return false;
+  }
+
   if (!prevSubCompaction_[hyperLevelNum - 1].empty() &&
       firstLevel <= prevSubCompaction_[hyperLevelNum - 1].outputLevel) {
     firstLevel = prevSubCompaction_[hyperLevelNum - 1].outputLevel + 1;
@@ -948,9 +964,6 @@ bool HybridCompactionPicker::SelectNBuffers(
     }
   }
 
-  while (startLevel > firstLevel && vstorage->LevelFiles(startLevel).empty()) {
-    startLevel--;
-  }
   assert(startLevel >= firstLevel);
   uint count = 0;
   for (uint s = startLevel; s >= firstLevel; s--) {
@@ -1018,6 +1031,9 @@ bool HybridCompactionPicker::SelectNBuffers(
     if (ucmp_->Compare(fl[startPlace]->smallest.user_key(), largestKey) > 0) {
       break;
     } else {
+      if (!lastFileWasSelected && !inputs[count].files.empty()) {
+        lastFileWasSelected = true;
+      }
       inputs[count].files.push_back(fl[startPlace]);
     }
   }

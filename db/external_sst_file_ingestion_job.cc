@@ -750,7 +750,9 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
         break;
       }
 
-      if (compaction_style == kCompactionStyleUniversal && lvl != 0) {
+      if ((compaction_style == kCompactionStyleUniversal ||
+           compaction_style == kCompactionStyleHybrid) &&
+          lvl != 0) {
         const std::vector<FileMetaData*>& level_files =
             vstorage->LevelFiles(lvl);
         const SequenceNumber level_largest_seqno =
@@ -763,6 +765,7 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
         // the file fits
         if (level_largest_seqno != 0 &&
             IngestedFileFitInLevel(file_to_ingest, lvl)) {
+          target_level = lvl;
           *assigned_seqno = level_largest_seqno;
         } else {
           continue;
@@ -772,11 +775,6 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
       continue;
     }
 
-    // We don't overlap with any keys in this level, but we still need to check
-    // if our file can fit in it
-    if (IngestedFileFitInLevel(file_to_ingest, lvl)) {
-      target_level = lvl;
-    }
   }
   // If files overlap, we have to ingest them at level 0 and assign the newest
   // sequence number
@@ -797,17 +795,14 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
 Status ExternalSstFileIngestionJob::CheckLevelForIngestedBehindFile(
     IngestedFileInfo* file_to_ingest) {
   auto* vstorage = cfd_->current()->storage_info();
-  // first check if new files fit in the bottommost level
-  int bottom_lvl = cfd_->NumberLevels() - 1;
-  if(!IngestedFileFitInLevel(file_to_ingest, bottom_lvl)) {
-    return Status::InvalidArgument(
-      "Can't ingest_behind file as it doesn't fit "
-      "at the bottommost level!");
-  }
 
   // second check if despite allow_ingest_behind=true we still have 0 seqnums
   // at some upper level
+  int bottom_lvl = 0;
   for (int lvl = 0; lvl < cfd_->NumberLevels() - 1; lvl++) {
+    if (!vstorage->LevelFiles(lvl).empty()) {
+      bottom_lvl = lvl;
+    }
     for (auto file : vstorage->LevelFiles(lvl)) {
       if (file->fd.smallest_seqno == 0) {
         return Status::InvalidArgument(
@@ -817,6 +812,12 @@ Status ExternalSstFileIngestionJob::CheckLevelForIngestedBehindFile(
     }
   }
 
+  // now check if new files fit in the bottommost level
+  if (!IngestedFileFitInLevel(file_to_ingest, bottom_lvl)) {
+    return Status::InvalidArgument(
+        "Can't ingest_behind file as it doesn't fit "
+        "at the bottommost level!");
+  }
   file_to_ingest->picked_level = bottom_lvl;
   return Status::OK();
 }

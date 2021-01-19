@@ -872,8 +872,8 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
                                     const Slice* begin, const Slice* end) {
   int64_t curTime;
   env_->GetCurrentTime(&curTime);
-  if (bg_bottom_compaction_scheduled_ > 0 || bg_compaction_scheduled_ > 0 ||
-      curTime - s_LastCompactionTime < 5) {
+  if (1 || bg_bottom_compaction_scheduled_ > 0 ||
+      bg_compaction_scheduled_ > 0 || curTime - s_LastCompactionTime < 5) {
     env_->SleepForMicroseconds(10000000);
     return Status();
   }

@@ -278,7 +278,7 @@ struct CompactionJob::SubcompactionState {
       std::string prefix = ext->Transform(user_key).ToString();
       if (prefix != first_key_prefix) {
         first_key_prefix = prefix;
-        ret = true;
+        ret = curr_file_size > max_sizes[grandparent_index] / 8;
       }
     }
 
