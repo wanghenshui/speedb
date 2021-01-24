@@ -238,7 +238,7 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
     } else if (strncmp(argv[i], "--parse_internal_key=", 21) == 0) {
       std::string in_key(argv[i] + 21);
       try {
-        // in_key = ROCKSDB_NAMESPACE::LDBCommand::HexToString(in_key);
+        in_key = ROCKSDB_NAMESPACE::LDBCommand::HexToString(in_key);
       } catch (...) {
         std::cerr << "ERROR: Invalid key input '"
           << in_key
@@ -328,10 +328,10 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
 
   if (input_key_hex) {
     if (has_from || use_from_as_prefix) {
-      // from_key = ROCKSDB_NAMESPACE::LDBCommand::HexToString(from_key);
+      from_key = ROCKSDB_NAMESPACE::LDBCommand::HexToString(from_key);
     }
     if (has_to) {
-      // to_key = ROCKSDB_NAMESPACE::LDBCommand::HexToString(to_key);
+      to_key = ROCKSDB_NAMESPACE::LDBCommand::HexToString(to_key);
     }
   }
 
