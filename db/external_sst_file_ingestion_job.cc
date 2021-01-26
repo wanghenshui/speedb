@@ -797,24 +797,27 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
 Status ExternalSstFileIngestionJob::CheckLevelForIngestedBehindFile(
     IngestedFileInfo* file_to_ingest) {
   auto* vstorage = cfd_->current()->storage_info();
-  // first check if new files fit in the bottommost level
-  int bottom_lvl = cfd_->NumberLevels() - 1;
+  int bottom_lvl = 0;
+  // second check if despite allow_ingest_behind=true we still have 0 seqnums
+  // at some upper level
+  for (int lvl = 0; lvl < cfd_->NumberLevels() - 1; lvl++) {
+    if (!vstorage->LevelFiles(lvl).empty()) {
+      for (auto file : vstorage->LevelFiles(lvl)) {
+        if (file->fd.smallest_seqno == 0) {
+          return Status::InvalidArgument(
+              "Can't ingest_behind file as despite allow_ingest_behind=true "
+              "there are files with 0 seqno in database at upper levels!");
+        }
+      }
+      bottom_lvl = lvl;
+    }
+  }
+  // now check if new files fit in the bottommost level
+
   if (!IngestedFileFitInLevel(file_to_ingest, bottom_lvl)) {
     return Status::InvalidArgument(
         "Can't ingest_behind file as it doesn't fit "
         "at the bottommost level!");
-  }
-
-  // second check if despite allow_ingest_behind=true we still have 0 seqnums
-  // at some upper level
-  for (int lvl = 0; lvl < cfd_->NumberLevels() - 1; lvl++) {
-    for (auto file : vstorage->LevelFiles(lvl)) {
-      if (file->fd.smallest_seqno == 0) {
-        return Status::InvalidArgument(
-          "Can't ingest_behind file as despite allow_ingest_behind=true "
-          "there are files with 0 seqno in database at upper levels!");
-      }
-    }
   }
 
   file_to_ingest->picked_level = bottom_lvl;

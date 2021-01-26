@@ -171,7 +171,8 @@ class HybridCompactionPicker : public CompactionPicker {
   uint LastLevel() const { return LastLevelInHyper(curNumOfHyperLevels_) + 1; }
 
   bool LevelNeedsRearange(uint hyperLevelNum,
-                          const VersionStorageInfo* vstorage) const;
+                          const VersionStorageInfo* vstorage,
+                          uint firstLevel) const;
   static size_t CalculateHyperlevelSize(uint hyperLevelNum,
                                         const VersionStorageInfo* vstorage);
 

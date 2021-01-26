@@ -238,7 +238,9 @@ Compaction::Compaction(
       is_manual_compaction_(_manual_compaction),
       is_trivial_move_(false),
       compaction_reason_(_compaction_reason) {
+  filesReleased_ = false;
   MarkFilesBeingCompacted(true);
+
   if (is_manual_compaction_) {
     compaction_reason_ = CompactionReason::kManualCompaction;
   }
@@ -458,8 +460,11 @@ uint64_t Compaction::CalculateTotalInputSize() const {
 }
 
 void Compaction::ReleaseCompactionFiles(Status status) {
-  MarkFilesBeingCompacted(false);
-  cfd_->compaction_picker()->ReleaseCompactionFiles(this, status);
+  if (!filesReleased_) {
+    MarkFilesBeingCompacted(false);
+    cfd_->compaction_picker()->ReleaseCompactionFiles(this, status);
+    filesReleased_ = true;
+  }
 }
 
 void Compaction::ResetNextCompactionIndex() {

@@ -302,6 +302,7 @@ class Compaction {
 
  private:
   // mark (or clear) all files that are being compacted
+  bool filesReleased_;
   void MarkFilesBeingCompacted(bool mark_as_compacted);
 
   // get the smallest and largest key present in files to be compacted

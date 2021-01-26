@@ -1294,6 +1294,7 @@ Status DBImpl::CompactFilesImpl(
   mutex_.Lock();
 
   Status status = compaction_job.Install(*c->mutable_cf_options());
+  c->ReleaseCompactionFiles(s);
   if (status.ok()) {
     assert(compaction_job.io_status().ok());
     InstallSuperVersionAndScheduleWork(c->column_family_data(),
@@ -1304,7 +1305,6 @@ Status DBImpl::CompactFilesImpl(
   // not check compaction_job.io_status() explicitly if we're not calling
   // SetBGError
   compaction_job.io_status().PermitUncheckedError();
-  c->ReleaseCompactionFiles(s);
 #ifndef ROCKSDB_LITE
   // Need to make sure SstFileManager does its bookkeeping
   auto sfm = static_cast<SstFileManagerImpl*>(
@@ -3043,6 +3043,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                                     *c->mutable_cf_options(), c->edit(),
                                     &mutex_, directories_.GetDbDir());
     io_s = versions_->io_status();
+    c->ReleaseCompactionFiles(status);
     InstallSuperVersionAndScheduleWork(c->column_family_data(),
                                        &job_context->superversion_contexts[0],
                                        *c->mutable_cf_options());
@@ -3105,6 +3106,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                                     &mutex_, directories_.GetDbDir());
     io_s = versions_->io_status();
     // Use latest MutableCFOptions
+    c->ReleaseCompactionFiles(status);
     InstallSuperVersionAndScheduleWork(c->column_family_data(),
                                        &job_context->superversion_contexts[0],
                                        *c->mutable_cf_options());
@@ -3121,11 +3123,6 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                                                              moved_bytes);
     *made_progress = true;
 
-    auto cfd = c->column_family_data();
-    c->ReleaseCompactionFiles(status);
-    c.reset();
-    SchedulePendingCompaction(cfd);
-    MaybeScheduleFlushOrCompaction();
     // Clear Instrument
     ThreadStatusUtil::ResetThreadStatus();
     TEST_SYNC_POINT_CALLBACK("DBImpl::BackgroundCompaction:AfterCompaction",
@@ -3195,6 +3192,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
 
     status = compaction_job.Install(*c->mutable_cf_options());
     io_s = compaction_job.io_status();
+    c->ReleaseCompactionFiles(status);
     if (status.ok()) {
       InstallSuperVersionAndScheduleWork(c->column_family_data(),
                                          &job_context->superversion_contexts[0],
@@ -3212,7 +3210,6 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
   }
 
   if (c != nullptr) {
-    c->ReleaseCompactionFiles(status);
     *made_progress = true;
 
 #ifndef ROCKSDB_LITE
