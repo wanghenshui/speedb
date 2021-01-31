@@ -126,25 +126,12 @@ class HybridCompactionPicker : public CompactionPicker {
                                  VersionStorageInfo* vstorage,
                                  LogBuffer* log_buffer);
 
-  Compaction* PickReduceNumLevels(LogBuffer* log_buffer, uint hyperLevelNum,
-                                  const std::string& cfName,
-                                  const MutableCFOptions& mutable_cf_options,
-                                  const MutableDBOptions& mutable_db_options,
-                                  VersionStorageInfo* vstorage);
+  Compaction* PickReduceNumFiles(const MutableCFOptions& mutable_cf_options,
+                                 const MutableDBOptions& mutable_db_options,
+                                 VersionStorageInfo* vstorage,
+                                 size_t minFileSize);
 
  private:
-  static uint LastLevelThreadsNum(uint spaceAmp) {
-    // for debug purpose
-    // return 1;
-    if (spaceAmp >= 200) {
-      return 2;
-    } else if (spaceAmp <= 110) {
-      return 10;
-    } else {
-      return (100 / (spaceAmp - 100));
-    }
-  }
-
   static uint FirstLevelInHyper(uint hyperLevelNum) {
     if (hyperLevelNum == 0) {
       return 0;
@@ -236,7 +223,6 @@ class HybridCompactionPicker : public CompactionPicker {
   // above the current db_size
   uint curNumOfHyperLevels_;
   uint maxNumHyperLevels_;
-  uint lastLevelThreads_;
   size_t sizeToCompact_[s_maxNumHyperLevels + 1];
   size_t multiplier_[s_maxNumHyperLevels + 1];
   size_t lastLevelSizeCompactionStart_;

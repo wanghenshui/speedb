@@ -178,6 +178,7 @@ struct CompactionJob::SubcompactionState {
   // the first key in the current file
   std::string first_key_prefix;
   std::vector<size_t> max_sizes;
+  static const size_t k_prefix_head = 4;
 
   SubcompactionState(Compaction* c, Slice* _start, Slice* _end,
                      uint64_t size = 0)
@@ -249,7 +250,6 @@ struct CompactionJob::SubcompactionState {
   // before processing "internal_key".
   bool ShouldStopBefore(const Slice& user_key, uint64_t curr_file_size) {
     auto ucmp = compaction->column_family_data()->user_comparator();
-    auto ext = compaction->mutable_cf_options()->prefix_extractor.get();
 
     const std::vector<FileMetaData*>& grandparents = compaction->grandparents();
     if (grandparent_index == 0) {
@@ -261,8 +261,8 @@ struct CompactionJob::SubcompactionState {
                  grandparents[grandparent_index]->smallest.user_key()) >= 0) {
         grandparent_index++;
       }
-      if (ext) {
-        first_key_prefix = ext->Transform(user_key).ToString();
+      if (1 || ucmp == BytewiseComparator()) {
+        first_key_prefix.assign(user_key.data(), k_prefix_head);
       }
       return false;
     }
@@ -274,11 +274,11 @@ struct CompactionJob::SubcompactionState {
       return true;
     }
     bool ret = false;
-    if (ext) {
-      std::string prefix = ext->Transform(user_key).ToString();
+    if (1 || ucmp == BytewiseComparator()) {
+      std::string prefix(user_key.data(), k_prefix_head);
       if (prefix != first_key_prefix) {
         first_key_prefix = prefix;
-        ret = curr_file_size > max_sizes[grandparent_index] / 8;
+        ret = true;
       }
     }
 

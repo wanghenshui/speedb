@@ -768,15 +768,15 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
           continue;
         }
       }
+      // We don't overlap with any keys in this level, but we still need to
+      // check if our file can fit in it
+      if (IngestedFileFitInLevel(file_to_ingest, lvl)) {
+        target_level = lvl;
+      }
     } else if (compaction_style == kCompactionStyleUniversal) {
       continue;
     }
 
-    // We don't overlap with any keys in this level, but we still need to check
-    // if our file can fit in it
-    if (IngestedFileFitInLevel(file_to_ingest, lvl)) {
-      target_level = lvl;
-    }
   }
   // If files overlap, we have to ingest them at level 0 and assign the newest
   // sequence number
