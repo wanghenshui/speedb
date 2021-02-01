@@ -2300,6 +2300,9 @@ class DBImpl : public DB {
 
   // Pointer to WriteBufferManager stalling interface.
   std::unique_ptr<StallInterface> wbm_stall_;
+
+  bool hadWritesInLastCycle_;
+  void RunLowPriorityCompaction();
 };
 
 extern Options SanitizeOptions(const std::string& db, const Options& src,

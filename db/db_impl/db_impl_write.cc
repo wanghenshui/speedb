@@ -75,6 +75,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
                          bool disable_memtable, uint64_t* seq_used,
                          size_t batch_cnt,
                          PreReleaseCallback* pre_release_callback) {
+  hadWritesInLastCycle_ = true;
   if (mutable_db_options_.io_trace) {
     if (my_batch) {
       my_batch->Confess(immutable_db_options_.logger, env_->GetThreadID());

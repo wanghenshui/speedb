@@ -806,6 +806,20 @@ void DBImpl::NotifyOnFlushCompleted(
 #endif  // ROCKSDB_LITE
 }
 
+void DBImpl::RunLowPriorityCompaction() {
+  mutex_.Lock();
+  for (auto cfd : *versions_->GetColumnFamilySet()) {
+    if (!cfd->queued_for_compaction()) {
+      cfd->compaction_picker()->EnableLowPriorityCompaction(true);
+      if (cfd->NeedsCompaction()) {
+        AddToCompactionQueue(cfd);
+        ++unscheduled_compactions_;
+      }
+    }
+  }
+  mutex_.Unlock();
+}
+
 Status DBImpl::CompactRange(const CompactRangeOptions& options,
                             ColumnFamilyHandle* column_family,
                             const Slice* begin_without_ts,

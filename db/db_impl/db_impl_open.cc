@@ -1661,6 +1661,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
         }
       }
     }
+
     if (s.ok()) {
       SuperVersionContext sv_context(/* create_superversion */ true);
       for (auto cfd : *impl->versions_->GetColumnFamilySet()) {

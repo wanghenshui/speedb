@@ -1126,6 +1126,7 @@ Compaction* ColumnFamilyData::PickCompaction(
   if (result != nullptr) {
     result->SetInputVersion(current_);
   }
+  compaction_picker_->EnableLowPriorityCompaction(false);
   return result;
 }
 

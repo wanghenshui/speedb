@@ -85,13 +85,13 @@ bool HybridCompactionPicker::NeedsCompaction(
     }
   }
 
+  if (vstorage->LevelFiles(LastLevel()).size() > max_open_files_ / 2) {
+    return true;
+  }
   // reduce number of sorted run ....
   // need to more than 4 levels with data
-  if (runningDesc[0].nCompactions == 0 && compactions_in_progress()->empty() &&
-      vstorage->LevelFiles(0).size() < multiplier_[0]) {
-    if (vstorage->LevelFiles(LastLevel()).size() > max_open_files_ / 2) {
-      return true;
-    }
+  if (enableLow_ && runningDesc[0].nCompactions == 0 &&
+      compactions_in_progress()->empty()) {
     if (vstorage->LevelFiles(0).size() >= multiplier_[0] / 2) {
       return true;
     }
@@ -99,14 +99,7 @@ bool HybridCompactionPicker::NeedsCompaction(
     for (uint hyperLevelNum = 1; hyperLevelNum <= curNumOfHyperLevels_;
          hyperLevelNum++) {
       auto l = LastLevelInHyper(hyperLevelNum);
-      auto f = FirstLevelInHyper(hyperLevelNum);
-      uint count = 0;
-      for (; f <= l; f++) {
-        if (!vstorage->LevelFiles(f).empty()) {
-          count++;
-        }
-      }
-      if (count >= multiplier_[0] / 2) {
+      if (!vstorage->LevelFiles(l).empty()) {
         return true;
       }
     }
@@ -243,9 +236,7 @@ Compaction* HybridCompactionPicker::PickCompaction(
       }
     }
   }
-
-  // no compaction check for reduction
-  if (runningDesc[0].nCompactions == 0 && compactions_in_progress()->empty()) {
+  if (MayStartLevelCompaction(curNumOfHyperLevels_, runningDesc, vstorage)) {
     if (vstorage->LevelFiles(LastLevel()).size() > max_open_files_ / 2) {
       auto dbSize = vstorage->NumLevelBytes(LastLevel());
       auto ret =
@@ -260,6 +251,12 @@ Compaction* HybridCompactionPicker::PickCompaction(
         return ret;
       }
     }
+  }
+
+  // no compaction check for reduction
+  if (enableLow_ && runningDesc[0].nCompactions == 0 &&
+      compactions_in_progress()->empty()) {
+    enableLow_ = false;
     if (vstorage->LevelFiles(0).size() >= multiplier_[0] / 2) {
       auto ret = PickLevel0Compaction(mutable_cf_options, mutable_db_options,
                                       vstorage, 1);
@@ -276,27 +273,17 @@ Compaction* HybridCompactionPicker::PickCompaction(
          hyperLevelNum++) {
       auto l = LastLevelInHyper(hyperLevelNum);
       if (!vstorage->LevelFiles(l).empty()) {
-        auto f = FirstLevelInHyper(hyperLevelNum);
-        size_t count = 1;
-        for (; f < l; f++) {
-          if (!vstorage->LevelFiles(f).empty()) {
-            count++;
-          }
-        }
-        if (count >= multiplier_[0] / 2) {
-          Compaction* ret =
-              PickLevelCompaction(hyperLevelNum, mutable_cf_options,
-                                  mutable_db_options, vstorage, true);
-          if (ret) {
-            ROCKS_LOG_BUFFER(
-                log_buffer,
-                "[%s] Hybrid: compact level %u Level %d to level %d "
-                "to reduce num levels\n",
-                cf_name.c_str(), hyperLevelNum, ret->start_level(),
-                ret->output_level());
-            RegisterCompaction(ret);
-            return ret;
-          }
+        Compaction* ret =
+            PickLevelCompaction(hyperLevelNum, mutable_cf_options,
+                                mutable_db_options, vstorage, true);
+        if (ret) {
+          ROCKS_LOG_BUFFER(log_buffer,
+                           "[%s] Hybrid: compact level %u Level %d to level %d "
+                           "to reduce num levels\n",
+                           cf_name.c_str(), hyperLevelNum, ret->start_level(),
+                           ret->output_level());
+          RegisterCompaction(ret);
+          return ret;
         }
       }
     }
