@@ -78,8 +78,8 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
   result.bytes_per_sync = 0;
   if (result.rate_limiter.get() != nullptr) {
     result.rate_limiter.reset();
-    if (0 && result.bytes_per_sync == 0) {
-      result.bytes_per_sync = 1024 * 1024;
+    if (result.bytes_per_sync == 0) {
+      result.bytes_per_sync = 1024 * 8;
     }
   }
 
@@ -88,7 +88,7 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
       result.delayed_write_rate = result.rate_limiter->GetBytesPerSecond();
     }
     if (result.delayed_write_rate == 0) {
-      result.delayed_write_rate = 16 * 1024 * 1024;
+      result.delayed_write_rate = 512 * 1024 * 1024;
     }
   }
 
@@ -116,8 +116,6 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
     result.recycle_log_file_num = 0;
   }
 
-  result.use_direct_io_for_flush_and_compaction = true;
-
   if (result.wal_dir.empty()) {
     // Use dbname as default
     result.wal_dir = dbname;
@@ -132,7 +130,7 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
 
   if (result.use_direct_reads && result.compaction_readahead_size == 0) {
     TEST_SYNC_POINT_CALLBACK("SanitizeOptions:direct_io", nullptr);
-    result.compaction_readahead_size = 1024 * 1024 * 2;
+    result.compaction_readahead_size = 1024 * 4;
   }
 
   if (result.compaction_readahead_size > 0 || result.use_direct_reads) {
@@ -144,6 +142,9 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
   // make recovery complicated.
   if (result.allow_2pc) {
     result.avoid_flush_during_recovery = false;
+  }
+  if (result.max_open_files <= 1024) {
+    result.max_open_files = 30000;
   }
 
 #ifndef ROCKSDB_LITE

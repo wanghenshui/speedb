@@ -77,7 +77,6 @@ class HybridCompactionPicker : public CompactionPicker {
             (int)s_maxLevelsToMerge) {
       options.compaction_options_universal.min_merge_width = s_maxLevelsToMerge;
     }
-
     uint& space_amp =
         options.compaction_options_universal.max_size_amplification_percent;
     if (space_amp > 200) {
@@ -199,12 +198,15 @@ class HybridCompactionPicker : public CompactionPicker {
       UserKey& largestKey, UserKey& smallestExcludedKey,
       UserKey& largestExcludedKey, bool& lastFileWasSelected);
 
-  std::vector<FileMetaData*>::const_iterator locateFileLarger(
-      const std::vector<FileMetaData*>& filesList, const UserKey& key);
-
   std::vector<FileMetaData*>::const_iterator locateFile(
       const std::vector<FileMetaData*>& filesList, const UserKey& key,
-      const std::vector<FileMetaData*>::const_iterator& start);
+      const std::vector<FileMetaData*>::const_iterator& start) const;
+
+  bool Intersecting(const std::vector<FileMetaData*>& f1,
+                    const std::vector<FileMetaData*>& f2) const;
+
+  bool Intersecting(const FileMetaData* f1,
+                    const std::vector<FileMetaData*>& f2) const;
 
   void EnableLowPriorityCompaction(bool enable) override {
     enableLow_ = enable;
@@ -237,5 +239,6 @@ class HybridCompactionPicker : public CompactionPicker {
     UserKey lastKey;
   };
   PrevPlace prevSubCompaction_[s_maxNumHyperLevels];
+  size_t max_open_files_;
 };
 }  // namespace ROCKSDB_NAMESPACE
