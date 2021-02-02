@@ -1118,7 +1118,6 @@ Compaction* ColumnFamilyData::PickCompaction(
   SequenceNumber earliest_mem_seqno =
       std::min(mem_->GetEarliestSequenceNumber(),
                imm_.current()->GetEarliestSequenceNumber(false));
-  compaction_picker_->EnableLowPriorityCompaction(imm()->NumNotFlushed() < 2);
 
   auto* result = compaction_picker_->PickCompaction(
       GetName(), mutable_options, mutable_db_options, current_->storage_info(),
@@ -1126,7 +1125,6 @@ Compaction* ColumnFamilyData::PickCompaction(
   if (result != nullptr) {
     result->SetInputVersion(current_);
   }
-  compaction_picker_->EnableLowPriorityCompaction(false);
   return result;
 }
 

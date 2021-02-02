@@ -267,13 +267,13 @@ struct CompactionJob::SubcompactionState {
       return false;
     }
 
+    bool ret = false;
     // first condition near the max size
     if (grandparent_index < max_sizes.size() &&
         curr_file_size > max_sizes[grandparent_index]) {
       max_sizes[grandparent_index] = -1ull;
-      return true;
+      ret = true;
     }
-    bool ret = false;
     if (1 || ucmp == BytewiseComparator()) {
       std::string prefix(user_key.data(), k_prefix_head);
       if (prefix != first_key_prefix) {

@@ -880,11 +880,7 @@ void DBImpl::OptionsLoad() {
                                    "/" + "trace";
   auto status = env_->FileExists(full_path_to_trace);
   mutable_db_options_.io_trace = status.ok();
-  if (!hadWritesInLastCycle_) {
-    RunLowPriorityCompaction();
-  } else {
-    hadWritesInLastCycle_ = false;
-  }
+  RunLowPriorityCompaction();
 }
 
 bool DBImpl::FindStatsByTime(uint64_t start_time, uint64_t end_time,

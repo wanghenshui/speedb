@@ -809,8 +809,9 @@ void DBImpl::NotifyOnFlushCompleted(
 void DBImpl::RunLowPriorityCompaction() {
   mutex_.Lock();
   for (auto cfd : *versions_->GetColumnFamilySet()) {
-    if (!cfd->queued_for_compaction()) {
-      cfd->compaction_picker()->EnableLowPriorityCompaction(true);
+    cfd->compaction_picker()->EnableLowPriorityCompaction(
+        !hadWritesInLastCycle_);
+    if (!hadWritesInLastCycle_ && !cfd->queued_for_compaction()) {
       if (cfd->NeedsCompaction()) {
         AddToCompactionQueue(cfd);
         ++unscheduled_compactions_;

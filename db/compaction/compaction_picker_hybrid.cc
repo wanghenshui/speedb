@@ -581,7 +581,7 @@ Compaction* HybridCompactionPicker::PickLevelCompaction(
 
   uint outputLevel = lastLevelInHyper + 1;
   uint nSubCompactions = 1;
-  size_t compactionOutputFileSize = LLONG_MAX;
+  size_t compactionOutputFileSize = 1 << 30;
 
   std::vector<FileMetaData*> grandparents;
   if (hyperLevelNum != curNumOfHyperLevels_) {
@@ -612,8 +612,9 @@ Compaction* HybridCompactionPicker::PickLevelCompaction(
     if (dbSize == 0) {
       dbSize = (size_t)mutable_cf_options.write_buffer_size * 8;
     }
+    compactionOutputFileSize = std::min(compactionOutputFileSize, dbSize / 8);
     lastHyperLevelSize *= spaceAmpFactor_;
-    if (dbSize && lastHyperLevelSize > dbSize) {
+    if (lastHyperLevelSize > dbSize) {
       nSubCompactions += lastHyperLevelSize * 10 / dbSize - 10;
       if (nSubCompactions > 4) {
         nSubCompactions = 4;
@@ -637,7 +638,7 @@ Compaction* HybridCompactionPicker::PickLevelCompaction(
     trivial_compaction = true;
   } else if (hyperLevelNum == curNumOfHyperLevels_) {
     buildGrandparents(grandparents, inputs.back().files,
-                      0 * compactionOutputFileSize);
+                      compactionOutputFileSize);
   }
 
   auto ret = new Compaction(
@@ -808,6 +809,7 @@ void HybridCompactionPicker::selectNBufferFromFirstLevel(
     std::vector<FileMetaData*>& outFiles, UserKey& smallestKey,
     UserKey& largestKey, UserKey& lowerBound, UserKey& upperBound,
     bool& lastFileWasSelected) {
+  size_t currentSize = 0;
   if (levelFiles.empty()) {
     return;
   }
@@ -833,37 +835,58 @@ void HybridCompactionPicker::selectNBufferFromFirstLevel(
       lowerBound = prev->largest.user_key();
     }
   } else {
-    // intersection exists so expand the selection to N buffers
     if (targetBegin != targetLevelFiles.begin()) {
       auto prev = targetBegin;
       prev--;
       lowerBound = (*prev)->largest.user_key();
     }
-
-    auto targetEnd = locateFile(targetLevelFiles, largestKey, targetBegin);
-    if (targetEnd != targetLevelFiles.end()) {
-      auto count = targetEnd - targetBegin + 1;
-      while (targetEnd != targetLevelFiles.end() && count < maxNBuffers) {
-        targetEnd++;
-        count++;
-      }
-      if (targetEnd != targetLevelFiles.end()) {
-        upperBound = (*targetEnd)->largest.user_key();
-      }
+  }
+  auto targetEnd = targetBegin;
+  // first file that do not intersect with last
+  for (; targetEnd != targetLevelFiles.end(); targetEnd++) {
+    if (ucmp_->Compare((*targetEnd)->smallest.user_key(),
+                       (*levelIter)->largest.user_key()) > 0) {
+      break;
     }
+    currentSize += (*targetEnd)->fd.file_size;
   }
 
-  // now we will take up to N files from the current level;
-  for (uint i = 0; i < maxNBuffers; i++) {
-    outFiles.push_back(*levelIter);
-    levelIter++;
-    if (levelIter == levelFiles.end() ||
-        (upperBound.size() > 0 &&
-         ucmp_->Compare(upperBound, (*levelIter)->largest.user_key()) < 0)) {
+  bool expand = true;
+  outFiles.push_back(*levelIter);
+  levelIter++;
+
+  while (levelIter != levelFiles.end() && expand) {
+    if (upperBound.size() > 0 &&
+        ucmp_->Compare(upperBound, (*levelIter)->largest.user_key()) < 0) {
+      expand = false;
       break;
+    } else if (targetEnd != targetLevelFiles.end()) {
+      if (ucmp_->Compare((*targetEnd)->smallest.user_key(),
+                         (*levelIter)->largest.user_key()) <= 0) {
+        // target end intersect with current file expand only if not enough
+        // buffer or no files are skipped
+        currentSize += (*targetEnd)->fd.file_size;
+        if (outFiles.size() >= maxNBuffers || currentSize > 1 << 30 ||
+            ucmp_->Compare((*targetEnd)->largest.user_key(),
+                           (*levelIter)->smallest.user_key()) < 0) {
+          expand = false;
+        } else {
+          targetEnd++;
+        }
+      } else if (outFiles.size() >= maxNBuffers)
+        expand = false;
+    }
+    if (expand) {
+      outFiles.push_back(*levelIter);
+      levelIter++;
     }
   }
   largestKey = outFiles.back()->largest.user_key();
+
+  if (targetEnd != targetLevelFiles.end()) {
+    upperBound = (*targetEnd)->smallest.user_key();
+  }
+
   if (levelIter != levelFiles.end() &&
       (upperBound.size() == 0 ||
        ucmp_->Compare(upperBound, (*levelIter)->smallest.user_key()) > 0)) {
@@ -973,9 +996,6 @@ bool HybridCompactionPicker::SelectNBuffers(
   // select buffers from start level
   inputs.resize(count + 1);
   count--;
-
-  nBuffers =
-      std::max(nBuffers, (uint)vstorage->LevelFiles(LastLevel()).size() / 10);
 
   bool lastFileWasSelected = true;
   inputs[count].level = startLevel;
