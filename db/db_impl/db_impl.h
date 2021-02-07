@@ -264,7 +264,11 @@ class DBImpl : public DB {
       std::vector<Iterator*>* iterators) override;
 
   virtual const Snapshot* GetSnapshot() override;
-  virtual void ReleaseSnapshot(const Snapshot* snapshot) override;
+  virtual void ReleaseSnapshot(const Snapshot* snapshot) override {
+    ReleaseSnapshotImpl(snapshot, true);
+  }
+  void ReleaseSnapshotImpl(const Snapshot* snapshot, bool lock);
+
   using DB::GetProperty;
   virtual bool GetProperty(ColumnFamilyHandle* column_family,
                            const Slice& property, std::string* value) override;
@@ -1213,6 +1217,12 @@ class DBImpl : public DB {
                                    int job_id);
   void NotifyOnMemTableSealed(ColumnFamilyData* cfd,
                               const MemTableInfo& mem_table_info);
+  // support parallel snapshots
+  bool has_running_snapshot_;
+  std::atomic<int> n_waiting_snapshots_;
+  std::mutex snapshotMutex_;
+  std::condition_variable snapshotCond_;
+  SnapshotImpl* lastSnapshot_;
 
 #ifndef ROCKSDB_LITE
   void NotifyOnExternalFileIngested(

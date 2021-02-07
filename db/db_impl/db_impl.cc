@@ -170,6 +170,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       batch_per_txn_(batch_per_txn),
       next_job_id_(1),
       shutting_down_(false),
+      lastSnapshot_(0),
       db_lock_(nullptr),
       manual_compaction_paused_(false),
       bg_cv_(&mutex_),
@@ -513,6 +514,10 @@ Status DBImpl::CloseHelper() {
   // continuing with the shutdown
   mutex_.Lock();
   shutdown_initiated_ = true;
+  if (lastSnapshot_) {
+    ReleaseSnapshotImpl(lastSnapshot_, false);
+    lastSnapshot_ = nullptr;
+  }
   error_handler_.CancelErrorRecovery();
   while (error_handler_.IsRecoveryInProgress()) {
     bg_cv_.Wait();
@@ -3060,31 +3065,43 @@ const Snapshot* DBImpl::GetSnapshotForWriteConflictBoundary() {
 
 SnapshotImpl* DBImpl::GetSnapshotImpl(bool is_write_conflict_boundary,
                                       bool lock) {
-  int64_t unix_time = 0;
-  immutable_db_options_.clock->GetCurrentTime(&unix_time)
-      .PermitUncheckedError();  // Ignore error
-  SnapshotImpl* s = new SnapshotImpl;
-
+  // returns null if the underlying memtable does not support snapshot.
+  if (!is_snapshot_supported_) {
+    return nullptr;
+  }
   if (lock) {
     mutex_.Lock();
   }
-  // returns null if the underlying memtable does not support snapshot.
-  if (!is_snapshot_supported_) {
-    if (lock) {
-      mutex_.Unlock();
-    }
-    delete s;
-    return nullptr;
-  }
+
   auto snapshot_seq = last_seq_same_as_publish_seq_
                           ? versions_->LastSequence()
                           : versions_->LastPublishedSequence();
-  SnapshotImpl* snapshot =
-      snapshots_.New(s, snapshot_seq, unix_time, is_write_conflict_boundary);
+
+  SnapshotImpl* oldSnapshot = 0;
+  SnapshotImpl* ret;
+  if (!lastSnapshot_ || lastSnapshot_->GetSequenceNumber() != snapshot_seq ||
+      (is_write_conflict_boundary &&
+       !lastSnapshot_->is_write_conflict_boundary())) {
+    oldSnapshot = lastSnapshot_;
+    SnapshotImpl* s = new SnapshotImpl();
+    int64_t unix_time = 0;
+    immutable_db_options_.clock->GetCurrentTime(&unix_time)
+        .PermitUncheckedError();  // Ignore error
+    lastSnapshot_ =
+        snapshots_.New(s, snapshot_seq, unix_time, is_write_conflict_boundary);
+  }
+  ret = lastSnapshot_;
+  lastSnapshot_->ref();
+
+  if (oldSnapshot) {
+    ReleaseSnapshotImpl(oldSnapshot, false);
+  }
+
   if (lock) {
     mutex_.Unlock();
   }
-  return snapshot;
+
+  return ret;
 }
 
 namespace {
@@ -3099,52 +3116,68 @@ bool CfdListContains(const CfdList& list, ColumnFamilyData* cfd) {
 }
 }  //  namespace
 
-void DBImpl::ReleaseSnapshot(const Snapshot* s) {
-  const SnapshotImpl* casted_s = reinterpret_cast<const SnapshotImpl*>(s);
-  {
-    InstrumentedMutexLock l(&mutex_);
-    snapshots_.Delete(casted_s);
-    uint64_t oldest_snapshot;
-    if (snapshots_.empty()) {
-      if (last_seq_same_as_publish_seq_) {
-        oldest_snapshot = versions_->LastSequence();
-      } else {
-        oldest_snapshot = versions_->LastPublishedSequence();
-      }
-    } else {
-      oldest_snapshot = snapshots_.oldest()->number_;
-    }
-    // Avoid to go through every column family by checking a global threshold
-    // first.
-    if (oldest_snapshot > bottommost_files_mark_threshold_) {
-      CfdList cf_scheduled;
-      for (auto* cfd : *versions_->GetColumnFamilySet()) {
-        cfd->current()->storage_info()->UpdateOldestSnapshot(oldest_snapshot);
-        if (!cfd->current()
-                 ->storage_info()
-                 ->BottommostFilesMarkedForCompaction()
-                 .empty()) {
-          SchedulePendingCompaction(cfd);
-          MaybeScheduleFlushOrCompaction();
-          cf_scheduled.push_back(cfd);
-        }
-      }
+void DBImpl::ReleaseSnapshotImpl(const Snapshot* s, bool lock) {
+  SnapshotImpl* casted_s =
+      const_cast<SnapshotImpl*>(reinterpret_cast<const SnapshotImpl*>(s));
 
-      // Calculate a new threshold, skipping those CFs where compactions are
-      // scheduled. We do not do the same pass as the previous loop because
-      // mutex might be unlocked during the loop, making the result inaccurate.
-      SequenceNumber new_bottommost_files_mark_threshold = kMaxSequenceNumber;
-      for (auto* cfd : *versions_->GetColumnFamilySet()) {
-        if (CfdListContains(cf_scheduled, cfd)) {
-          continue;
-        }
-        new_bottommost_files_mark_threshold = std::min(
-            new_bottommost_files_mark_threshold,
-            cfd->current()->storage_info()->bottommost_files_mark_threshold());
-      }
-      bottommost_files_mark_threshold_ = new_bottommost_files_mark_threshold;
+  if (casted_s->unref() > 0) {
+    return;
+  }
+
+  if (lock) {
+    mutex_.Lock();
+    // check again after lock
+    if (casted_s->refcount() > 0) {
+      mutex_.Unlock();
+      return;
     }
   }
+
+  snapshots_.Delete(casted_s);
+  uint64_t oldest_snapshot;
+  if (snapshots_.empty()) {
+    if (last_seq_same_as_publish_seq_) {
+      oldest_snapshot = versions_->LastSequence();
+    } else {
+      oldest_snapshot = versions_->LastPublishedSequence();
+    }
+  } else {
+    oldest_snapshot = snapshots_.oldest()->number_;
+  }
+  // Avoid to go through every column family by checking a global threshold
+  // first.
+  if (oldest_snapshot > bottommost_files_mark_threshold_) {
+    CfdList cf_scheduled;
+    for (auto* cfd : *versions_->GetColumnFamilySet()) {
+      cfd->current()->storage_info()->UpdateOldestSnapshot(oldest_snapshot);
+      if (!cfd->current()
+               ->storage_info()
+               ->BottommostFilesMarkedForCompaction()
+               .empty()) {
+        SchedulePendingCompaction(cfd);
+        MaybeScheduleFlushOrCompaction();
+        cf_scheduled.push_back(cfd);
+      }
+    }
+
+    // Calculate a new threshold, skipping those CFs where compactions are
+    // scheduled. We do not do the same pass as the previous loop because
+    // mutex might be unlocked during the loop, making the result inaccurate.
+    SequenceNumber new_bottommost_files_mark_threshold = kMaxSequenceNumber;
+    for (auto* cfd : *versions_->GetColumnFamilySet()) {
+      if (CfdListContains(cf_scheduled, cfd)) {
+        continue;
+      }
+      new_bottommost_files_mark_threshold = std::min(
+          new_bottommost_files_mark_threshold,
+          cfd->current()->storage_info()->bottommost_files_mark_threshold());
+    }
+    bottommost_files_mark_threshold_ = new_bottommost_files_mark_threshold;
+  }
+  if (lock) {
+    mutex_.Unlock();
+  }
+
   delete casted_s;
 }
 

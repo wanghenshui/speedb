@@ -80,8 +80,12 @@ void TransactionBaseImpl::SetSnapshot() {
 void TransactionBaseImpl::SetSnapshotInternal(const Snapshot* snapshot) {
   // Set a custom deleter for the snapshot_ SharedPtr as the snapshot needs to
   // be released, not deleted when it is no longer referenced.
-  snapshot_.reset(snapshot, std::bind(&TransactionBaseImpl::ReleaseSnapshot,
-                                      this, std::placeholders::_1, db_));
+  if (snapshot && snapshot == snapshot_.get()) {
+    ReleaseSnapshot(snapshot, db_);
+  } else {
+    snapshot_.reset(snapshot, std::bind(&TransactionBaseImpl::ReleaseSnapshot,
+                                        this, std::placeholders::_1, db_));
+  }
   snapshot_needed_ = false;
   snapshot_notifier_ = nullptr;
 }

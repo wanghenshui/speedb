@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
+#include <cassert>
 #include <vector>
 
 #include "db/dbformat.h"
@@ -21,6 +22,11 @@ class SnapshotList;
 // Each SnapshotImpl corresponds to a particular sequence number.
 class SnapshotImpl : public Snapshot {
  public:
+  SnapshotImpl() : Snapshot(), refcount_(1){};
+  ~SnapshotImpl() {}
+  void ref() { refcount_.fetch_add(1); }
+  size_t unref() { return refcount_.fetch_sub(1) - 1; }
+  size_t refcount() { return refcount_; }
   SequenceNumber number_;  // const after creation
   // It indicates the smallest uncommitted data at the time the snapshot was
   // taken. This is currently used by WritePrepared transactions to limit the
@@ -28,6 +34,9 @@ class SnapshotImpl : public Snapshot {
   SequenceNumber min_uncommitted_ = kMinUnCommittedSeq;
 
   virtual SequenceNumber GetSequenceNumber() const override { return number_; }
+  bool is_write_conflict_boundary() const {
+    return is_write_conflict_boundary_;
+  }
 
  private:
   friend class SnapshotList;
@@ -42,6 +51,7 @@ class SnapshotImpl : public Snapshot {
 
   // Will this snapshot be used by a Transaction to do write-conflict checking?
   bool is_write_conflict_boundary_;
+  std::atomic<size_t> refcount_;
 };
 
 class SnapshotList {
