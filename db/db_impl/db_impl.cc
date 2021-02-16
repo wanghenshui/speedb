@@ -1700,6 +1700,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
     assert(!read_options.timestamp);
   }
 #endif  // NDEBUG
+  n_requests_in_last_cycle_++;
 
   PERF_CPU_TIMER_GUARD(get_cpu_nanos, immutable_db_options_.clock);
   StopWatch sw(immutable_db_options_.clock, stats_, DB_GET);

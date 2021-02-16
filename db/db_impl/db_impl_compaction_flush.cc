@@ -807,19 +807,23 @@ void DBImpl::NotifyOnFlushCompleted(
 }
 
 void DBImpl::RunLowPriorityCompaction() {
-#if 0  
-  mutex_.Lock();
-  for (auto cfd : *versions_->GetColumnFamilySet()) {
-    cfd->compaction_picker()->EnableLowPriorityCompaction(!hadWritesInLastCycle_);
-    if (!hadWritesInLastCycle_ && !cfd->queued_for_compaction()) {
-      if (cfd->NeedsCompaction()) {
-	AddToCompactionQueue(cfd);
-	++unscheduled_compactions_;
+  if (closed_ || shutdown_initiated_) return;
+  InstrumentedMutexLock l(&mutex_);
+  if (n_requests_in_last_cycle_ < 100) {
+    if (closed_ || shutdown_initiated_) {
+      return;
+    }
+    for (auto cfd : *versions_->GetColumnFamilySet()) {
+      if (!cfd->queued_for_compaction()) {
+        cfd->compaction_picker()->EnableLowPriorityCompaction(true);
+        if (cfd->NeedsCompaction()) {
+          AddToCompactionQueue(cfd);
+          ++unscheduled_compactions_;
+        }
       }
     }
   }
-  mutex_.Unlock();
-#endif
+  n_requests_in_last_cycle_ = 0;
 }
 
 Status DBImpl::CompactRange(const CompactRangeOptions& options,

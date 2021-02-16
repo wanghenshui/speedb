@@ -2311,7 +2311,7 @@ class DBImpl : public DB {
   // Pointer to WriteBufferManager stalling interface.
   std::unique_ptr<StallInterface> wbm_stall_;
 
-  bool hadWritesInLastCycle_;
+  std::atomic<size_t> n_requests_in_last_cycle_;
   void RunLowPriorityCompaction();
 };
 

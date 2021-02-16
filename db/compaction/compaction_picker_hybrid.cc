@@ -256,7 +256,6 @@ Compaction* HybridCompactionPicker::PickCompaction(
   // no compaction check for reduction
   if (enableLow_ && runningDesc[0].nCompactions == 0 &&
       compactions_in_progress()->empty()) {
-    enableLow_ = false;
     if (vstorage->LevelFiles(0).size() >= multiplier_[0] / 2) {
       auto ret = PickLevel0Compaction(mutable_cf_options, mutable_db_options,
                                       vstorage, 1);
@@ -1047,20 +1046,12 @@ bool HybridCompactionPicker::SelectNBuffers(
   count = inputs.size() - 1;
   inputs[count].level = outputLevel;
   auto& fl = vstorage->LevelFiles(outputLevel);
-  uint startPlace = 0;
-  for (; startPlace < fl.size(); startPlace++) {
-    if (ucmp_->Compare(fl[startPlace]->largest.user_key(), smallestKey) >= 0) {
-      break;
-    }
-  }
-  for (; startPlace < fl.size(); startPlace++) {
-    if (ucmp_->Compare(fl[startPlace]->smallest.user_key(), largestKey) > 0) {
+  auto iter = locateFile(fl, smallestKey, fl.begin());
+  for (; iter != fl.end(); iter++) {
+    if (ucmp_->Compare((*iter)->smallest.user_key(), largestKey) > 0) {
       break;
     } else {
-      if (!lastFileWasSelected && !inputs[count].files.empty()) {
-        lastFileWasSelected = true;
-      }
-      inputs[count].files.push_back(fl[startPlace]);
+      inputs[count].files.push_back(*iter);
     }
   }
   // trivial move ?
