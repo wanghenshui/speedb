@@ -248,6 +248,11 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // Default: nullptr
   std::shared_ptr<const SliceTransform> prefix_extractor = nullptr;
 
+  // table prefix size used when several diferent tables are mapped to the same
+  // cf setting this value to a higher than zero number leads to split the sst
+  // based also on the prefix
+  size_t table_prefix_size = 0;
+
   // Control maximum total data size for a level.
   // max_bytes_for_level_base is the max total for level-1.
   // Maximum number of bytes for level L can be calculated as

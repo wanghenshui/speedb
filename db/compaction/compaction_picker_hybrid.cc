@@ -706,7 +706,7 @@ Compaction* HybridCompactionPicker::PickReduceNumFiles(
         auto const* nf = fl[i];
         if (nf->raw_value_size > minFileSize ||
             bcmp(nf->smallest.user_key().data(), f->largest.user_key().data(),
-                 4) != 0) {
+                 mutable_cf_options.table_prefix_size) != 0) {
           break;
         }
         totalSize += f->raw_value_size;

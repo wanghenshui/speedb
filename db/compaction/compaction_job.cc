@@ -178,10 +178,10 @@ struct CompactionJob::SubcompactionState {
   // the first key in the current file
   std::string first_key_prefix;
   std::vector<size_t> max_sizes;
-  static const size_t k_prefix_head = 4;
+  size_t prefix_table_size;
 
   SubcompactionState(Compaction* c, Slice* _start, Slice* _end,
-                     uint64_t size = 0)
+                     size_t prefix_size, uint64_t size = 0)
       : compaction(c),
         start(_start),
         end(_end),
@@ -192,7 +192,8 @@ struct CompactionJob::SubcompactionState {
         num_output_records(0),
         approx_size(size),
         grandparent_index(0),
-        overlapped_bytes(0) {
+        overlapped_bytes(0),
+        prefix_table_size(prefix_size) {
     assert(compaction != nullptr);
     const std::vector<FileMetaData*>& grandparents = compaction->grandparents();
     auto maxFileSize = compaction->max_output_file_size();
@@ -229,6 +230,7 @@ struct CompactionJob::SubcompactionState {
     overlapped_bytes = std::move(o.overlapped_bytes);
     first_key_prefix = std::move(o.first_key_prefix);
     max_sizes = std::move(o.max_sizes);
+    prefix_table_size = std::move(o.prefix_table_size);
     return *this;
   }
 
@@ -261,8 +263,8 @@ struct CompactionJob::SubcompactionState {
                  grandparents[grandparent_index]->smallest.user_key()) >= 0) {
         grandparent_index++;
       }
-      if (1 || ucmp == BytewiseComparator()) {
-        first_key_prefix.assign(user_key.data(), k_prefix_head);
+      if (prefix_table_size && prefix_table_size < user_key.size()) {
+        first_key_prefix.assign(user_key.data(), prefix_table_size);
       }
       return false;
     }
@@ -274,8 +276,8 @@ struct CompactionJob::SubcompactionState {
       max_sizes[grandparent_index] = -1ull;
       ret = true;
     }
-    if (1 || ucmp == BytewiseComparator()) {
-      std::string prefix(user_key.data(), k_prefix_head);
+    if (prefix_table_size && prefix_table_size < user_key.size()) {
+      std::string prefix(user_key.data(), prefix_table_size);
       if (prefix != first_key_prefix) {
         first_key_prefix = prefix;
         ret = true;
@@ -516,7 +518,8 @@ void CompactionJob::Prepare() {
     for (size_t i = 0; i <= boundaries_.size(); i++) {
       Slice* start = i == 0 ? nullptr : &boundaries_[i - 1];
       Slice* end = i == boundaries_.size() ? nullptr : &boundaries_[i];
-      compact_->sub_compact_states.emplace_back(c, start, end, sizes_[i]);
+      compact_->sub_compact_states.emplace_back(
+          c, start, end, c->mutable_cf_options()->table_prefix_size, sizes_[i]);
     }
     RecordInHistogram(stats_, NUM_SUBCOMPACTIONS_SCHEDULED,
                       compact_->sub_compact_states.size());
@@ -525,7 +528,8 @@ void CompactionJob::Prepare() {
     constexpr Slice* end = nullptr;
     constexpr uint64_t size = 0;
 
-    compact_->sub_compact_states.emplace_back(c, start, end, size);
+    compact_->sub_compact_states.emplace_back(
+        c, start, end, c->mutable_cf_options()->table_prefix_size, size);
   }
 }
 

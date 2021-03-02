@@ -315,6 +315,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableCFOptions, memtable_prefix_bloom_size_ratio),
           OptionType::kDouble, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"table_prefix_size",
+         {offsetof(struct MutableCFOptions, table_prefix_size),
+          OptionType::kUInt32T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
         {"memtable_prefix_bloom_probes",
          {0, OptionType::kUInt32T, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kMutable}},
@@ -923,6 +927,8 @@ void MutableCFOptions::Dump(Logger* log) const {
   ROCKS_LOG_INFO(
       log, "                         prefix_extractor: %s",
       prefix_extractor == nullptr ? "nullptr" : prefix_extractor->Name());
+  ROCKS_LOG_INFO(log, "                         table_prefix_size: %u",
+                 static_cast<unsigned>(table_prefix_size));
   ROCKS_LOG_INFO(log, "                 disable_auto_compactions: %d",
                  disable_auto_compactions);
   ROCKS_LOG_INFO(log, "      soft_pending_compaction_bytes_limit: %" PRIu64,
