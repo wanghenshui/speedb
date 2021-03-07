@@ -917,7 +917,7 @@ check: all
 	    $(MAKE) T="$$t" TMPD=$(TMPD) check_0;                       \
 	else                                                            \
 	    for t in $(TESTS); do                                       \
-	      echo "===== Running $$t (`date`)"; ./$$t || exit 1; done;          \
+	      echo "===== Running $$t (`date`)"; ./$$t; done;          \
 	fi
 	rm -rf $(TMPD)
 ifneq ($(PLATFORM), OS_AIX)
