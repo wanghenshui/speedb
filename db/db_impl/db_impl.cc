@@ -2052,7 +2052,7 @@ bool DBImpl::MultiCFSnapshot(
 
   bool last_try = false;
   if (cf_list->size() == 1) {
-    // Fast path for a single column family. We can simply get the thread loca
+    // Fast path for a single column family. We can simply get the thread local
     // super version
     auto cf_iter = cf_list->begin();
     auto node = iter_deref_func(cf_iter);
