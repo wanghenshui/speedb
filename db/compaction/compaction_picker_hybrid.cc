@@ -9,6 +9,8 @@
 
 #include "compaction_picker_hybrid.h"
 
+#include <algorithm>
+
 #include "logging/event_logger.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -216,9 +218,12 @@ Compaction* HybridCompactionPicker::PickCompaction(
 
   // normal compaction start with L0
   if (MayStartLevelCompaction(0, runningDesc, vstorage)) {
-    if (vstorage->LevelFiles(0).size() >= (uint)multiplier_[0]) {
+    const size_t l0_threshold =
+        std::min(multiplier_[0],
+                 size_t(mutable_cf_options.level0_file_num_compaction_trigger));
+    if (vstorage->LevelFiles(0).size() >= l0_threshold) {
       Compaction* ret = PickLevel0Compaction(
-          mutable_cf_options, mutable_db_options, vstorage, multiplier_[0]);
+          mutable_cf_options, mutable_db_options, vstorage, l0_threshold);
       if (ret) {
         ROCKS_LOG_BUFFER(log_buffer, "[%s] Hybrid: compacting L0 to level %d\n",
                          cf_name.c_str(), ret->output_level());
@@ -269,7 +274,10 @@ Compaction* HybridCompactionPicker::PickCompaction(
   // no compaction check for reduction
   if (enableLow_ && runningDesc[0].nCompactions == 0 &&
       compactions_in_progress()->empty()) {
-    if (vstorage->LevelFiles(0).size() >= multiplier_[0] / 2) {
+    const size_t l0_threshold =
+        std::min(multiplier_[0],
+                 size_t(mutable_cf_options.level0_file_num_compaction_trigger));
+    if (vstorage->LevelFiles(0).size() >= l0_threshold / 2) {
       auto ret = PickLevel0Compaction(mutable_cf_options, mutable_db_options,
                                       vstorage, 1);
       if (ret) {
@@ -393,6 +401,10 @@ void HybridCompactionPicker::InitCf(const MutableCFOptions& mutable_cf_options,
     sizeToCompact *= multiplier_[hyperLevelNum];
     sizeToCompact_[hyperLevelNum] = sizeToCompact;
   }
+
+  multiplier_[0] =
+      std::min(multiplier_[0],
+               size_t(mutable_cf_options.level0_file_num_compaction_trigger));
 }
 
 Compaction* HybridCompactionPicker::CheckDbSize(

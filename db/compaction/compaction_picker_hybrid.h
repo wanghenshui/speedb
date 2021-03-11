@@ -63,9 +63,23 @@ class HybridCompactionPicker : public CompactionPicker {
   // set and optimize the cf options to work with hybrid compaction
   static void SetOptions(ColumnFamilyOptions& options) {
     options.compaction_style = kCompactionStyleHybrid;
+
+    const int required_mult =
+        (options.compaction_options_universal.min_merge_width <
+             s_minLevelsToMerge ||
+         options.compaction_options_universal.min_merge_width >
+             s_maxLevelsToMerge)
+            ? s_maxLevelsToMerge
+            : options.compaction_options_universal.min_merge_width;
+
+    if (options.level0_file_num_compaction_trigger >= 0 &&
+        options.level0_file_num_compaction_trigger < required_mult &&
+        options.level0_slowdown_writes_trigger > required_mult) {
+      options.level0_file_num_compaction_trigger = required_mult;
+    }
+
     // one for L0 and one for L(last in case of max db)
     // num level was set
-
     if ((uint)options.num_levels <
         (s_minNumHyperLevels * s_levelsInHyperLevel) + 2) {
       size_t requiredLevel =
