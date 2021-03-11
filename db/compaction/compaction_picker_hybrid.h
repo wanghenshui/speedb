@@ -13,9 +13,9 @@
 #pragma once
 
 #include <mutex>
+#include <string>
 
 #include "db/compaction/compaction_picker.h"
-#define UserKey Slice
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -188,19 +188,19 @@ class HybridCompactionPicker : public CompactionPicker {
 
   void expandSelection(const std::vector<FileMetaData*>& levelFiles,
                        std::vector<FileMetaData*>& outFiles,
-                       UserKey& smallestExcludedKey,
-                       UserKey& largestExcludedKey, const UserKey& smallest,
-                       const UserKey& largest, bool& lastFileWasSelected);
+                       Slice& smallestExcludedKey, Slice& largestExcludedKey,
+                       const Slice& smallest, const Slice& largest,
+                       bool& lastFileWasSelected);
 
   void selectNBufferFromFirstLevel(
       const std::vector<FileMetaData*>& levelFiles,
       const std::vector<FileMetaData*>& targetLevelFiles, uint maxNBuffers,
-      std::vector<FileMetaData*>& outFiles, UserKey& smallestKey,
-      UserKey& largestKey, UserKey& smallestExcludedKey,
-      UserKey& largestExcludedKey, bool& lastFileWasSelected);
+      std::vector<FileMetaData*>& outFiles, Slice& smallestKey,
+      Slice& largestKey, Slice& smallestExcludedKey, Slice& largestExcludedKey,
+      bool& lastFileWasSelected);
 
   std::vector<FileMetaData*>::const_iterator locateFile(
-      const std::vector<FileMetaData*>& filesList, const UserKey& key,
+      const std::vector<FileMetaData*>& filesList, const Slice& key,
       const std::vector<FileMetaData*>::const_iterator& start) const;
 
   bool Intersecting(const std::vector<FileMetaData*>& f1,
@@ -237,7 +237,7 @@ class HybridCompactionPicker : public CompactionPicker {
     bool empty() const { return outputLevel == -1u; }
     void setEmpty() { outputLevel = -1u; }
     uint outputLevel;
-    UserKey lastKey;
+    std::string lastKey;
   };
   PrevPlace prevSubCompaction_[s_maxNumHyperLevels];
   size_t max_open_files_;
