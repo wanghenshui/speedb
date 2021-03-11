@@ -25,6 +25,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/iterator.h"
+#include "rocksdb/listener.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/options.h"
@@ -62,6 +63,7 @@ using ROCKSDB_NAMESPACE::ColumnFamilyHandle;
 using ROCKSDB_NAMESPACE::ColumnFamilyOptions;
 using ROCKSDB_NAMESPACE::CompactionFilter;
 using ROCKSDB_NAMESPACE::CompactionFilterFactory;
+using ROCKSDB_NAMESPACE::CompactionJobInfo;
 using ROCKSDB_NAMESPACE::CompactionOptionsFIFO;
 using ROCKSDB_NAMESPACE::CompactRangeOptions;
 using ROCKSDB_NAMESPACE::Comparator;
@@ -74,6 +76,7 @@ using ROCKSDB_NAMESPACE::Env;
 using ROCKSDB_NAMESPACE::EnvOptions;
 using ROCKSDB_NAMESPACE::FileLock;
 using ROCKSDB_NAMESPACE::FilterPolicy;
+using ROCKSDB_NAMESPACE::FlushJobInfo;
 using ROCKSDB_NAMESPACE::FlushOptions;
 using ROCKSDB_NAMESPACE::InfoLogLevel;
 using ROCKSDB_NAMESPACE::IngestExternalFileOptions;
@@ -2695,6 +2698,148 @@ void rocksdb_options_set_skip_checking_sst_file_sizes_on_db_open(
 unsigned char rocksdb_options_get_skip_checking_sst_file_sizes_on_db_open(
     rocksdb_options_t* opt) {
   return opt->rep.skip_checking_sst_file_sizes_on_db_open;
+}
+
+class CEventListener : public ROCKSDB_NAMESPACE::EventListener {
+ public:
+  CEventListener() {}
+  ~CEventListener() {}
+  void* context;
+  flush_started_cb flush_started;
+  flush_completed_cb flush_completed;
+  compaction_started_cb compaction_started;
+  compaction_completed_cb compaction_completed;
+
+  virtual void OnFlushBegin(DB* /*db*/,
+                            const rocksdb::FlushJobInfo& fi) override {
+    if (flush_started) {
+      rocksdb_flush_job_info info;
+      info.cf_name = fi.cf_name.c_str();
+      info.file_path = fi.file_path.c_str();
+      info.thread_id = fi.thread_id;
+      info.job_id = fi.job_id;
+      info.triggered_writes_slowdown = fi.triggered_writes_slowdown;
+      info.triggered_writes_stop = fi.triggered_writes_stop;
+      info.smallest_seqno = fi.smallest_seqno;
+      info.largest_seqno = fi.largest_seqno;
+      info.table_properties.data_size = fi.table_properties.data_size;
+      info.table_properties.index_size = fi.table_properties.index_size;
+      info.table_properties.filter_size = fi.table_properties.filter_size;
+      info.table_properties.raw_key_size = fi.table_properties.raw_key_size;
+      info.table_properties.raw_value_size = fi.table_properties.raw_value_size;
+      info.table_properties.num_data_blocks =
+          fi.table_properties.num_data_blocks;
+      info.table_properties.num_entries = fi.table_properties.num_entries;
+      info.table_properties.format_version = fi.table_properties.format_version;
+      info.table_properties.fixed_key_len = fi.table_properties.fixed_key_len;
+      flush_started(context, &info);
+    }
+  }
+
+  virtual void OnFlushCompleted(DB* /*db*/, const FlushJobInfo& fi) override {
+    if (flush_completed) {
+      rocksdb_flush_job_info info;
+      info.cf_name = fi.cf_name.c_str();
+      info.file_path = fi.file_path.c_str();
+      info.thread_id = fi.thread_id;
+      info.job_id = fi.job_id;
+      info.triggered_writes_slowdown = fi.triggered_writes_slowdown;
+      info.triggered_writes_stop = fi.triggered_writes_stop;
+      info.smallest_seqno = fi.smallest_seqno;
+      info.largest_seqno = fi.largest_seqno;
+      info.table_properties.data_size = fi.table_properties.data_size;
+      info.table_properties.index_size = fi.table_properties.index_size;
+      info.table_properties.filter_size = fi.table_properties.filter_size;
+      info.table_properties.raw_key_size = fi.table_properties.raw_key_size;
+      info.table_properties.raw_value_size = fi.table_properties.raw_value_size;
+      info.table_properties.num_data_blocks =
+          fi.table_properties.num_data_blocks;
+      info.table_properties.num_entries = fi.table_properties.num_entries;
+      info.table_properties.format_version = fi.table_properties.format_version;
+      info.table_properties.fixed_key_len = fi.table_properties.fixed_key_len;
+      flush_completed(context, &info);
+    }
+  }
+
+  virtual void OnCompactionBegin(DB* /*db*/,
+                                 const CompactionJobInfo& ci) override {
+    if (compaction_started) {
+      rocksdb_compaction_job_info info;
+      info.compaction_reason = (rocksdb_compaction_reason)ci.compaction_reason;
+      static_assert(
+          (int)kNumOfReasons == (int)rocksdb::CompactionReason::kNumOfReasons,
+          "enum changed");
+      info.thread_id = ci.thread_id;
+      info.job_id = ci.job_id;
+      info.base_input_level = ci.base_input_level;
+      info.output_level = ci.output_level;
+      compaction_started(context, &info);
+    }
+  }
+
+  virtual void OnCompactionCompleted(DB* /*db*/,
+                                     const CompactionJobInfo& ci) override {
+    if (compaction_completed) {
+      rocksdb_compaction_job_info info;
+      rocksdb_compaction_job_stats stats;
+      info.stats = &stats;
+      info.status.code = (rocksdb_status_code)ci.status.code();
+      info.status.subcode = (rocksdb_status_sub_code)ci.status.subcode();
+      info.compaction_reason = (rocksdb_compaction_reason)ci.compaction_reason;
+      static_assert((int)kTryAgain == (int)Status::Code::kTryAgain,
+                    "enum changed");
+      static_assert((int)kMaxSubCode == (int)Status::SubCode::kMaxSubCode,
+                    "enum changed");
+      static_assert(
+          (int)kFilesMarkedForCompaction ==
+              (int)rocksdb::CompactionReason::kFilesMarkedForCompaction,
+          "enum changed");
+      info.thread_id = ci.thread_id;
+      info.job_id = ci.job_id;
+      info.base_input_level = ci.base_input_level;
+      info.output_level = ci.output_level;
+      info.stats->elapsed_micros = ci.stats.elapsed_micros;
+      info.stats->num_input_records = ci.stats.num_input_records;
+      info.stats->num_input_files = ci.stats.num_input_files;
+      info.stats->num_input_files_at_output_level =
+          ci.stats.num_input_files_at_output_level;
+      info.stats->num_output_records = ci.stats.num_output_records;
+      info.stats->num_output_files = ci.stats.num_output_files;
+      info.stats->is_manual_compaction = ci.stats.is_manual_compaction;
+      info.stats->total_input_bytes = ci.stats.total_input_bytes;
+      info.stats->total_output_bytes = ci.stats.total_output_bytes;
+      info.stats->num_records_replaced = ci.stats.num_records_replaced;
+      info.stats->total_input_raw_key_bytes =
+          ci.stats.total_input_raw_key_bytes;
+      info.stats->total_input_raw_value_bytes =
+          ci.stats.total_input_raw_value_bytes;
+      info.stats->num_input_deletion_records =
+          ci.stats.num_input_deletion_records;
+      info.stats->num_expired_deletion_records =
+          ci.stats.num_expired_deletion_records;
+      info.stats->num_corrupt_keys = ci.stats.num_corrupt_keys;
+      info.stats->file_write_nanos = ci.stats.file_write_nanos;
+      info.stats->file_range_sync_nanos = ci.stats.file_range_sync_nanos;
+      info.stats->file_fsync_nanos = ci.stats.file_fsync_nanos;
+      info.stats->file_prepare_write_nanos = ci.stats.file_prepare_write_nanos;
+      compaction_completed(context, &info);
+    }
+  }
+};
+
+void rocksdb_options_add_event_listener_cb(rocksdb_options_t* opt,
+                                           void* context,
+                                           flush_started_cb flush_start,
+                                           flush_completed_cb flush_compl,
+                                           compaction_started_cb comp_start,
+                                           compaction_completed_cb comp_compl) {
+  CEventListener* listener = new CEventListener();
+  listener->context = context;
+  listener->flush_started = flush_start;
+  listener->flush_completed = flush_compl;
+  listener->compaction_started = comp_start;
+  listener->compaction_completed = comp_compl;
+  opt->rep.listeners.emplace_back(listener);
 }
 
 /* Blob Options Settings */
@@ -5459,7 +5604,13 @@ void rocksdb_approximate_memory_usage_destroy(rocksdb_memory_usage_t* usage) {
 void rocksdb_cancel_all_background_work(rocksdb_t* db, unsigned char wait) {
   CancelAllBackgroundWork(db->rep, wait);
 }
+// REDIS
+void rocksdb_options_set_allow_os_buffer(rocksdb_options_t* options, int val) {
+  rocksdb_options_set_use_direct_reads(options, !val);
+  rocksdb_options_set_use_direct_io_for_flush_and_compaction(options, !val);
+}
 
+void rocksdb_options_set_disable_data_sync(rocksdb_options_t*, int) {}
 }  // end extern "C"
 
 #endif  // !ROCKSDB_LITE
