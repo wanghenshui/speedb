@@ -32,6 +32,7 @@ class HybridComactionsDescribtors
   HybridComactionsDescribtors(size_t size)
       : std::vector<HybridCompactionDescriptor>(size) {}
   bool rearangeRunning;
+  bool manualComapctionRunning;
 };
 
 static const size_t s_maxFilesToCompact = 60;

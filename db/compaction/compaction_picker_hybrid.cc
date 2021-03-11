@@ -41,10 +41,16 @@ void HybridCompactionPicker::BuildCompactionDescriptors(
     out[i].startLevel = -1u;
   }
   out.rearangeRunning = false;
+  out.manualComapctionRunning = false;
+
   out[0].nCompactions = level0_compactions_in_progress()->size();
 
   auto compactionInProgress = compactions_in_progress();
   for (auto const& compact : *compactionInProgress) {
+    if (compact->compaction_reason() == CompactionReason::kManualCompaction) {
+      out.manualComapctionRunning = true;
+    }
+
     uint startLevel = compact->start_level();
     if (startLevel != 0) {
       auto hyperLevelNum = GetHyperLevelNum(startLevel);
@@ -69,6 +75,10 @@ bool HybridCompactionPicker::NeedsCompaction(
 
   HybridComactionsDescribtors runningDesc(curNumOfHyperLevels_ + 2);
   BuildCompactionDescriptors(runningDesc);
+
+  if (runningDesc.manualComapctionRunning) {
+    return false;
+  }
 
   // check needs to rearange/compact on levels
   for (uint hyperLevelNum = 0; hyperLevelNum <= curNumOfHyperLevels_;
@@ -126,6 +136,9 @@ Compaction* HybridCompactionPicker::PickCompaction(
 
   HybridComactionsDescribtors runningDesc(curNumOfHyperLevels_ + 2);
   BuildCompactionDescriptors(runningDesc);
+  if (runningDesc.manualComapctionRunning) {
+    return nullptr;
+  }
 
   // rearange first
   for (uint hyperLevelNum = 1; hyperLevelNum <= curNumOfHyperLevels_;

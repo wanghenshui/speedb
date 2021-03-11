@@ -1678,6 +1678,7 @@ Status DBImpl::RunManualCompaction(
     const Slice* end, bool exclusive, bool disallow_trivial_move,
     uint64_t max_file_num_to_ignore) {
   // dont allow manual compcation unless we are very unbusy
+#if 0
   int64_t curTime;
   env_->GetCurrentTime(&curTime);
   if (bg_bottom_compaction_scheduled_ > 0 || bg_compaction_scheduled_ > 0 ||
@@ -1685,6 +1686,8 @@ Status DBImpl::RunManualCompaction(
     env_->SleepForMicroseconds(10000000);
     return Status();
   }
+
+#endif
 
   assert(input_level == ColumnFamilyData::kCompactAllLevels ||
          input_level >= 0);
