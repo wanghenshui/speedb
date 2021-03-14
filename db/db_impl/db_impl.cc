@@ -4002,6 +4002,10 @@ Status DBImpl::Close() {
   if (!closed_) {
     {
       InstrumentedMutexLock l(&mutex_);
+      if (lastSnapshot_) {
+        ReleaseSnapshotImpl(lastSnapshot_, false);
+        lastSnapshot_ = nullptr;
+      }
       // If there is unreleased snapshot, fail the close call
       if (!snapshots_.empty()) {
         return Status::Aborted("Cannot close DB with unreleased snapshot.");
