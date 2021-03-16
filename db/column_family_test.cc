@@ -1502,11 +1502,13 @@ TEST_P(ColumnFamilyTest, AutomaticAndManualCompactions) {
   one.num_levels = 1;
   // trigger compaction if there are >= 4 files
   one.level0_file_num_compaction_trigger = 4;
+  one.level0_slowdown_writes_trigger = 5;
   one.write_buffer_size = 120000;
 
   two.compaction_style = kCompactionStyleLevel;
   two.num_levels = 4;
   two.level0_file_num_compaction_trigger = 3;
+  two.level0_slowdown_writes_trigger = 4;
   two.write_buffer_size = 100000;
 
   Reopen({default_cf, one, two});
@@ -1598,11 +1600,13 @@ TEST_P(ColumnFamilyTest, ManualAndAutomaticCompactions) {
   one.num_levels = 1;
   // trigger compaction if there are >= 4 files
   one.level0_file_num_compaction_trigger = 4;
+  one.level0_slowdown_writes_trigger = 5;
   one.write_buffer_size = 120000;
 
   two.compaction_style = kCompactionStyleLevel;
   two.num_levels = 4;
   two.level0_file_num_compaction_trigger = 3;
+  two.level0_slowdown_writes_trigger = 4;
   two.write_buffer_size = 100000;
 
   Reopen({default_cf, one, two});

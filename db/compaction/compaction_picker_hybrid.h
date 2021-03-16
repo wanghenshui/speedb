@@ -74,7 +74,9 @@ class HybridCompactionPicker : public CompactionPicker {
 
     if (options.level0_file_num_compaction_trigger >= 0 &&
         options.level0_file_num_compaction_trigger < required_mult &&
-        options.level0_slowdown_writes_trigger > required_mult) {
+        options.level0_slowdown_writes_trigger > required_mult &&
+        options.level0_stop_writes_trigger >=
+            options.level0_slowdown_writes_trigger) {
       options.level0_file_num_compaction_trigger = required_mult;
     }
 
