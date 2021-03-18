@@ -151,7 +151,7 @@ class ErrorHandlerFSListener : public EventListener {
   FaultInjectionTestFS* fault_fs_;
 };
 
-TEST_F(DBErrorHandlingFSTest, FLushWriteError) {
+TEST_F(DBErrorHandlingFSTest, FlushWriteError) {
   std::shared_ptr<ErrorHandlerFSListener> listener(
       new ErrorHandlerFSListener());
   Options options = GetDefaultOptions();
@@ -196,7 +196,7 @@ TEST_F(DBErrorHandlingFSTest, FLushWriteError) {
 // All the NoSpace IOError will be handled as the regular BG Error no matter the
 // retryable flag is set of not. So the auto resume for retryable IO Error will
 // not be triggered. Also, it is mapped as hard error.
-TEST_F(DBErrorHandlingFSTest, FLushWriteNoSpaceError) {
+TEST_F(DBErrorHandlingFSTest, FlushWriteNoSpaceError) {
   std::shared_ptr<ErrorHandlerFSListener> listener(
       new ErrorHandlerFSListener());
   Options options = GetDefaultOptions();
@@ -240,7 +240,7 @@ TEST_F(DBErrorHandlingFSTest, FLushWriteNoSpaceError) {
   Destroy(options);
 }
 
-TEST_F(DBErrorHandlingFSTest, FLushWriteRetryableError) {
+TEST_F(DBErrorHandlingFSTest, FlushWriteRetryableError) {
   std::shared_ptr<ErrorHandlerFSListener> listener(
       new ErrorHandlerFSListener());
   Options options = GetDefaultOptions();
@@ -862,6 +862,7 @@ TEST_F(DBErrorHandlingFSTest, CompactionManifestWriteError) {
   options.env = fault_env_.get();
   options.create_if_missing = true;
   options.level0_file_num_compaction_trigger = 2;
+  options.level0_slowdown_writes_trigger = 3;
   options.listeners.emplace_back(listener);
   Status s;
   std::string old_manifest;
@@ -932,6 +933,7 @@ TEST_F(DBErrorHandlingFSTest, CompactionManifestWriteRetryableError) {
   options.env = fault_env_.get();
   options.create_if_missing = true;
   options.level0_file_num_compaction_trigger = 2;
+  options.level0_slowdown_writes_trigger = 3;
   options.listeners.emplace_back(listener);
   options.max_bgerror_resume_count = 0;
   Status s;
@@ -1020,14 +1022,10 @@ TEST_F(DBErrorHandlingFSTest, CompactionWriteError) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"DBImpl::FlushMemTable:FlushMemTableFinished",
         "BackgroundCallCompaction:0"}});
-  bool faulted_in = false;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "BackgroundCallCompaction:0", [&](void*) {
-        if (!faulted_in) {
-          faulted_in = true;
-          fault_fs_->SetFilesystemActive(false,
-                                         IOStatus::NoSpace("Out of space"));
-        }
+        fault_fs_->SetFilesystemActive(false,
+                                       IOStatus::NoSpace("Out of space"));
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
@@ -1038,6 +1036,7 @@ TEST_F(DBErrorHandlingFSTest, CompactionWriteError) {
   s = dbfull()->TEST_WaitForCompact();
   ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kHardError);
 
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   fault_fs_->SetFilesystemActive(true);
   s = dbfull()->Resume();
   ASSERT_OK(s);
@@ -1172,9 +1171,12 @@ TEST_F(DBErrorHandlingFSTest, CorruptionError) {
   ASSERT_OK(s);
 
   s = dbfull()->TEST_WaitForCompact();
-  ASSERT_TRUE(s.severity() ==
-                  ROCKSDB_NAMESPACE::Status::Severity::kUnrecoverableError ||
-              s.severity() == ROCKSDB_NAMESPACE::Status::Severity::kFatalError);
+  ASSERT_PRED1(
+      [](ROCKSDB_NAMESPACE::Status::Severity sev) {
+        return sev == ROCKSDB_NAMESPACE::Status::Severity::kFatalError ||
+               sev == ROCKSDB_NAMESPACE::Status::Severity::kUnrecoverableError;
+      },
+      s.severity());
 
   fault_fs_->SetFilesystemActive(true);
   s = dbfull()->Resume();
@@ -1510,13 +1512,14 @@ TEST_F(DBErrorHandlingFSTest, MultiDBCompactionError) {
     ROCKSDB_GTEST_SKIP("Test requires non-mock environment");
     return;
   }
-  FaultInjectionTestEnv* def_env = new FaultInjectionTestEnv(env_);
+  std::unique_ptr<FaultInjectionTestEnv> def_env{
+      new FaultInjectionTestEnv(env_)};
   std::vector<std::unique_ptr<Env>> fault_envs;
   std::vector<FaultInjectionTestFS*> fault_fs;
   std::vector<Options> options;
   std::vector<std::shared_ptr<ErrorHandlerFSListener>> listener;
   std::vector<DB*> db;
-  std::shared_ptr<SstFileManager> sfm(NewSstFileManager(def_env));
+  std::shared_ptr<SstFileManager> sfm(NewSstFileManager(def_env.get()));
   int kNumDbInstances = 3;
   Random rnd(301);
 
@@ -1525,7 +1528,7 @@ TEST_F(DBErrorHandlingFSTest, MultiDBCompactionError) {
     options.emplace_back(GetDefaultOptions());
     fault_fs.emplace_back(new FaultInjectionTestFS(env_->GetFileSystem()));
     std::shared_ptr<FileSystem> fs(fault_fs.back());
-    fault_envs.emplace_back(new CompositeEnvWrapper(def_env, fs));
+    fault_envs.emplace_back(new CompositeEnvWrapper(def_env.get(), fs));
     options[i].env = fault_envs.back().get();
     options[i].create_if_missing = true;
     options[i].level0_file_num_compaction_trigger = 2;
@@ -1610,7 +1613,6 @@ TEST_F(DBErrorHandlingFSTest, MultiDBCompactionError) {
   }
   options.clear();
   sfm.reset();
-  delete def_env;
 }
 
 TEST_F(DBErrorHandlingFSTest, MultiDBVariousErrors) {
@@ -1618,13 +1620,14 @@ TEST_F(DBErrorHandlingFSTest, MultiDBVariousErrors) {
     ROCKSDB_GTEST_SKIP("Test requires non-mock environment");
     return;
   }
-  FaultInjectionTestEnv* def_env = new FaultInjectionTestEnv(env_);
+  std::unique_ptr<FaultInjectionTestEnv> def_env{
+      new FaultInjectionTestEnv(env_)};
   std::vector<std::unique_ptr<Env>> fault_envs;
   std::vector<FaultInjectionTestFS*> fault_fs;
   std::vector<Options> options;
   std::vector<std::shared_ptr<ErrorHandlerFSListener>> listener;
   std::vector<DB*> db;
-  std::shared_ptr<SstFileManager> sfm(NewSstFileManager(def_env));
+  std::shared_ptr<SstFileManager> sfm(NewSstFileManager(def_env.get()));
   int kNumDbInstances = 3;
   Random rnd(301);
 
@@ -1633,10 +1636,11 @@ TEST_F(DBErrorHandlingFSTest, MultiDBVariousErrors) {
     options.emplace_back(GetDefaultOptions());
     fault_fs.emplace_back(new FaultInjectionTestFS(env_->GetFileSystem()));
     std::shared_ptr<FileSystem> fs(fault_fs.back());
-    fault_envs.emplace_back(new CompositeEnvWrapper(def_env, fs));
+    fault_envs.emplace_back(new CompositeEnvWrapper(def_env.get(), fs));
     options[i].env = fault_envs.back().get();
     options[i].create_if_missing = true;
     options[i].level0_file_num_compaction_trigger = 2;
+    options[i].level0_slowdown_writes_trigger = 3;
     options[i].writable_file_max_buffer_size = 32768;
     options[i].listeners.emplace_back(listener[i]);
     options[i].sst_file_manager = sfm;
@@ -1746,7 +1750,6 @@ TEST_F(DBErrorHandlingFSTest, MultiDBVariousErrors) {
     }
   }
   options.clear();
-  delete def_env;
 }
 
 // When Put the KV-pair, the write option is set to disable WAL.
