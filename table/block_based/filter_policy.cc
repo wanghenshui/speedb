@@ -1142,7 +1142,7 @@ FilterBitsBuilder* BloomFilterPolicy::GetBuilderWithContext(
         return new FastLocalBloomBitsBuilder(
             millibits_per_key_, offm ? &aggregate_rounding_balance_ : nullptr);
       case kLegacyBloom:
-        if (whole_bits_per_key_ >= 14 && context.info_log &&
+        if (whole_bits_per_key_ >= 40 && context.info_log &&
             !warned_.load(std::memory_order_relaxed)) {
           warned_ = true;
           const char* adjective;
