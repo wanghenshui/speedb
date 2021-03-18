@@ -86,9 +86,9 @@ class RepeatableThread {
       waiting_ = true;
       cond_var_.SignalAll();
 #endif
-      while (running_) {
+      while (true) {
         cond_var_.TimedWait(wait_until);
-        if (clock_->NowMicros() >= wait_until) {
+        if (!running_ || clock_->NowMicros() >= wait_until) {
           break;
         }
       }

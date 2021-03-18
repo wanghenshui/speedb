@@ -669,8 +669,10 @@ void DBTestBase::Close() {
     EXPECT_OK(db_->DestroyColumnFamilyHandle(h));
   }
   handles_.clear();
-  delete db_;
-  db_ = nullptr;
+  if (db_ != nullptr) {
+    delete db_;
+    db_ = nullptr;
+  }
 }
 
 void DBTestBase::DestroyAndReopen(const Options& options) {
