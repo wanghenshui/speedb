@@ -610,12 +610,16 @@ TEST_F(DBBasicTest, Snapshot) {
   env_->SetMockSleep();
   anon::OptionsOverride options_override;
   options_override.skip_policy = kSkipNoSnapshot;
+  auto snapshot_deleter = [this](const Snapshot* s) {
+    db_->ReleaseSnapshot(s);
+  };
   do {
     CreateAndReopenWithCF({"pikachu"}, CurrentOptions(options_override));
     ASSERT_OK(Put(0, "foo", "0v1"));
     ASSERT_OK(Put(1, "foo", "1v1"));
 
-    const Snapshot* s1 = db_->GetSnapshot();
+    std::unique_ptr<const Snapshot, decltype(snapshot_deleter)> s1(
+        db_->GetSnapshot(), snapshot_deleter);
     ASSERT_EQ(1U, GetNumSnapshots());
     uint64_t time_snap1 = GetTimeOldestSnapshots();
     ASSERT_GT(time_snap1, 0U);
@@ -625,7 +629,8 @@ TEST_F(DBBasicTest, Snapshot) {
 
     env_->MockSleepForSeconds(1);
 
-    const Snapshot* s2 = db_->GetSnapshot();
+    std::unique_ptr<const Snapshot, decltype(snapshot_deleter)> s2(
+        db_->GetSnapshot(), snapshot_deleter);
     ASSERT_EQ(2U, GetNumSnapshots());
     ASSERT_EQ(time_snap1, GetTimeOldestSnapshots());
     ASSERT_EQ(GetSequenceOldestSnapshots(), s1->GetSequenceNumber());
@@ -640,10 +645,10 @@ TEST_F(DBBasicTest, Snapshot) {
 
       ASSERT_OK(Put(0, "foo", "0v4"));
       ASSERT_OK(Put(1, "foo", "1v4"));
-      ASSERT_EQ("0v1", Get(0, "foo", s1));
-      ASSERT_EQ("1v1", Get(1, "foo", s1));
-      ASSERT_EQ("0v2", Get(0, "foo", s2));
-      ASSERT_EQ("1v2", Get(1, "foo", s2));
+      ASSERT_EQ("0v1", Get(0, "foo", s1.get()));
+      ASSERT_EQ("1v1", Get(1, "foo", s1.get()));
+      ASSERT_EQ("0v2", Get(0, "foo", s2.get()));
+      ASSERT_EQ("1v2", Get(1, "foo", s2.get()));
       ASSERT_EQ("0v3", Get(0, "foo", s3.snapshot()));
       ASSERT_EQ("1v3", Get(1, "foo", s3.snapshot()));
       ASSERT_EQ("0v4", Get(0, "foo"));
@@ -653,23 +658,23 @@ TEST_F(DBBasicTest, Snapshot) {
     EXPECT_EQ(2U, GetNumSnapshots());
     ASSERT_EQ(time_snap1, GetTimeOldestSnapshots());
     ASSERT_EQ(GetSequenceOldestSnapshots(), s1->GetSequenceNumber());
-    ASSERT_EQ("0v1", Get(0, "foo", s1));
-    ASSERT_EQ("1v1", Get(1, "foo", s1));
-    ASSERT_EQ("0v2", Get(0, "foo", s2));
-    ASSERT_EQ("1v2", Get(1, "foo", s2));
+    ASSERT_EQ("0v1", Get(0, "foo", s1.get()));
+    ASSERT_EQ("1v1", Get(1, "foo", s1.get()));
+    ASSERT_EQ("0v2", Get(0, "foo", s2.get()));
+    ASSERT_EQ("1v2", Get(1, "foo", s2.get()));
     ASSERT_EQ("0v4", Get(0, "foo"));
     ASSERT_EQ("1v4", Get(1, "foo"));
 
-    db_->ReleaseSnapshot(s1);
-    ASSERT_EQ("0v2", Get(0, "foo", s2));
-    ASSERT_EQ("1v2", Get(1, "foo", s2));
+    s1.reset();
+    ASSERT_EQ("0v2", Get(0, "foo", s2.get()));
+    ASSERT_EQ("1v2", Get(1, "foo", s2.get()));
     ASSERT_EQ("0v4", Get(0, "foo"));
     ASSERT_EQ("1v4", Get(1, "foo"));
     ASSERT_EQ(1U, GetNumSnapshots());
     ASSERT_LT(time_snap1, GetTimeOldestSnapshots());
     ASSERT_EQ(GetSequenceOldestSnapshots(), s2->GetSequenceNumber());
 
-    db_->ReleaseSnapshot(s2);
+    s2.reset();
     ASSERT_EQ(0U, GetNumSnapshots());
     ASSERT_EQ(GetSequenceOldestSnapshots(), 0);
     ASSERT_EQ("0v4", Get(0, "foo"));
@@ -3536,6 +3541,7 @@ TEST_F(DBBasicTestMultiGetDeadline, MultiGetDeadlineExceeded) {
   dbfull()->MultiGet(ro, handles_[0], keys.size(), keys.data(),
                      pin_values.data(), statuses.data());
   CheckStatus(statuses, 64);
+  pin_values.clear();
   Close();
 }
 
