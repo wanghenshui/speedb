@@ -858,13 +858,13 @@ TEST_F(DBTest, GetEncountersEmptyLevel) {
     Put(1, "z", "end");
     ASSERT_OK(Flush(1));
     ASSERT_GT(NumTableFilesAtLevel(0, 1), 0);
-    ASSERT_GT(NumTableFilesAtLevel(2, 1), 0);
+    EXPECT_GT(NumTableFilesAtLevel(2, 1), 0);
 
     // Step 2: clear level 1 if necessary.
     dbfull()->TEST_CompactRange(1, nullptr, nullptr, handles_[1]);
     ASSERT_EQ(NumTableFilesAtLevel(0, 1), 1);
     ASSERT_EQ(NumTableFilesAtLevel(1, 1), 0);
-    ASSERT_EQ(NumTableFilesAtLevel(2, 1), 1);
+    EXPECT_EQ(NumTableFilesAtLevel(2, 1), 1);
 
     // Step 3: read a bunch of times
     for (int i = 0; i < 1000; i++) {
@@ -1195,8 +1195,8 @@ void MinLevelHelper(DBTest* self, Options& options) {
   }
   self->dbfull()->TEST_WaitForCompact();
 
-  ASSERT_EQ(self->NumTableFilesAtLevel(0), 0);
-  ASSERT_EQ(self->NumTableFilesAtLevel(1), 1);
+  EXPECT_EQ(self->NumTableFilesAtLevel(0), 0);
+  EXPECT_EQ(self->NumTableFilesAtLevel(1), 1);
 }
 
 // returns false if the calling-Test should be skipped
@@ -1651,7 +1651,7 @@ TEST_F(DBTest, ApproximateSizes) {
       }
 
       ASSERT_EQ(NumTableFilesAtLevel(0, 1), 0);
-      ASSERT_GT(NumTableFilesAtLevel(1, 1), 0);
+      EXPECT_GT(NumTableFilesAtLevel(1, 1), 0);
     }
     // ApproximateOffsetOf() is not yet implemented in plain table format.
   } while (ChangeOptions(kSkipUniversalCompaction | kSkipFIFOCompaction |
@@ -1889,8 +1889,8 @@ TEST_F(DBTest, DeletionMarkers1) {
   Put(1, "z", "end");
   Flush(1);
   MoveFilesToLevel(last - 1, 1);
-  ASSERT_EQ(NumTableFilesAtLevel(last, 1), 1);
-  ASSERT_EQ(NumTableFilesAtLevel(last - 1, 1), 1);
+  EXPECT_EQ(NumTableFilesAtLevel(last, 1), 1);
+  EXPECT_EQ(NumTableFilesAtLevel(last - 1, 1), 1);
 
   Delete(1, "foo");
   Put(1, "foo", "v2");
@@ -1923,8 +1923,8 @@ TEST_F(DBTest, DeletionMarkers2) {
   Put(1, "z", "end");
   Flush(1);
   MoveFilesToLevel(last - 1, 1);
-  ASSERT_EQ(NumTableFilesAtLevel(last, 1), 1);
-  ASSERT_EQ(NumTableFilesAtLevel(last - 1, 1), 1);
+  EXPECT_EQ(NumTableFilesAtLevel(last, 1), 1);
+  EXPECT_EQ(NumTableFilesAtLevel(last - 1, 1), 1);
 
   Delete(1, "foo");
   ASSERT_EQ(AllEntriesFor("foo", 1), "[ DEL, v1 ]");
@@ -1954,7 +1954,7 @@ TEST_F(DBTest, OverlapInLevel0) {
     ASSERT_OK(Delete(1, "999"));
     Flush(1);
     MoveFilesToLevel(1, 1);
-    ASSERT_EQ("0,1,1", FilesPerLevel(1));
+    EXPECT_EQ("0,1,1", FilesPerLevel(1));
 
     // Make files spanning the following ranges in level-0:
     //  files[0]  200 .. 900
@@ -1967,7 +1967,7 @@ TEST_F(DBTest, OverlapInLevel0) {
     ASSERT_OK(Put(1, "600", "v600"));
     ASSERT_OK(Put(1, "900", "v900"));
     Flush(1);
-    ASSERT_EQ("2,1,1", FilesPerLevel(1));
+    EXPECT_EQ("2,1,1", FilesPerLevel(1));
 
     // Compact away the placeholder files we created initially
     dbfull()->TEST_CompactRange(1, nullptr, nullptr, handles_[1]);
@@ -4375,34 +4375,34 @@ TEST_P(DBTestWithParam, PreShutdownManualCompaction) {
   // iter - 1 with 3 levels
   for (int iter = 0; iter < 2; ++iter) {
     MakeTables(3, "p", "q", 1);
-    ASSERT_EQ("1,1,1", FilesPerLevel(1));
+    EXPECT_EQ("1,1,1", FilesPerLevel(1));
 
     // Compaction range falls before files
     Compact(1, "", "c");
-    ASSERT_EQ("1,1,1", FilesPerLevel(1));
+    EXPECT_EQ("1,1,1", FilesPerLevel(1));
 
     // Compaction range falls after files
     Compact(1, "r", "z");
-    ASSERT_EQ("1,1,1", FilesPerLevel(1));
+    EXPECT_EQ("1,1,1", FilesPerLevel(1));
 
     // Compaction range overlaps files
     Compact(1, "p", "q");
-    ASSERT_EQ("0,0,1", FilesPerLevel(1));
+    EXPECT_EQ("0,0,1", FilesPerLevel(1));
 
     // Populate a different range
     MakeTables(3, "c", "e", 1);
-    ASSERT_EQ("1,1,2", FilesPerLevel(1));
+    EXPECT_EQ("1,1,2", FilesPerLevel(1));
 
     // Compact just the new range
     Compact(1, "b", "f");
-    ASSERT_EQ("0,0,2", FilesPerLevel(1));
+    EXPECT_EQ("0,0,2", FilesPerLevel(1));
 
     // Compact all
     MakeTables(1, "a", "z", 1);
-    ASSERT_EQ("1,0,2", FilesPerLevel(1));
+    EXPECT_EQ("1,0,2", FilesPerLevel(1));
     CancelAllBackgroundWork(db_);
     db_->CompactRange(CompactRangeOptions(), handles_[1], nullptr, nullptr);
-    ASSERT_EQ("1,0,2", FilesPerLevel(1));
+    EXPECT_EQ("1,0,2", FilesPerLevel(1));
 
     if (iter == 0) {
       options = CurrentOptions();
@@ -4769,7 +4769,7 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel2) {
   ASSERT_EQ(NumTableFilesAtLevel(1), 0);
   ASSERT_EQ(NumTableFilesAtLevel(2), 0);
   ASSERT_EQ(NumTableFilesAtLevel(3), 0);
-  ASSERT_GT(NumTableFilesAtLevel(4), 0);
+  EXPECT_GT(NumTableFilesAtLevel(4), 0);
   ASSERT_GT(num_no.load(), 2);
   ASSERT_GT(num_lz4.load(), 0);
   int prev_num_files_l4 = NumTableFilesAtLevel(4);
@@ -4860,10 +4860,10 @@ TEST_F(DBTest, DynamicCompactionOptions) {
   gen_l0_kb(0, 64, 1);
   ASSERT_EQ(NumTableFilesAtLevel(0), 1);
   gen_l0_kb(0, 64, 1);
-  ASSERT_EQ(NumTableFilesAtLevel(0), 2);
+  EXPECT_EQ(NumTableFilesAtLevel(0), 2);
   gen_l0_kb(0, 64, 1);
   dbfull()->TEST_WaitForCompact();
-  ASSERT_EQ("0,1", FilesPerLevel());
+  EXPECT_EQ("0,1", FilesPerLevel());
   std::vector<LiveFileMetaData> metadata;
   db_->GetLiveFilesMetaData(&metadata);
   ASSERT_EQ(1U, metadata.size());

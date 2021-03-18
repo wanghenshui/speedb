@@ -1374,7 +1374,7 @@ TEST_F(DBTest2, PresetCompressionDictLocality) {
     }
     ASSERT_OK(Flush());
     MoveFilesToLevel(1);
-    ASSERT_EQ(NumTableFilesAtLevel(1), i + 1);
+    EXPECT_EQ(NumTableFilesAtLevel(1), i + 1);
   }
 
   // Store all the dictionaries generated during a full compaction.
@@ -4716,7 +4716,7 @@ TEST_F(DBTest2, TestCompactFiles) {
   options.disable_auto_compactions = true;
   Reopen(options);
   auto* handle = db_->DefaultColumnFamily();
-  ASSERT_EQ(db_->NumberLevels(handle), 2);
+  EXPECT_EQ(db_->NumberLevels(handle), 2);
 
   ROCKSDB_NAMESPACE::SstFileWriter sst_file_writer{
       ROCKSDB_NAMESPACE::EnvOptions(), options};
@@ -4741,7 +4741,7 @@ TEST_F(DBTest2, TestCompactFiles) {
 
   ASSERT_OK(db_->IngestExternalFile(handle, {external_file1, external_file3},
                                     IngestExternalFileOptions()));
-  ASSERT_EQ(NumTableFilesAtLevel(1, 0), 2);
+  EXPECT_EQ(NumTableFilesAtLevel(1, 0), 2);
   std::vector<std::string> files;
   GetSstFiles(env_, dbname_, &files);
   ASSERT_EQ(files.size(), 2);
@@ -5180,7 +5180,7 @@ TEST_F(DBTest2, SameSmallestInSameLevel) {
   Flush();
   dbfull()->TEST_WaitForCompact(true);
 #ifndef ROCKSDB_LITE
-  ASSERT_EQ("0,4,1", FilesPerLevel());
+  EXPECT_EQ("0,4,1", FilesPerLevel());
 #endif  // ROCKSDB_LITE
 
   ASSERT_EQ("2,3,4,5,6,7,8", Get("key"));

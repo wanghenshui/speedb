@@ -1300,8 +1300,8 @@ TEST_P(PlainTableDBTest, CompactionTrigger) {
   ASSERT_OK(Put(Key(999), ""));
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
-  ASSERT_EQ(NumTableFilesAtLevel(0), 0);
-  ASSERT_EQ(NumTableFilesAtLevel(1), 1);
+  EXPECT_EQ(NumTableFilesAtLevel(0), 0);
+  EXPECT_EQ(NumTableFilesAtLevel(1), 1);
 }
 
 TEST_P(PlainTableDBTest, AdaptiveTable) {

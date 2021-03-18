@@ -171,9 +171,9 @@ TEST_F(DBTablePropertiesTest, GetPropertiesOfTablesInRange) {
   ASSERT_OK(db_->PauseBackgroundWork());
 
   // Ensure that we have at least L0, L1 and L2
-  ASSERT_GT(NumTableFilesAtLevel(0), 0);
-  ASSERT_GT(NumTableFilesAtLevel(1), 0);
-  ASSERT_GT(NumTableFilesAtLevel(2), 0);
+  EXPECT_GT(NumTableFilesAtLevel(0), 0);
+  EXPECT_GT(NumTableFilesAtLevel(1), 0);
+  EXPECT_GT(NumTableFilesAtLevel(2), 0);
 
   // Query the largest range
   std::size_t num_properties, num_files;
@@ -376,7 +376,7 @@ TEST_P(DBTablePropertiesTest, DeletionTriggeredCompactionMarking) {
   ASSERT_OK(Flush());
 
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
-  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+  EXPECT_EQ(0, NumTableFilesAtLevel(0));
 
   // Change the window size and deletion trigger and ensure new values take
   // effect
@@ -397,7 +397,7 @@ TEST_P(DBTablePropertiesTest, DeletionTriggeredCompactionMarking) {
   ASSERT_OK(Flush());
 
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
-  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+  EXPECT_EQ(0, NumTableFilesAtLevel(0));
 
   // Change the window size to disable delete triggered compaction
   kWindowSize = 0;
@@ -416,7 +416,7 @@ TEST_P(DBTablePropertiesTest, DeletionTriggeredCompactionMarking) {
   ASSERT_OK(Flush());
 
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
-  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+  EXPECT_EQ(1, NumTableFilesAtLevel(0));
   ASSERT_LT(0, opts.statistics->getTickerCount(COMPACT_WRITE_BYTES_MARKED));
   ASSERT_LT(0, opts.statistics->getTickerCount(COMPACT_READ_BYTES_MARKED));
 }
@@ -465,7 +465,7 @@ TEST_P(DBTablePropertiesTest, RatioBasedDeletionTriggeredCompactionMarking) {
 
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   for (int i = 0; i < 3; ++i) {
-    ASSERT_EQ(0, NumTableFilesAtLevel(i));
+    EXPECT_EQ(0, NumTableFilesAtLevel(i));
   }
 }
 

@@ -407,7 +407,7 @@ class ColumnFamilyTestBase : public testing::Test {
 
   void AssertFilesPerLevel(const std::string& value, int cf) {
 #ifndef ROCKSDB_LITE
-    ASSERT_EQ(value, FilesPerLevel(cf));
+    EXPECT_EQ(value, FilesPerLevel(cf));
 #else
     (void) value;
     (void) cf;
@@ -1862,7 +1862,7 @@ TEST_P(ColumnFamilyTest, SameCFManualAutomaticCompactions) {
   threads.join();
   WaitForCompaction();
   // VERIFY compaction "one"
-  ASSERT_LE(NumTableFilesAtLevel(0, 1), 2);
+  EXPECT_LE(NumTableFilesAtLevel(0, 1), 2);
 
   // Compare against saved keys
   std::set<std::string>::iterator key_iter = keys_[1].begin();
@@ -2270,7 +2270,7 @@ TEST_P(ColumnFamilyTest, SanitizeOptions) {
             } else {
               ASSERT_GE(result.num_levels, 1);
               if (original.num_levels >= 1) {
-                ASSERT_EQ(result.num_levels, original.num_levels);
+                EXPECT_EQ(result.num_levels, original.num_levels);
               }
             }
 
@@ -2584,7 +2584,7 @@ TEST_P(ColumnFamilyTest, WriteStallSingleColumnFamily) {
   ASSERT_TRUE(!IsDbWriteStopped());
   ASSERT_TRUE(dbfull()->TEST_write_controler().NeedsDelay());
   ASSERT_EQ(kBaseRate, GetDbDelayedWriteRate());
-  ASSERT_EQ(6, dbfull()->TEST_BGCompactionsAllowed());
+  EXPECT_EQ(6, dbfull()->TEST_BGCompactionsAllowed());
 
   vstorage->TEST_set_estimated_compaction_needed_bytes(400);
   RecalculateWriteStallConditions(cfd, mutable_cf_options);
@@ -2761,7 +2761,7 @@ TEST_P(ColumnFamilyTest, CompactionSpeedupSingleColumnFamily) {
 
   vstorage->TEST_set_estimated_compaction_needed_bytes(50);
   RecalculateWriteStallConditions(cfd, mutable_cf_options);
-  ASSERT_EQ(6, dbfull()->TEST_BGCompactionsAllowed());
+  EXPECT_EQ(6, dbfull()->TEST_BGCompactionsAllowed());
 
   vstorage->TEST_set_estimated_compaction_needed_bytes(300);
   RecalculateWriteStallConditions(cfd, mutable_cf_options);
@@ -2910,7 +2910,7 @@ TEST_P(ColumnFamilyTest, CompactionSpeedupTwoColumnFamilies) {
   RecalculateWriteStallConditions(cfd1, mutable_cf_options);
   ASSERT_EQ(1, dbfull()->TEST_BGCompactionsAllowed());
   RecalculateWriteStallConditions(cfd, mutable_cf_options);
-  ASSERT_EQ(6, dbfull()->TEST_BGCompactionsAllowed());
+  EXPECT_EQ(6, dbfull()->TEST_BGCompactionsAllowed());
 
   vstorage1->TEST_set_estimated_compaction_needed_bytes(30);
   RecalculateWriteStallConditions(cfd1, mutable_cf_options);

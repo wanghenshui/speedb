@@ -1450,7 +1450,7 @@ TEST_F(DBPropertiesTest, NeedCompactHintPersistentTest) {
   options.disable_auto_compactions = false;
   Reopen(options);
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
-  ASSERT_EQ(NumTableFilesAtLevel(0), 0);
+  EXPECT_EQ(NumTableFilesAtLevel(0), 0);
   {
     SetPerfLevel(kEnableCount);
     get_perf_context()->Reset();

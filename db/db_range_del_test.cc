@@ -419,7 +419,7 @@ TEST_F(DBRangeDelTest, ValidLevelSubcompactionBoundaries) {
         ASSERT_OK(dbfull()->TEST_WaitForCompact());
         ASSERT_OK(db_->SetOptions(db_->DefaultColumnFamily(),
                                   {{"disable_auto_compactions", "true"}}));
-        ASSERT_EQ(NumTableFilesAtLevel(0), 0);
+        EXPECT_EQ(NumTableFilesAtLevel(0), 0);
         ASSERT_GT(NumTableFilesAtLevel(1), 0);
         ASSERT_GT(NumTableFilesAtLevel(2), 0);
       }
@@ -468,7 +468,7 @@ TEST_F(DBRangeDelTest, ValidUniversalSubcompactionBoundaries) {
     }
     ASSERT_OK(dbfull()->TEST_WaitForCompact());
     ASSERT_EQ(NumTableFilesAtLevel(0), 0);
-    ASSERT_GT(NumTableFilesAtLevel(kNumLevels - 1 - i), kFilesPerLevel - 1);
+    EXPECT_GT(NumTableFilesAtLevel(kNumLevels - 1 - i), kFilesPerLevel - 1);
   }
   // Now L1-L3 are full, when we compact L1->L2 we should see (1) subcompactions
   // happen since input level > 0; (2) range deletions are not dropped since
@@ -637,7 +637,7 @@ TEST_F(DBRangeDelTest, TableEvictedDuringScan) {
   }
   // Must be > 1 so the first L1 file can be closed before scan finishes
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
-  ASSERT_GT(NumTableFilesAtLevel(1), 1);
+  EXPECT_GT(NumTableFilesAtLevel(1), 1);
   std::vector<uint64_t> file_numbers = ListTableFiles(env_, dbname_);
 
   ReadOptions read_opts;
@@ -1029,7 +1029,7 @@ TEST_F(DBRangeDelTest, CompactionTreatsSplitInputLevelDeletionAtomically) {
     ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
     ASSERT_OK(dbfull()->TEST_WaitForCompact());
     ASSERT_EQ(0, NumTableFilesAtLevel(0));
-    ASSERT_EQ(kNumFilesPerLevel, NumTableFilesAtLevel(1));
+    EXPECT_EQ(kNumFilesPerLevel, NumTableFilesAtLevel(1));
 
     ColumnFamilyMetaData meta;
     db_->GetColumnFamilyMetaData(&meta);
@@ -1576,7 +1576,7 @@ TEST_F(DBRangeDelTest, RangeTombstoneWrittenToMinimalSsts) {
   ASSERT_OK(dbfull()->TEST_CompactRange(
       0 /* level */, &begin_key /* begin */, &end_key /* end */,
       nullptr /* column_family */, true /* disallow_trivial_move */));
-  ASSERT_EQ(2, NumTableFilesAtLevel(1));
+  EXPECT_EQ(2, NumTableFilesAtLevel(1));
 
   std::vector<LiveFileMetaData> all_metadata;
   std::vector<LiveFileMetaData> l1_metadata;
@@ -1632,7 +1632,7 @@ TEST_F(DBRangeDelTest, OverlappedTombstones) {
   ASSERT_OK(db_->Flush(FlushOptions()));
   ASSERT_EQ(1, NumTableFilesAtLevel(0));
   MoveFilesToLevel(2);
-  ASSERT_EQ(2, NumTableFilesAtLevel(2));
+  EXPECT_EQ(2, NumTableFilesAtLevel(2));
 
   ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), Key(1),
                              Key((kNumFiles)*kNumPerFile + 1)));
@@ -1671,7 +1671,7 @@ TEST_F(DBRangeDelTest, OverlappedKeys) {
   ASSERT_OK(db_->Flush(FlushOptions()));
   ASSERT_EQ(1, NumTableFilesAtLevel(0));
   MoveFilesToLevel(2);
-  ASSERT_EQ(2, NumTableFilesAtLevel(2));
+  EXPECT_EQ(2, NumTableFilesAtLevel(2));
 
   for (int i = 1; i < kNumFiles * kNumPerFile + 1; i++) {
     ASSERT_OK(Put(Key(i), "0x123"));

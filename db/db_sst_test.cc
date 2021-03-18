@@ -171,7 +171,7 @@ TEST_F(DBSSTTest, DontDeleteMovedFile) {
   }
   // this should execute both L0->L1 and L1->(move)->L2 compactions
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
-  ASSERT_EQ("0,0,1", FilesPerLevel(0));
+  EXPECT_EQ("0,0,1", FilesPerLevel(0));
 
   // If the moved file is actually deleted (the move-safeguard in
   // ~Version::Version() is not there), we get this failure:
@@ -219,7 +219,7 @@ TEST_F(DBSSTTest, DeleteObsoleteFilesPendingOutputs) {
   }
   // this should execute both L0->L1 and L1->(move)->L2 compactions
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
-  ASSERT_EQ("0,0,1", FilesPerLevel(0));
+  EXPECT_EQ("0,0,1", FilesPerLevel(0));
 
   test::SleepingBackgroundTask blocking_thread;
   port::Mutex mutex_;
@@ -676,7 +676,7 @@ TEST_F(DBSSTTest, RateLimitedDelete) {
   // Compaction will move the 4 files in L0 to trash and create 1 L1 file
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
-  ASSERT_EQ("0,1", FilesPerLevel(0));
+  EXPECT_EQ("0,1", FilesPerLevel(0));
 
   uint64_t delete_start_time = env_->NowMicros();
   // Hold BackgroundEmptyTrash
@@ -744,7 +744,7 @@ TEST_F(DBSSTTest, RateLimitedWALDelete) {
   cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
   ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
-  ASSERT_EQ("0,1", FilesPerLevel(0));
+  EXPECT_EQ("0,1", FilesPerLevel(0));
 
   sfm->WaitForEmptyTrash();
   ASSERT_EQ(penalties.size(), 8);
@@ -936,7 +936,7 @@ TEST_F(DBSSTTest, DeleteSchedulerMultipleDBPaths) {
   Slice begin("Key0");
   Slice end("Key3");
   ASSERT_OK(db_->CompactRange(compact_options, &begin, &end));
-  ASSERT_EQ("0,1", FilesPerLevel(0));
+  EXPECT_EQ("0,1", FilesPerLevel(0));
 
   // Create 4 files in L0
   for (int i = 4; i < 8; i++) {

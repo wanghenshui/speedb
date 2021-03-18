@@ -128,7 +128,7 @@ TEST_F(DBFlushTest, SyncSkip) {
 
   Destroy(options);
 }
-
+// TODO: (yuval) to disable?
 TEST_F(DBFlushTest, FlushInLowPriThreadPool) {
   // Verify setting an empty high-pri (flush) thread pool causes flushes to be
   // scheduled in the low-pri (compaction) thread pool.
@@ -145,7 +145,7 @@ TEST_F(DBFlushTest, FlushInLowPriThreadPool) {
         if (tid == std::thread::id()) {
           tid = std::this_thread::get_id();
         } else {
-          ASSERT_EQ(tid, std::this_thread::get_id());
+          EXPECT_EQ(tid, std::this_thread::get_id());
         }
         ++num_flushes;
       });

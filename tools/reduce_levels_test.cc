@@ -156,7 +156,7 @@ TEST_F(ReduceLevelTest, All_Levels) {
   ASSERT_OK(Flush());
   MoveL0FileToLevel(3);
   ASSERT_EQ(FilesOnLevel(3), 1);
-  ASSERT_EQ(FilesOnLevel(4), 1);
+  EXPECT_EQ(FilesOnLevel(4), 1);
   CloseDB();
 
   ASSERT_OK(OpenDB(true, 5));
@@ -164,8 +164,8 @@ TEST_F(ReduceLevelTest, All_Levels) {
   ASSERT_OK(Flush());
   MoveL0FileToLevel(2);
   ASSERT_EQ(FilesOnLevel(2), 1);
-  ASSERT_EQ(FilesOnLevel(3), 1);
-  ASSERT_EQ(FilesOnLevel(4), 1);
+  EXPECT_EQ(FilesOnLevel(3), 1);
+  EXPECT_EQ(FilesOnLevel(4), 1);
   CloseDB();
 
   ASSERT_OK(OpenDB(true, 5));
@@ -173,9 +173,9 @@ TEST_F(ReduceLevelTest, All_Levels) {
   ASSERT_OK(Flush());
   MoveL0FileToLevel(1);
   ASSERT_EQ(FilesOnLevel(1), 1);
-  ASSERT_EQ(FilesOnLevel(2), 1);
-  ASSERT_EQ(FilesOnLevel(3), 1);
-  ASSERT_EQ(FilesOnLevel(4), 1);
+  EXPECT_EQ(FilesOnLevel(2), 1);
+  EXPECT_EQ(FilesOnLevel(3), 1);
+  EXPECT_EQ(FilesOnLevel(4), 1);
   CloseDB();
 
   ASSERT_TRUE(ReduceLevels(4));

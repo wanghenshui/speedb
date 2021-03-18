@@ -274,7 +274,7 @@ TEST_P(MergeOperatorPinningTest, OperandsMultiBlocks) {
   // 3 L2 files
   // 1 L3 file
   // 3 L4 Files
-  ASSERT_EQ(FilesPerLevel(), "3,1,3,1,3");
+  EXPECT_EQ(FilesPerLevel(), "3,1,3,1,3");
 
   VerifyDBFromMap(true_data);
 }
