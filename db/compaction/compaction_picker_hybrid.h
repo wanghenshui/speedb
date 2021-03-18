@@ -245,6 +245,7 @@ class HybridCompactionPicker : public CompactionPicker {
   size_t sizeToCompact_[s_maxNumHyperLevels + 1];
   size_t multiplier_[s_maxNumHyperLevels + 1];
   size_t lastLevelSizeCompactionStart_;
+  size_t level0_compaction_trigger_;
   bool enableLow_;
   double spaceAmpFactor_;
   const Comparator* ucmp_;
