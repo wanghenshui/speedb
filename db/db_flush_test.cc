@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include <atomic>
+#include <unordered_set>
 
 #include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
@@ -52,6 +53,13 @@ TEST_F(DBFlushTest, FlushWhileWritingManifest) {
   FlushOptions no_wait;
   no_wait.wait = false;
   no_wait.allow_write_stall=true;
+
+  // We only allow one background flush at any given time, so this test is
+  // irrelevant.
+  if (db_->GetOptions().max_background_flushes <
+      options.max_background_flushes) {
+    return;
+  }
 
   SyncPoint::GetInstance()->LoadDependency(
       {{"VersionSet::LogAndApply:WriteManifest",
@@ -128,30 +136,38 @@ TEST_F(DBFlushTest, SyncSkip) {
 
   Destroy(options);
 }
-// TODO: (yuval) to disable?
+
 TEST_F(DBFlushTest, FlushInLowPriThreadPool) {
   // Verify setting an empty high-pri (flush) thread pool causes flushes to be
   // scheduled in the low-pri (compaction) thread pool.
   Options options = CurrentOptions();
   options.level0_file_num_compaction_trigger = 4;
+  options.level0_slowdown_writes_trigger = 5;
   options.memtable_factory.reset(new SpecialSkipListFactory(1));
   Reopen(options);
   env_->SetBackgroundThreads(0, Env::HIGH);
 
-  std::thread::id tid;
+  std::vector<ThreadStatus> thread_list;
+  assert(env_->GetThreadList(&thread_list).ok());
+
+  std::unordered_set<uint64_t> low_pri_threads;
+  for (const auto& status : thread_list) {
+    if (status.thread_type == ThreadStatus::ThreadType::LOW_PRIORITY) {
+      low_pri_threads.emplace(status.thread_id);
+    }
+  }
+
   int num_flushes = 0, num_compactions = 0;
   SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BGWorkFlush", [&](void* /*arg*/) {
-        if (tid == std::thread::id()) {
-          tid = std::this_thread::get_id();
-        } else {
-          EXPECT_EQ(tid, std::this_thread::get_id());
-        }
+        auto iter = low_pri_threads.find(env_->GetThreadID());
+        EXPECT_NE(iter, low_pri_threads.end());
         ++num_flushes;
       });
   SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BGWorkCompaction", [&](void* /*arg*/) {
-        ASSERT_EQ(tid, std::this_thread::get_id());
+        auto iter = low_pri_threads.find(env_->GetThreadID());
+        EXPECT_NE(iter, low_pri_threads.end());
         ++num_compactions;
       });
   SyncPoint::GetInstance()->EnableProcessing();
@@ -163,7 +179,7 @@ TEST_F(DBFlushTest, FlushInLowPriThreadPool) {
   }
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ(4, num_flushes);
-  ASSERT_EQ(1, num_compactions);
+  ASSERT_LE(1, num_compactions);
 }
 
 // Test when flush job is submitted to low priority thread pool and when DB is
@@ -840,6 +856,15 @@ TEST_F(DBFlushTest, FireOnFlushCompletedAfterCommittedResult) {
   // Allow 2 immutable memtables.
   options.max_write_buffer_number = 3;
   Reopen(options);
+
+  // See comment above the seting of `options.max_background_jobs`.
+  // We only allow one background flush at any given time, so this test is
+  // irrelevant.
+  if (db_->GetOptions().max_background_flushes <
+      options.max_background_jobs / 4) {
+    return;
+  }
+
   SyncPoint::GetInstance()->EnableProcessing();
   ASSERT_OK(Put("foo", "v"));
   listener->seq1 = db_->GetLatestSequenceNumber();
