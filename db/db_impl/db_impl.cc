@@ -170,7 +170,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       batch_per_txn_(batch_per_txn),
       next_job_id_(1),
       shutting_down_(false),
-      lastSnapshot_(0),
+      last_snapshot_(0, SnapshotDeleter{.db = this, .lock = false}),
       db_lock_(nullptr),
       manual_compaction_paused_(false),
       bg_cv_(&mutex_),
@@ -514,10 +514,7 @@ Status DBImpl::CloseHelper() {
   // continuing with the shutdown
   mutex_.Lock();
   shutdown_initiated_ = true;
-  if (lastSnapshot_) {
-    ReleaseSnapshotImpl(lastSnapshot_, false);
-    lastSnapshot_ = nullptr;
-  }
+  last_snapshot_.reset();
   error_handler_.CancelErrorRecovery();
   while (error_handler_.IsRecoveryInProgress()) {
     bg_cv_.Wait();
@@ -3078,25 +3075,19 @@ SnapshotImpl* DBImpl::GetSnapshotImpl(bool is_write_conflict_boundary,
                           ? versions_->LastSequence()
                           : versions_->LastPublishedSequence();
 
-  SnapshotImpl* oldSnapshot = 0;
   SnapshotImpl* ret;
-  if (!lastSnapshot_ || lastSnapshot_->GetSequenceNumber() != snapshot_seq ||
+  if (!last_snapshot_ || last_snapshot_->GetSequenceNumber() != snapshot_seq ||
       (is_write_conflict_boundary &&
-       !lastSnapshot_->is_write_conflict_boundary())) {
-    oldSnapshot = lastSnapshot_;
+       !last_snapshot_->is_write_conflict_boundary())) {
     SnapshotImpl* s = new SnapshotImpl();
     int64_t unix_time = 0;
     immutable_db_options_.clock->GetCurrentTime(&unix_time)
         .PermitUncheckedError();  // Ignore error
-    lastSnapshot_ =
-        snapshots_.New(s, snapshot_seq, unix_time, is_write_conflict_boundary);
+    last_snapshot_.reset(
+        snapshots_.New(s, snapshot_seq, unix_time, is_write_conflict_boundary));
   }
-  ret = lastSnapshot_;
-  lastSnapshot_->ref();
-
-  if (oldSnapshot) {
-    ReleaseSnapshotImpl(oldSnapshot, false);
-  }
+  ret = last_snapshot_.get();
+  last_snapshot_->ref();
 
   if (lock) {
     mutex_.Unlock();
@@ -4002,10 +3993,7 @@ Status DBImpl::Close() {
   if (!closed_) {
     {
       InstrumentedMutexLock l(&mutex_);
-      if (lastSnapshot_) {
-        ReleaseSnapshotImpl(lastSnapshot_, false);
-        lastSnapshot_ = nullptr;
-      }
+      last_snapshot_.reset();
       // If there is unreleased snapshot, fail the close call
       if (!snapshots_.empty()) {
         return Status::Aborted("Cannot close DB with unreleased snapshot.");

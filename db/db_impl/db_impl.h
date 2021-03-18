@@ -1217,12 +1217,18 @@ class DBImpl : public DB {
                                    int job_id);
   void NotifyOnMemTableSealed(ColumnFamilyData* cfd,
                               const MemTableInfo& mem_table_info);
+
+  struct SnapshotDeleter {
+    void operator()(SnapshotImpl* s) {
+      const_cast<DBImpl*>(db)->ReleaseSnapshotImpl(s, lock);
+    }
+
+    const DBImpl* db;
+    const bool lock;
+  };
+
   // support parallel snapshots
-  bool has_running_snapshot_;
-  std::atomic<int> n_waiting_snapshots_;
-  std::mutex snapshotMutex_;
-  std::condition_variable snapshotCond_;
-  SnapshotImpl* lastSnapshot_;
+  std::unique_ptr<SnapshotImpl, SnapshotDeleter> last_snapshot_;
 
 #ifndef ROCKSDB_LITE
   void NotifyOnExternalFileIngested(
