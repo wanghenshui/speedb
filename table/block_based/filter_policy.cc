@@ -1055,9 +1055,7 @@ BloomFilterPolicy::BloomFilterPolicy(double bits_per_key, Mode mode)
 
 BloomFilterPolicy::~BloomFilterPolicy() {}
 
-const char* BloomFilterPolicy::Name() const {
-  return "rocksdb.BuiltinBloomFilter";
-}
+const char* BloomFilterPolicy::Name() const { return "speedb.HybridFilter"; }
 
 void BloomFilterPolicy::CreateFilter(const Slice* keys, int n,
                                      std::string* dst) const {
