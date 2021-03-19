@@ -1004,6 +1004,7 @@ TEST_F(DBErrorHandlingFSTest, CompactionWriteError) {
   options.env = fault_env_.get();
   options.create_if_missing = true;
   options.level0_file_num_compaction_trigger = 2;
+  options.level0_slowdown_writes_trigger = 3;
   options.listeners.emplace_back(listener);
   Status s;
   DestroyAndReopen(options);
@@ -1019,10 +1020,14 @@ TEST_F(DBErrorHandlingFSTest, CompactionWriteError) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"DBImpl::FlushMemTable:FlushMemTableFinished",
         "BackgroundCallCompaction:0"}});
+  bool faulted_in = false;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "BackgroundCallCompaction:0", [&](void*) {
-        fault_fs_->SetFilesystemActive(false,
-                                       IOStatus::NoSpace("Out of space"));
+        if (!faulted_in) {
+          faulted_in = true;
+          fault_fs_->SetFilesystemActive(false,
+                                         IOStatus::NoSpace("Out of space"));
+        }
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
@@ -1046,6 +1051,7 @@ TEST_F(DBErrorHandlingFSTest, DISABLED_CompactionWriteRetryableError) {
   options.env = fault_env_.get();
   options.create_if_missing = true;
   options.level0_file_num_compaction_trigger = 2;
+  options.level0_slowdown_writes_trigger = 3;
   options.listeners.emplace_back(listener);
   options.max_bgerror_resume_count = 0;
   Status s;
@@ -1142,6 +1148,7 @@ TEST_F(DBErrorHandlingFSTest, CorruptionError) {
   options.env = fault_env_.get();
   options.create_if_missing = true;
   options.level0_file_num_compaction_trigger = 2;
+  options.level0_slowdown_writes_trigger = 3;
   Status s;
   DestroyAndReopen(options);
 
@@ -1165,8 +1172,9 @@ TEST_F(DBErrorHandlingFSTest, CorruptionError) {
   ASSERT_OK(s);
 
   s = dbfull()->TEST_WaitForCompact();
-  ASSERT_EQ(s.severity(),
-            ROCKSDB_NAMESPACE::Status::Severity::kUnrecoverableError);
+  ASSERT_TRUE(s.severity() ==
+                  ROCKSDB_NAMESPACE::Status::Severity::kUnrecoverableError ||
+              s.severity() == ROCKSDB_NAMESPACE::Status::Severity::kFatalError);
 
   fault_fs_->SetFilesystemActive(true);
   s = dbfull()->Resume();
@@ -1521,6 +1529,7 @@ TEST_F(DBErrorHandlingFSTest, MultiDBCompactionError) {
     options[i].env = fault_envs.back().get();
     options[i].create_if_missing = true;
     options[i].level0_file_num_compaction_trigger = 2;
+    options[i].level0_slowdown_writes_trigger = 3;
     options[i].writable_file_max_buffer_size = 32768;
     options[i].listeners.emplace_back(listener[i]);
     options[i].sst_file_manager = sfm;
