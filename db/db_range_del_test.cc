@@ -994,9 +994,15 @@ TEST_F(DBRangeDelTest, CompactionTreatsSplitInputLevelDeletionAtomically) {
   Options options = CurrentOptions();
   options.compression = kNoCompression;
   options.level0_file_num_compaction_trigger = kNumFilesPerLevel;
+  options.level0_slowdown_writes_trigger = kNumFilesPerLevel + 1;
   options.memtable_factory.reset(
       new SpecialSkipListFactory(2 /* num_entries_flush */));
   options.target_file_size_base = kValueBytes;
+
+  auto snapshot_releaser = [this](const Snapshot* s) {
+    db_->ReleaseSnapshot(s);
+  };
+
   // i == 0: CompactFiles
   // i == 1: CompactRange
   // i == 2: automatic compaction
@@ -1009,7 +1015,8 @@ TEST_F(DBRangeDelTest, CompactionTreatsSplitInputLevelDeletionAtomically) {
     ASSERT_EQ(1, NumTableFilesAtLevel(2));
 
     // snapshot protects range tombstone from dropping due to becoming obsolete.
-    const Snapshot* snapshot = db_->GetSnapshot();
+    std::unique_ptr<const Snapshot, decltype(snapshot_releaser)> snapshot{
+        db_->GetSnapshot(), snapshot_releaser};
     ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
                                Key(0), Key(2 * kNumFilesPerLevel)));
 
@@ -1034,6 +1041,12 @@ TEST_F(DBRangeDelTest, CompactionTreatsSplitInputLevelDeletionAtomically) {
     ColumnFamilyMetaData meta;
     db_->GetColumnFamilyMetaData(&meta);
     if (i == 0) {
+      // TODO: This test assumes a specific structure of the levels, which isn't
+      // true for hybrid compaction, which in turn causes a null pointer
+      // dereference when the line following the next line tries to access a
+      // non-existing file on level 1. For now add an assertion to fail the test
+      // and prevent the segfault.
+      ASSERT_LE(1, NumTableFilesAtLevel(1));
       ASSERT_OK(db_->CompactFiles(
           CompactionOptions(), {meta.levels[1].files[0].name}, 2 /* level */));
       ASSERT_EQ(0, NumTableFilesAtLevel(1));
@@ -1049,8 +1062,6 @@ TEST_F(DBRangeDelTest, CompactionTreatsSplitInputLevelDeletionAtomically) {
       ASSERT_EQ(1, NumTableFilesAtLevel(1));
     }
     ASSERT_GT(NumTableFilesAtLevel(2), 0);
-
-    db_->ReleaseSnapshot(snapshot);
   }
 }
 
