@@ -638,7 +638,7 @@ Compaction* HybridCompactionPicker::PickLevelCompaction(
     size_t lastHyperLevelSize =
         CalculateHyperlevelSize(hyperLevelNum, vstorage);
     size_t dbSize = vstorage->NumLevelBytes(LastLevel());
-    if (dbSize == 0) {
+    if (dbSize < (size_t)mutable_cf_options.write_buffer_size * 8) {
       dbSize = (size_t)mutable_cf_options.write_buffer_size * 8;
     }
     compactionOutputFileSize = std::min(compactionOutputFileSize, dbSize / 8);

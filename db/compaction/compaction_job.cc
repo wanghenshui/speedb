@@ -179,6 +179,7 @@ struct CompactionJob::SubcompactionState {
   std::string first_key_prefix;
   std::vector<size_t> max_sizes;
   size_t prefix_table_size;
+  std::string last_user_key;
 
   SubcompactionState(Compaction* c, Slice* _start, Slice* _end,
                      size_t prefix_size, uint64_t size = 0)
@@ -231,6 +232,7 @@ struct CompactionJob::SubcompactionState {
     first_key_prefix = std::move(o.first_key_prefix);
     max_sizes = std::move(o.max_sizes);
     prefix_table_size = std::move(o.prefix_table_size);
+    last_user_key = std::move(o.last_user_key);
     return *this;
   }
 
@@ -252,6 +254,13 @@ struct CompactionJob::SubcompactionState {
   // before processing "internal_key".
   bool ShouldStopBefore(const Slice& user_key, uint64_t curr_file_size) {
     auto ucmp = compaction->column_family_data()->user_comparator();
+
+    Slice prev_user_key(last_user_key.data(), last_user_key.size());
+    if (ucmp->Compare(user_key, prev_user_key) == 0) {
+      return false;
+    } else {
+      last_user_key = std::string(user_key.data(), user_key.size());
+    }
 
     const std::vector<FileMetaData*>& grandparents = compaction->grandparents();
     if (grandparent_index == 0) {
