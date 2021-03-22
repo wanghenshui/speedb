@@ -882,7 +882,7 @@ void HybridCompactionPicker::selectNBufferFromFirstLevel(
                ucmp_->Compare((*targetEnd)->smallest.user_key(),
                               (*levelIter)->largest.user_key()) > 0) {
       // "free" file check the comapction size and the write amp
-      if (outFiles.size() > maxNBuffers && currentLevelSize < 1 << 26 &&
+      if (outFiles.size() > maxNBuffers && currentLevelSize < (1 << 26) &&
           currentTargetSize / currentLevelSize > 2) {
         expand = false;
       }
@@ -890,7 +890,7 @@ void HybridCompactionPicker::selectNBufferFromFirstLevel(
       // target end starts after the current file expand only if too small
       // compaction && this file is not completely excluded
       auto newSize = currentTargetSize + (*targetEnd)->fd.file_size;
-      if (outFiles.size() >= maxNBuffers || newSize > 1 << 30 ||
+      if (outFiles.size() >= maxNBuffers || newSize > (1 << 30) ||
           ucmp_->Compare((*targetEnd)->largest.user_key(),
                          (*levelIter)->smallest.user_key()) < 0) {
         expand = false;
