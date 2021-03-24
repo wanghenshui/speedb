@@ -474,6 +474,10 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
   }
 #endif  // !ROCKSDB_LITE
 
+  if (thread_options_change_ != nullptr) {
+    thread_options_change_->cancel();
+    thread_options_change_.reset();
+  }
   InstrumentedMutexLock l(&mutex_);
   if (!shutting_down_.load(std::memory_order_acquire) &&
       has_unpersisted_data_.load(std::memory_order_relaxed) &&
