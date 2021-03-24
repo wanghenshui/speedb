@@ -177,14 +177,13 @@ TEST_F(DBBlockCacheTest, IteratorBlockCacheUsage) {
   RecordCacheCounters(options);
 
   std::vector<std::unique_ptr<Iterator>> iterators(kNumBlocks - 1);
-  Iterator* iter = nullptr;
+  std::unique_ptr<Iterator> iter;
 
   ASSERT_EQ(0, cache->GetUsage());
-  iter = db_->NewIterator(read_options);
+  iter.reset(db_->NewIterator(read_options));
   iter->Seek(ToString(0));
   ASSERT_LT(0, cache->GetUsage());
-  delete iter;
-  iter = nullptr;
+  iter.reset();
   ASSERT_EQ(0, cache->GetUsage());
 }
 
@@ -201,15 +200,15 @@ TEST_F(DBBlockCacheTest, TestWithoutCompressedBlockCache) {
   RecordCacheCounters(options);
 
   std::vector<std::unique_ptr<Iterator>> iterators(kNumBlocks - 1);
-  Iterator* iter = nullptr;
+  std::unique_ptr<Iterator> iter;
 
   // Load blocks into cache.
   for (size_t i = 0; i + 1 < kNumBlocks; i++) {
-    iter = db_->NewIterator(read_options);
+    iter.reset(db_->NewIterator(read_options));
     iter->Seek(ToString(i));
     ASSERT_OK(iter->status());
     CheckCacheCounters(options, 1, 0, 1, 0);
-    iterators[i].reset(iter);
+    iterators[i].reset(iter.release());
   }
   size_t usage = cache->GetUsage();
   ASSERT_LT(0, usage);
@@ -218,12 +217,11 @@ TEST_F(DBBlockCacheTest, TestWithoutCompressedBlockCache) {
 
   // Test with strict capacity limit.
   cache->SetStrictCapacityLimit(true);
-  iter = db_->NewIterator(read_options);
+  iter.reset(db_->NewIterator(read_options));
   iter->Seek(ToString(kNumBlocks - 1));
   ASSERT_TRUE(iter->status().IsIncomplete());
   CheckCacheCounters(options, 1, 0, 0, 1);
-  delete iter;
-  iter = nullptr;
+  iter.reset();
 
   // Release iterators and access cache again.
   for (size_t i = 0; i + 1 < kNumBlocks; i++) {
@@ -232,11 +230,11 @@ TEST_F(DBBlockCacheTest, TestWithoutCompressedBlockCache) {
   }
   ASSERT_EQ(0, cache->GetPinnedUsage());
   for (size_t i = 0; i + 1 < kNumBlocks; i++) {
-    iter = db_->NewIterator(read_options);
+    iter.reset(db_->NewIterator(read_options));
     iter->Seek(ToString(i));
     ASSERT_OK(iter->status());
     CheckCacheCounters(options, 0, 1, 0, 0);
-    iterators[i].reset(iter);
+    iterators[i].reset(iter.release());
   }
 }
 
@@ -392,15 +390,11 @@ TEST_F(DBBlockCacheTest, FillCacheAndIterateDB) {
   ASSERT_OK(Put("key6", "val6"));
   ASSERT_OK(Flush());
 
-  Iterator* iter = nullptr;
-
-  iter = db_->NewIterator(read_options);
+  std::unique_ptr<Iterator> iter{db_->NewIterator(read_options)};
   iter->Seek(ToString(0));
   while (iter->Valid()) {
     iter->Next();
   }
-  delete iter;
-  iter = nullptr;
 }
 
 TEST_F(DBBlockCacheTest, IndexAndFilterBlocksStats) {
