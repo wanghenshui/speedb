@@ -47,6 +47,9 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
     if (max_max_open_files == -1) {
       max_max_open_files = 0x400000;
     }
+    if (result.max_open_files < 30000) {
+      result.max_open_files = 30000;
+    }
     ClipToRange(&result.max_open_files, 20, max_max_open_files);
     TEST_SYNC_POINT_CALLBACK("SanitizeOptions::AfterChangeMaxOpenFiles",
                              &result.max_open_files);
@@ -142,9 +145,6 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
   // make recovery complicated.
   if (result.allow_2pc) {
     result.avoid_flush_during_recovery = false;
-  }
-  if (result.max_open_files <= 1024) {
-    result.max_open_files = 30000;
   }
 
 #ifndef ROCKSDB_LITE
