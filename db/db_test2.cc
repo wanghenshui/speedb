@@ -109,7 +109,7 @@ TEST_P(TestReadOnlyWithCompressedCache, ReadOnlyWithCompressedCache) {
   ASSERT_OK(Put("foo2", "barbarbarbarbarbarbarbar"));
   ASSERT_OK(Flush());
 
-  DB* db_ptr = nullptr;
+  std::unique_ptr<DB> db_ptr;
   Options options = CurrentOptions();
   options.allow_mmap_reads = use_mmap_;
   options.max_open_files = max_open_files_;
@@ -120,7 +120,11 @@ TEST_P(TestReadOnlyWithCompressedCache, ReadOnlyWithCompressedCache) {
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   options.statistics = CreateDBStatistics();
 
-  ASSERT_OK(DB::OpenForReadOnly(options, dbname_, &db_ptr));
+  {
+    DB* pdb = nullptr;
+    ASSERT_OK(DB::OpenForReadOnly(options, dbname_, &pdb));
+    db_ptr.reset(pdb);
+  }
 
   std::string v;
   ASSERT_OK(db_ptr->Get(ReadOptions(), "foo", &v));
@@ -137,8 +141,6 @@ TEST_P(TestReadOnlyWithCompressedCache, ReadOnlyWithCompressedCache) {
                 options.statistics->getTickerCount(BLOCK_CACHE_COMPRESSED_HIT));
     }
   }
-
-  delete db_ptr;
 }
 
 INSTANTIATE_TEST_CASE_P(TestReadOnlyWithCompressedCache,
@@ -252,7 +254,7 @@ INSTANTIATE_TEST_CASE_P(PrefixFullBloomWithReverseComparator,
 
 TEST_F(DBTest2, IteratorPropertyVersionNumber) {
   Put("", "");
-  Iterator* iter1 = db_->NewIterator(ReadOptions());
+  std::unique_ptr<Iterator> iter1{db_->NewIterator(ReadOptions())};
   std::string prop_value;
   ASSERT_OK(
       iter1->GetProperty("rocksdb.iterator.super-version-number", &prop_value));
@@ -262,7 +264,7 @@ TEST_F(DBTest2, IteratorPropertyVersionNumber) {
   Put("", "");
   Flush();
 
-  Iterator* iter2 = db_->NewIterator(ReadOptions());
+  std::unique_ptr<Iterator> iter2{db_->NewIterator(ReadOptions())};
   ASSERT_OK(
       iter2->GetProperty("rocksdb.iterator.super-version-number", &prop_value));
   uint64_t version_number2 =
@@ -272,7 +274,7 @@ TEST_F(DBTest2, IteratorPropertyVersionNumber) {
 
   Put("", "");
 
-  Iterator* iter3 = db_->NewIterator(ReadOptions());
+  std::unique_ptr<Iterator> iter3{db_->NewIterator(ReadOptions())};
   ASSERT_OK(
       iter3->GetProperty("rocksdb.iterator.super-version-number", &prop_value));
   uint64_t version_number3 =
@@ -286,10 +288,6 @@ TEST_F(DBTest2, IteratorPropertyVersionNumber) {
   uint64_t version_number1_new =
       static_cast<uint64_t>(std::atoi(prop_value.c_str()));
   ASSERT_EQ(version_number1, version_number1_new);
-
-  delete iter1;
-  delete iter2;
-  delete iter3;
 }
 
 TEST_F(DBTest2, CacheIndexAndFilterWithDBRestart) {
@@ -555,8 +553,13 @@ TEST_F(DBTest2, SharedWriteBufferLimitAcrossDB) {
   CreateAndReopenWithCF({"cf1", "cf2"}, options);
 
   ASSERT_OK(DestroyDB(dbname2, options));
-  DB* db2 = nullptr;
-  ASSERT_OK(DB::Open(options, dbname2, &db2));
+  std::unique_ptr<DB> db2;
+
+  {
+    DB* pdb2 = nullptr;
+    ASSERT_OK(DB::Open(options, dbname2, &pdb2));
+    db2.reset(pdb2);
+  }
 
   WriteOptions wo;
   wo.disableWAL = true;
@@ -565,7 +568,7 @@ TEST_F(DBTest2, SharedWriteBufferLimitAcrossDB) {
     dbfull()->TEST_WaitForFlushMemTable(handles_[0]);
     dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
     dbfull()->TEST_WaitForFlushMemTable(handles_[2]);
-    static_cast<DBImpl*>(db2)->TEST_WaitForFlushMemTable();
+    static_cast<DBImpl*>(db2.get())->TEST_WaitForFlushMemTable();
   };
 
   // Trigger a flush on cf2
@@ -581,13 +584,13 @@ TEST_F(DBTest2, SharedWriteBufferLimitAcrossDB) {
 
   ASSERT_OK(Put(2, Key(1), DummyString(1), wo));
   wait_flush();
-  static_cast<DBImpl*>(db2)->TEST_WaitForFlushMemTable();
+  static_cast<DBImpl*>(db2.get())->TEST_WaitForFlushMemTable();
   {
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "default") +
                   GetNumberOfSstFilesForColumnFamily(db_, "cf1") +
                   GetNumberOfSstFilesForColumnFamily(db_, "cf2"),
               static_cast<uint64_t>(1));
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db2, "default"),
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db2.get(), "default"),
               static_cast<uint64_t>(0));
   }
 
@@ -603,7 +606,7 @@ TEST_F(DBTest2, SharedWriteBufferLimitAcrossDB) {
               static_cast<uint64_t>(0));
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "cf2"),
               static_cast<uint64_t>(1));
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db2, "default"),
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db2.get(), "default"),
               static_cast<uint64_t>(0));
   }
 
@@ -612,7 +615,7 @@ TEST_F(DBTest2, SharedWriteBufferLimitAcrossDB) {
   wait_flush();
   ASSERT_OK(db2->Put(wo, Key(1), DummyString(1)));
   wait_flush();
-  static_cast<DBImpl*>(db2)->TEST_WaitForFlushMemTable();
+  static_cast<DBImpl*>(db2.get())->TEST_WaitForFlushMemTable();
   {
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "default"),
               static_cast<uint64_t>(1));
@@ -620,11 +623,11 @@ TEST_F(DBTest2, SharedWriteBufferLimitAcrossDB) {
               static_cast<uint64_t>(0));
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "cf2"),
               static_cast<uint64_t>(1));
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db2, "default"),
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db2.get(), "default"),
               static_cast<uint64_t>(1));
   }
 
-  delete db2;
+  db2.reset();
   ASSERT_OK(DestroyDB(dbname2, options));
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
@@ -1660,6 +1663,7 @@ class CompactionCompressionListener : public EventListener {
         ci.output_level == bottommost_level) {
       ASSERT_EQ(ci.compression, db_options_->bottommost_compression);
     } else if (db_options_->compression_per_level.size() != 0) {
+      ASSERT_GT(db_options_->compression_per_level.size(), ci.output_level);
       ASSERT_EQ(ci.compression,
                 db_options_->compression_per_level[ci.output_level]);
     } else {
@@ -2462,7 +2466,7 @@ TEST_F(DBTest2, TestPerfContextIterCpuTime) {
 
   // CPU timing is not enabled with kEnableTimeExceptForMutex
   SetPerfLevel(PerfLevel::kEnableTimeExceptForMutex);
-  Iterator* iter = db_->NewIterator(ReadOptions());
+  std::unique_ptr<Iterator> iter{db_->NewIterator(ReadOptions())};
   iter->Seek("k0");
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ("v0", iter->value().ToString());
@@ -2484,7 +2488,7 @@ TEST_F(DBTest2, TestPerfContextIterCpuTime) {
   ASSERT_EQ("v0", iter->value().ToString());
   ASSERT_EQ(0, get_perf_context()->iter_prev_cpu_nanos);
   ASSERT_EQ(0, env_->now_cpu_count_.load());
-  delete iter;
+  iter.reset();
 
   constexpr uint64_t kDummyAddonSeconds = uint64_t{1000000};
   constexpr uint64_t kDummyAddonNanos = 1000000000U * kDummyAddonSeconds;
@@ -2496,7 +2500,7 @@ TEST_F(DBTest2, TestPerfContextIterCpuTime) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   SetPerfLevel(PerfLevel::kEnableTimeAndCPUTimeExceptForMutex);
-  iter = db_->NewIterator(ReadOptions());
+  iter.reset(db_->NewIterator(ReadOptions()));
   iter->Seek("k0");
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ("v0", iter->value().ToString());
@@ -2525,7 +2529,6 @@ TEST_F(DBTest2, TestPerfContextIterCpuTime) {
 
   SetPerfLevel(PerfLevel::kDisable);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
-  delete iter;
 }
 #endif  // OS_LINUX
 
@@ -2710,11 +2713,11 @@ TEST_F(DBTest2, ReadAmpBitmap) {
     }
 
     // Make sure we read every thing in the DB (which is smaller than our cache)
-    Iterator* iter = db_->NewIterator(ReadOptions());
+    std::unique_ptr<Iterator> iter{db_->NewIterator(ReadOptions())};
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
       ASSERT_EQ(iter->value().ToString(), Get(iter->key().ToString()));
     }
-    delete iter;
+    iter.reset();
 
     // Read amp is on average 100% since we read all what we loaded in memory
     if (k == 0) {
@@ -3593,7 +3596,6 @@ TEST_F(DBTest2, MemtableOnlyIterator) {
   ReadOptions ropt;
   ropt.read_tier = kMemtableTier;
   std::string value;
-  Iterator* it = nullptr;
 
   // Before flushing
   // point lookups
@@ -3603,7 +3605,7 @@ TEST_F(DBTest2, MemtableOnlyIterator) {
   ASSERT_EQ("second", value);
 
   // Memtable-only iterator (read_tier=kMemtableTier); data not flushed yet.
-  it = db_->NewIterator(ropt, handles_[1]);
+  std::unique_ptr<Iterator> it{db_->NewIterator(ropt, handles_[1])};
   int count = 0;
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     ASSERT_TRUE(it->Valid());
@@ -3611,7 +3613,7 @@ TEST_F(DBTest2, MemtableOnlyIterator) {
   }
   ASSERT_TRUE(!it->Valid());
   ASSERT_EQ(2, count);
-  delete it;
+  it.reset();
 
   Flush(1);
 
@@ -3622,7 +3624,7 @@ TEST_F(DBTest2, MemtableOnlyIterator) {
   ASSERT_OK(db_->Get(ropt, handles_[1], "bar", &value));
   ASSERT_EQ("second", value);
   // nothing should be returned using memtable-only iterator after flushing.
-  it = db_->NewIterator(ropt, handles_[1]);
+  it.reset(db_->NewIterator(ropt, handles_[1]));
   count = 0;
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     ASSERT_TRUE(it->Valid());
@@ -3630,11 +3632,11 @@ TEST_F(DBTest2, MemtableOnlyIterator) {
   }
   ASSERT_TRUE(!it->Valid());
   ASSERT_EQ(0, count);
-  delete it;
+  it.reset();
 
   // Add a key to memtable
   ASSERT_OK(Put(1, "foobar", "third"));
-  it = db_->NewIterator(ropt, handles_[1]);
+  it.reset(db_->NewIterator(ropt, handles_[1]));
   count = 0;
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     ASSERT_TRUE(it->Valid());
@@ -3644,7 +3646,6 @@ TEST_F(DBTest2, MemtableOnlyIterator) {
   }
   ASSERT_TRUE(!it->Valid());
   ASSERT_EQ(1, count);
-  delete it;
 }
 
 TEST_F(DBTest2, LowPriWrite) {
@@ -3754,11 +3755,11 @@ TEST_F(DBTest2, RateLimitedCompactionReads) {
         static_cast<size_t>(2 * kNumKeysPerFile * kBytesPerKey * kNumL0Files +
                             direct_io_extra));
 
-    Iterator* iter = db_->NewIterator(ReadOptions());
+    std::unique_ptr<Iterator> iter{db_->NewIterator(ReadOptions())};
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
       ASSERT_EQ(iter->value().ToString(), DummyString(kBytesPerKey));
     }
-    delete iter;
+    iter.reset();
     // bytes read for user iterator shouldn't count against the rate limit.
     ASSERT_EQ(rate_limited_bytes,
               static_cast<size_t>(
@@ -4013,7 +4014,6 @@ TEST_F(DBTest2, TraceAndReplay) {
   EnvOptions env_opts;
   CreateAndReopenWithCF({"pikachu"}, options);
   Random rnd(301);
-  Iterator* single_iter = nullptr;
 
   ASSERT_TRUE(db_->EndTrace().IsIOError());
 
@@ -4036,10 +4036,10 @@ TEST_F(DBTest2, TraceAndReplay) {
   ASSERT_OK(batch.DeleteRange("j", "k"));
   ASSERT_OK(db_->Write(wo, &batch));
 
-  single_iter = db_->NewIterator(ro);
+  std::unique_ptr<Iterator> single_iter{db_->NewIterator(ro)};
   single_iter->Seek("f");
   single_iter->SeekForPrev("g");
-  delete single_iter;
+  single_iter.reset();
 
   ASSERT_EQ("1", Get(0, "a"));
   ASSERT_EQ("12", Get(0, "g"));
@@ -4058,55 +4058,71 @@ TEST_F(DBTest2, TraceAndReplay) {
   std::string dbname2 = test::PerThreadDBPath(env_, "/db_replay");
   ASSERT_OK(DestroyDB(dbname2, options));
 
-  // Using a different name than db2, to pacify infer's use-after-lifetime
-  // warnings (http://fbinfer.com).
-  DB* db2_init = nullptr;
-  options.create_if_missing = true;
-  ASSERT_OK(DB::Open(options, dbname2, &db2_init));
-  ColumnFamilyHandle* cf;
-  ASSERT_OK(
-      db2_init->CreateColumnFamily(ColumnFamilyOptions(), "pikachu", &cf));
-  delete cf;
-  delete db2_init;
+  {
+    // Using a different name than db2, to pacify infer's use-after-lifetime
+    // warnings (http://fbinfer.com).
+    options.create_if_missing = true;
+    std::unique_ptr<DB> db2_init;
+    std::unique_ptr<ColumnFamilyHandle> cf;
 
-  DB* db2 = nullptr;
+    {
+      DB* pdb2 = nullptr;
+      ASSERT_OK(DB::Open(options, dbname2, &pdb2));
+      db2_init.reset(pdb2);
+    }
+
+    {
+      ColumnFamilyHandle* pcf;
+      ASSERT_OK(
+          db2_init->CreateColumnFamily(ColumnFamilyOptions(), "pikachu", &pcf));
+      cf.reset(pcf);
+    }
+  }
+
+  std::unique_ptr<DB> db2;
   std::vector<ColumnFamilyDescriptor> column_families;
   ColumnFamilyOptions cf_options;
   cf_options.merge_operator = MergeOperators::CreatePutOperator();
   column_families.push_back(ColumnFamilyDescriptor("default", cf_options));
   column_families.push_back(
       ColumnFamilyDescriptor("pikachu", ColumnFamilyOptions()));
-  std::vector<ColumnFamilyHandle*> handles;
-  DBOptions db_opts;
-  db_opts.env = env_;
-  ASSERT_OK(DB::Open(db_opts, dbname2, column_families, &handles, &db2));
+  std::vector<std::unique_ptr<ColumnFamilyHandle>> handles;
+  {
+    DB* pdb2 = nullptr;
+    std::vector<ColumnFamilyHandle*> _handles;
+    DBOptions db_opts;
+    db_opts.env = env_;
+    ASSERT_OK(DB::Open(db_opts, dbname2, column_families, &_handles, &pdb2));
+    for (auto* h : _handles) {
+      handles.emplace_back(h);
+    }
+    db2.reset(pdb2);
+  }
 
   env_->SleepForMicroseconds(100);
   // Verify that the keys don't already exist
-  ASSERT_TRUE(db2->Get(ro, handles[0], "a", &value).IsNotFound());
-  ASSERT_TRUE(db2->Get(ro, handles[0], "g", &value).IsNotFound());
+  ASSERT_TRUE(db2->Get(ro, handles[0].get(), "a", &value).IsNotFound());
+  ASSERT_TRUE(db2->Get(ro, handles[0].get(), "g", &value).IsNotFound());
 
   std::unique_ptr<TraceReader> trace_reader;
   ASSERT_OK(NewFileTraceReader(env_, env_opts, trace_filename, &trace_reader));
-  Replayer replayer(db2, handles_, std::move(trace_reader));
+  Replayer replayer(db2.get(), handles_, std::move(trace_reader));
   ASSERT_OK(replayer.Replay());
 
-  ASSERT_OK(db2->Get(ro, handles[0], "a", &value));
+  ASSERT_OK(db2->Get(ro, handles[0].get(), "a", &value));
   ASSERT_EQ("1", value);
-  ASSERT_OK(db2->Get(ro, handles[0], "g", &value));
+  ASSERT_OK(db2->Get(ro, handles[0].get(), "g", &value));
   ASSERT_EQ("12", value);
-  ASSERT_TRUE(db2->Get(ro, handles[0], "hello", &value).IsNotFound());
-  ASSERT_TRUE(db2->Get(ro, handles[0], "world", &value).IsNotFound());
+  ASSERT_TRUE(db2->Get(ro, handles[0].get(), "hello", &value).IsNotFound());
+  ASSERT_TRUE(db2->Get(ro, handles[0].get(), "world", &value).IsNotFound());
 
-  ASSERT_OK(db2->Get(ro, handles[1], "foo", &value));
+  ASSERT_OK(db2->Get(ro, handles[1].get(), "foo", &value));
   ASSERT_EQ("bar", value);
-  ASSERT_OK(db2->Get(ro, handles[1], "rocksdb", &value));
+  ASSERT_OK(db2->Get(ro, handles[1].get(), "rocksdb", &value));
   ASSERT_EQ("rocks", value);
 
-  for (auto handle : handles) {
-    delete handle;
-  }
-  delete db2;
+  handles.clear();
+  db2.reset();
   ASSERT_OK(DestroyDB(dbname2, options));
 }
 
@@ -4135,48 +4151,63 @@ TEST_F(DBTest2, TraceWithLimit) {
   std::string value;
   ASSERT_OK(DestroyDB(dbname2, options));
 
-  // Using a different name than db2, to pacify infer's use-after-lifetime
-  // warnings (http://fbinfer.com).
-  DB* db2_init = nullptr;
-  options.create_if_missing = true;
-  ASSERT_OK(DB::Open(options, dbname2, &db2_init));
-  ColumnFamilyHandle* cf;
-  ASSERT_OK(
-      db2_init->CreateColumnFamily(ColumnFamilyOptions(), "pikachu", &cf));
-  delete cf;
-  delete db2_init;
+  {
+    // Using a different name than db2, to pacify infer's use-after-lifetime
+    // warnings (http://fbinfer.com).
+    std::unique_ptr<DB> db2_init;
+    options.create_if_missing = true;
+    {
+      DB* pdb = nullptr;
+      ASSERT_OK(DB::Open(options, dbname2, &pdb));
+      db2_init.reset(pdb);
+    }
+    std::unique_ptr<ColumnFamilyHandle> cf;
+    {
+      ColumnFamilyHandle* pcf;
+      ASSERT_OK(
+          db2_init->CreateColumnFamily(ColumnFamilyOptions(), "pikachu", &pcf));
+      cf.reset(pcf);
+    }
+  }
 
-  DB* db2 = nullptr;
+  std::unique_ptr<DB> db2;
   std::vector<ColumnFamilyDescriptor> column_families;
   ColumnFamilyOptions cf_options;
   cf_options.merge_operator = MergeOperators::CreatePutOperator();
   column_families.push_back(ColumnFamilyDescriptor("default", cf_options));
   column_families.push_back(
       ColumnFamilyDescriptor("pikachu", ColumnFamilyOptions()));
-  std::vector<ColumnFamilyHandle*> handles;
-  DBOptions db_opts;
-  db_opts.env = env_;
-  ASSERT_OK(DB::Open(db_opts, dbname2, column_families, &handles, &db2));
+  std::vector<std::unique_ptr<ColumnFamilyHandle>> handles;
+
+  {
+    DB* pdb = nullptr;
+    std::vector<ColumnFamilyHandle*> _handles;
+    DBOptions db_opts;
+    db_opts.env = env_;
+    ASSERT_OK(DB::Open(db_opts, dbname2, column_families, &_handles, &pdb));
+    for (auto* h : _handles) {
+      handles.emplace_back(h);
+    }
+    db2.reset(pdb);
+  }
 
   env_->SleepForMicroseconds(100);
   // Verify that the keys don't already exist
-  ASSERT_TRUE(db2->Get(ro, handles[0], "a", &value).IsNotFound());
-  ASSERT_TRUE(db2->Get(ro, handles[0], "b", &value).IsNotFound());
-  ASSERT_TRUE(db2->Get(ro, handles[0], "c", &value).IsNotFound());
+  ASSERT_TRUE(db2->Get(ro, handles[0].get(), "a", &value).IsNotFound());
+  ASSERT_TRUE(db2->Get(ro, handles[0].get(), "b", &value).IsNotFound());
+  ASSERT_TRUE(db2->Get(ro, handles[0].get(), "c", &value).IsNotFound());
 
   std::unique_ptr<TraceReader> trace_reader;
   ASSERT_OK(NewFileTraceReader(env_, env_opts, trace_filename, &trace_reader));
-  Replayer replayer(db2, handles_, std::move(trace_reader));
+  Replayer replayer(db2.get(), handles_, std::move(trace_reader));
   ASSERT_OK(replayer.Replay());
 
-  ASSERT_TRUE(db2->Get(ro, handles[0], "a", &value).IsNotFound());
-  ASSERT_TRUE(db2->Get(ro, handles[0], "b", &value).IsNotFound());
-  ASSERT_TRUE(db2->Get(ro, handles[0], "c", &value).IsNotFound());
+  ASSERT_TRUE(db2->Get(ro, handles[0].get(), "a", &value).IsNotFound());
+  ASSERT_TRUE(db2->Get(ro, handles[0].get(), "b", &value).IsNotFound());
+  ASSERT_TRUE(db2->Get(ro, handles[0].get(), "c", &value).IsNotFound());
 
-  for (auto handle : handles) {
-    delete handle;
-  }
-  delete db2;
+  handles.clear();
+  db2.reset();
   ASSERT_OK(DestroyDB(dbname2, options));
 }
 
@@ -4206,50 +4237,65 @@ TEST_F(DBTest2, TraceWithSampling) {
   std::string value;
   ASSERT_OK(DestroyDB(dbname2, options));
 
-  // Using a different name than db2, to pacify infer's use-after-lifetime
-  // warnings (http://fbinfer.com).
-  DB* db2_init = nullptr;
-  options.create_if_missing = true;
-  ASSERT_OK(DB::Open(options, dbname2, &db2_init));
-  ColumnFamilyHandle* cf;
-  ASSERT_OK(
-      db2_init->CreateColumnFamily(ColumnFamilyOptions(), "pikachu", &cf));
-  delete cf;
-  delete db2_init;
+  {
+    // Using a different name than db2, to pacify infer's use-after-lifetime
+    // warnings (http://fbinfer.com).
+    std::unique_ptr<DB> db2_init;
+    options.create_if_missing = true;
+    {
+      DB* pdb = nullptr;
+      ASSERT_OK(DB::Open(options, dbname2, &pdb));
+      db2_init.reset(pdb);
+    }
+    std::unique_ptr<ColumnFamilyHandle> cf;
+    {
+      ColumnFamilyHandle* pcf;
+      ASSERT_OK(
+          db2_init->CreateColumnFamily(ColumnFamilyOptions(), "pikachu", &pcf));
+      cf.reset(pcf);
+    }
+  }
 
-  DB* db2 = nullptr;
+  std::unique_ptr<DB> db2;
   std::vector<ColumnFamilyDescriptor> column_families;
   ColumnFamilyOptions cf_options;
   column_families.push_back(ColumnFamilyDescriptor("default", cf_options));
   column_families.push_back(
       ColumnFamilyDescriptor("pikachu", ColumnFamilyOptions()));
-  std::vector<ColumnFamilyHandle*> handles;
-  DBOptions db_opts;
-  db_opts.env = env_;
-  ASSERT_OK(DB::Open(db_opts, dbname2, column_families, &handles, &db2));
+  std::vector<std::unique_ptr<ColumnFamilyHandle>> handles;
+
+  {
+    DB* pdb = nullptr;
+    std::vector<ColumnFamilyHandle*> _handles;
+    DBOptions db_opts;
+    db_opts.env = env_;
+    ASSERT_OK(DB::Open(db_opts, dbname2, column_families, &_handles, &pdb));
+    for (auto* h : _handles) {
+      handles.emplace_back(h);
+    }
+    db2.reset(pdb);
+  }
 
   env_->SleepForMicroseconds(100);
-  ASSERT_TRUE(db2->Get(ro, handles[0], "a", &value).IsNotFound());
-  ASSERT_TRUE(db2->Get(ro, handles[0], "b", &value).IsNotFound());
-  ASSERT_TRUE(db2->Get(ro, handles[0], "c", &value).IsNotFound());
-  ASSERT_TRUE(db2->Get(ro, handles[0], "d", &value).IsNotFound());
-  ASSERT_TRUE(db2->Get(ro, handles[0], "e", &value).IsNotFound());
+  ASSERT_TRUE(db2->Get(ro, handles[0].get(), "a", &value).IsNotFound());
+  ASSERT_TRUE(db2->Get(ro, handles[0].get(), "b", &value).IsNotFound());
+  ASSERT_TRUE(db2->Get(ro, handles[0].get(), "c", &value).IsNotFound());
+  ASSERT_TRUE(db2->Get(ro, handles[0].get(), "d", &value).IsNotFound());
+  ASSERT_TRUE(db2->Get(ro, handles[0].get(), "e", &value).IsNotFound());
 
   std::unique_ptr<TraceReader> trace_reader;
   ASSERT_OK(NewFileTraceReader(env_, env_opts, trace_filename, &trace_reader));
-  Replayer replayer(db2, handles_, std::move(trace_reader));
+  Replayer replayer(db2.get(), handles_, std::move(trace_reader));
   ASSERT_OK(replayer.Replay());
 
-  ASSERT_TRUE(db2->Get(ro, handles[0], "a", &value).IsNotFound());
-  ASSERT_FALSE(db2->Get(ro, handles[0], "b", &value).IsNotFound());
-  ASSERT_TRUE(db2->Get(ro, handles[0], "c", &value).IsNotFound());
-  ASSERT_FALSE(db2->Get(ro, handles[0], "d", &value).IsNotFound());
-  ASSERT_TRUE(db2->Get(ro, handles[0], "e", &value).IsNotFound());
+  ASSERT_TRUE(db2->Get(ro, handles[0].get(), "a", &value).IsNotFound());
+  ASSERT_FALSE(db2->Get(ro, handles[0].get(), "b", &value).IsNotFound());
+  ASSERT_TRUE(db2->Get(ro, handles[0].get(), "c", &value).IsNotFound());
+  ASSERT_FALSE(db2->Get(ro, handles[0].get(), "d", &value).IsNotFound());
+  ASSERT_TRUE(db2->Get(ro, handles[0].get(), "e", &value).IsNotFound());
 
-  for (auto handle : handles) {
-    delete handle;
-  }
-  delete db2;
+  handles.clear();
+  db2.reset();
   ASSERT_OK(DestroyDB(dbname2, options));
 }
 
@@ -4262,7 +4308,6 @@ TEST_F(DBTest2, TraceWithFilter) {
   EnvOptions env_opts;
   CreateAndReopenWithCF({"pikachu"}, options);
   Random rnd(301);
-  Iterator* single_iter = nullptr;
 
   trace_opts.filter = TraceFilterType::kTraceFilterWrite;
 
@@ -4285,10 +4330,11 @@ TEST_F(DBTest2, TraceWithFilter) {
   ASSERT_OK(batch.DeleteRange("j", "k"));
   ASSERT_OK(db_->Write(wo, &batch));
 
-  single_iter = db_->NewIterator(ro);
-  single_iter->Seek("f");
-  single_iter->SeekForPrev("g");
-  delete single_iter;
+  {
+    std::unique_ptr<Iterator> single_iter{db_->NewIterator(ro)};
+    single_iter->Seek("f");
+    single_iter->SeekForPrev("g");
+  }
 
   ASSERT_EQ("1", Get(0, "a"));
   ASSERT_EQ("12", Get(0, "g"));
@@ -4307,65 +4353,88 @@ TEST_F(DBTest2, TraceWithFilter) {
   std::string dbname2 = test::PerThreadDBPath(env_, "db_replay");
   ASSERT_OK(DestroyDB(dbname2, options));
 
-  // Using a different name than db2, to pacify infer's use-after-lifetime
-  // warnings (http://fbinfer.com).
-  DB* db2_init = nullptr;
-  options.create_if_missing = true;
-  ASSERT_OK(DB::Open(options, dbname2, &db2_init));
-  ColumnFamilyHandle* cf;
-  ASSERT_OK(
-      db2_init->CreateColumnFamily(ColumnFamilyOptions(), "pikachu", &cf));
-  delete cf;
-  delete db2_init;
+  {
+    // Using a different name than db2, to pacify infer's use-after-lifetime
+    // warnings (http://fbinfer.com).
+    std::unique_ptr<DB> db2_init;
+    options.create_if_missing = true;
+    {
+      DB* pdb = nullptr;
+      ASSERT_OK(DB::Open(options, dbname2, &pdb));
+      db2_init.reset(pdb);
+    }
+    std::unique_ptr<ColumnFamilyHandle> cf;
+    {
+      ColumnFamilyHandle* pcf;
+      ASSERT_OK(
+          db2_init->CreateColumnFamily(ColumnFamilyOptions(), "pikachu", &pcf));
+      cf.reset(pcf);
+    }
+  }
 
-  DB* db2 = nullptr;
+  std::unique_ptr<DB> db2;
   std::vector<ColumnFamilyDescriptor> column_families;
   ColumnFamilyOptions cf_options;
   cf_options.merge_operator = MergeOperators::CreatePutOperator();
   column_families.push_back(ColumnFamilyDescriptor("default", cf_options));
   column_families.push_back(
       ColumnFamilyDescriptor("pikachu", ColumnFamilyOptions()));
-  std::vector<ColumnFamilyHandle*> handles;
-  DBOptions db_opts;
-  db_opts.env = env_;
-  ASSERT_OK(DB::Open(db_opts, dbname2, column_families, &handles, &db2));
+  std::vector<std::unique_ptr<ColumnFamilyHandle>> handles;
+
+  {
+    DB* pdb = nullptr;
+    std::vector<ColumnFamilyHandle*> _handles;
+    DBOptions db_opts;
+    db_opts.env = env_;
+    ASSERT_OK(DB::Open(db_opts, dbname2, column_families, &_handles, &pdb));
+    for (auto* h : _handles) {
+      handles.emplace_back(h);
+    }
+    db2.reset(pdb);
+  }
 
   env_->SleepForMicroseconds(100);
   // Verify that the keys don't already exist
-  ASSERT_TRUE(db2->Get(ro, handles[0], "a", &value).IsNotFound());
-  ASSERT_TRUE(db2->Get(ro, handles[0], "g", &value).IsNotFound());
+  ASSERT_TRUE(db2->Get(ro, handles[0].get(), "a", &value).IsNotFound());
+  ASSERT_TRUE(db2->Get(ro, handles[0].get(), "g", &value).IsNotFound());
 
   std::unique_ptr<TraceReader> trace_reader;
   ASSERT_OK(NewFileTraceReader(env_, env_opts, trace_filename, &trace_reader));
-  Replayer replayer(db2, handles_, std::move(trace_reader));
+  Replayer replayer(db2.get(), handles_, std::move(trace_reader));
   ASSERT_OK(replayer.Replay());
 
   // All the key-values should not present since we filter out the WRITE ops.
-  ASSERT_TRUE(db2->Get(ro, handles[0], "a", &value).IsNotFound());
-  ASSERT_TRUE(db2->Get(ro, handles[0], "g", &value).IsNotFound());
-  ASSERT_TRUE(db2->Get(ro, handles[0], "hello", &value).IsNotFound());
-  ASSERT_TRUE(db2->Get(ro, handles[0], "world", &value).IsNotFound());
-  ASSERT_TRUE(db2->Get(ro, handles[0], "foo", &value).IsNotFound());
-  ASSERT_TRUE(db2->Get(ro, handles[0], "rocksdb", &value).IsNotFound());
+  ASSERT_TRUE(db2->Get(ro, handles[0].get(), "a", &value).IsNotFound());
+  ASSERT_TRUE(db2->Get(ro, handles[0].get(), "g", &value).IsNotFound());
+  ASSERT_TRUE(db2->Get(ro, handles[0].get(), "hello", &value).IsNotFound());
+  ASSERT_TRUE(db2->Get(ro, handles[0].get(), "world", &value).IsNotFound());
+  ASSERT_TRUE(db2->Get(ro, handles[0].get(), "foo", &value).IsNotFound());
+  ASSERT_TRUE(db2->Get(ro, handles[0].get(), "rocksdb", &value).IsNotFound());
 
-  for (auto handle : handles) {
-    delete handle;
-  }
-  delete db2;
+  handles.clear();
+  db2.reset();
   ASSERT_OK(DestroyDB(dbname2, options));
 
   // Set up a new db.
   std::string dbname3 = test::PerThreadDBPath(env_, "db_not_trace_read");
   ASSERT_OK(DestroyDB(dbname3, options));
 
-  DB* db3_init = nullptr;
-  options.create_if_missing = true;
-  ColumnFamilyHandle* cf3;
-  ASSERT_OK(DB::Open(options, dbname3, &db3_init));
-  ASSERT_OK(
-      db3_init->CreateColumnFamily(ColumnFamilyOptions(), "pikachu", &cf3));
-  delete cf3;
-  delete db3_init;
+  {
+    std::unique_ptr<DB> db3_init;
+    options.create_if_missing = true;
+    {
+      DB* pdb = nullptr;
+      ASSERT_OK(DB::Open(options, dbname3, &pdb));
+      db3_init.reset(pdb);
+    }
+    std::unique_ptr<ColumnFamilyHandle> cf3;
+    {
+      ColumnFamilyHandle* pcf;
+      ASSERT_OK(
+          db3_init->CreateColumnFamily(ColumnFamilyOptions(), "pikachu", &pcf));
+      cf3.reset(pcf);
+    }
+  }
 
   column_families.clear();
   column_families.push_back(ColumnFamilyDescriptor("default", cf_options));
@@ -4373,13 +4442,23 @@ TEST_F(DBTest2, TraceWithFilter) {
       ColumnFamilyDescriptor("pikachu", ColumnFamilyOptions()));
   handles.clear();
 
-  DB* db3 =  nullptr;
-  ASSERT_OK(DB::Open(db_opts, dbname3, column_families, &handles, &db3));
+  std::unique_ptr<DB> db3;
+  {
+    DB* pdb = nullptr;
+    std::vector<ColumnFamilyHandle*> _handles;
+    DBOptions db_opts;
+    db_opts.env = env_;
+    ASSERT_OK(DB::Open(db_opts, dbname3, column_families, &_handles, &pdb));
+    for (auto* h : _handles) {
+      handles.emplace_back(h);
+    }
+    db3.reset(pdb);
+  }
 
   env_->SleepForMicroseconds(100);
   // Verify that the keys don't already exist
-  ASSERT_TRUE(db3->Get(ro, handles[0], "a", &value).IsNotFound());
-  ASSERT_TRUE(db3->Get(ro, handles[0], "g", &value).IsNotFound());
+  ASSERT_TRUE(db3->Get(ro, handles[0].get(), "a", &value).IsNotFound());
+  ASSERT_TRUE(db3->Get(ro, handles[0].get(), "g", &value).IsNotFound());
 
   //The tracer will not record the READ ops.
   trace_opts.filter = TraceFilterType::kTraceFilterGet;
@@ -4389,21 +4468,19 @@ TEST_F(DBTest2, TraceWithFilter) {
     NewFileTraceWriter(env_, env_opts, trace_filename3, &trace_writer3));
   ASSERT_OK(db3->StartTrace(trace_opts, std::move(trace_writer3)));
 
-  ASSERT_OK(db3->Put(wo, handles[0], "a", "1"));
-  ASSERT_OK(db3->Merge(wo, handles[0], "b", "2"));
-  ASSERT_OK(db3->Delete(wo, handles[0], "c"));
-  ASSERT_OK(db3->SingleDelete(wo, handles[0], "d"));
+  ASSERT_OK(db3->Put(wo, handles[0].get(), "a", "1"));
+  ASSERT_OK(db3->Merge(wo, handles[0].get(), "b", "2"));
+  ASSERT_OK(db3->Delete(wo, handles[0].get(), "c"));
+  ASSERT_OK(db3->SingleDelete(wo, handles[0].get(), "d"));
 
-  ASSERT_OK(db3->Get(ro, handles[0], "a", &value));
+  ASSERT_OK(db3->Get(ro, handles[0].get(), "a", &value));
   ASSERT_EQ(value, "1");
-  ASSERT_TRUE(db3->Get(ro, handles[0], "c", &value).IsNotFound());
+  ASSERT_TRUE(db3->Get(ro, handles[0].get(), "c", &value).IsNotFound());
 
   ASSERT_OK(db3->EndTrace());
 
-  for (auto handle : handles) {
-    delete handle;
-  }
-  delete db3;
+  handles.clear();
+  db3.reset();
   ASSERT_OK(DestroyDB(dbname3, options));
 
   std::unique_ptr<TraceReader> trace_reader3;
@@ -4778,12 +4855,14 @@ TEST_F(DBTest2, MultiDBParallelOpenTest) {
 
   // Verify empty DBs can be created in parallel
   std::vector<std::thread> open_threads;
-  std::vector<DB*> dbs{static_cast<unsigned int>(kNumDbs), nullptr};
+  std::vector<std::unique_ptr<DB>> dbs{kNumDbs};
   options.create_if_missing = true;
   for (int i = 0; i < kNumDbs; ++i) {
     open_threads.emplace_back(
         [&](int dbnum) {
-          ASSERT_OK(DB::Open(options, dbnames[dbnum], &dbs[dbnum]));
+          DB* pdb = nullptr;
+          ASSERT_OK(DB::Open(options, dbnames[dbnum], &pdb));
+          dbs[dbnum].reset(pdb);
         },
         i);
   }
@@ -4793,16 +4872,18 @@ TEST_F(DBTest2, MultiDBParallelOpenTest) {
   for (int i = 0; i < kNumDbs; ++i) {
     open_threads[i].join();
     ASSERT_OK(dbs[i]->Put(WriteOptions(), "xi", "gua"));
-    delete dbs[i];
   }
 
   // Verify non-empty DBs can be recovered in parallel
   dbs.clear();
+  dbs.resize(kNumDbs);
   open_threads.clear();
   for (int i = 0; i < kNumDbs; ++i) {
     open_threads.emplace_back(
         [&](int dbnum) {
-          ASSERT_OK(DB::Open(options, dbnames[dbnum], &dbs[dbnum]));
+          DB* pdb = nullptr;
+          ASSERT_OK(DB::Open(options, dbnames[dbnum], &pdb));
+          dbs[dbnum].reset(pdb);
         },
         i);
   }
@@ -4810,7 +4891,7 @@ TEST_F(DBTest2, MultiDBParallelOpenTest) {
   // Wait and cleanup
   for (int i = 0; i < kNumDbs; ++i) {
     open_threads[i].join();
-    delete dbs[i];
+    dbs[i].reset();
     ASSERT_OK(DestroyDB(dbnames[i], options));
   }
 }
@@ -4898,7 +4979,7 @@ TEST_F(DBTest2, PrefixBloomReseek) {
 
   ASSERT_OK(Put("bbb1", ""));
 
-  Iterator* iter = db_->NewIterator(ReadOptions());
+  std::unique_ptr<Iterator> iter{db_->NewIterator(ReadOptions())};
 
   // Seeking into f1, the iterator will check bloom filter which returns the
   // file iterator ot be invalidate, and the cursor will put into f2, with
@@ -4911,8 +4992,6 @@ TEST_F(DBTest2, PrefixBloomReseek) {
   iter->Seek("ccc1");
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ("ccc1", iter->key().ToString());
-
-  delete iter;
 }
 
 TEST_F(DBTest2, PrefixBloomFilteredOut) {
@@ -4936,7 +5015,7 @@ TEST_F(DBTest2, PrefixBloomFilteredOut) {
   cro.bottommost_level_compaction = BottommostLevelCompaction::kSkip;
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
 
-  Iterator* iter = db_->NewIterator(ReadOptions());
+  std::unique_ptr<Iterator> iter{db_->NewIterator(ReadOptions())};
 
   // Bloom filter is filterd out by f1.
   // This is just one of several valid position following the contract.
@@ -4945,8 +5024,6 @@ TEST_F(DBTest2, PrefixBloomFilteredOut) {
   // changes, the test might fail here.
   iter->Seek("bbb1");
   ASSERT_FALSE(iter->Valid());
-
-  delete iter;
 }
 
 #ifndef ROCKSDB_LITE
@@ -5106,7 +5183,7 @@ TEST_F(DBTest2, BackgroundPurgeTest) {
   size_t base_value = options.write_buffer_manager->memory_usage();
 
   ASSERT_OK(Put("a", "a"));
-  Iterator* iter = db_->NewIterator(ReadOptions());
+  std::unique_ptr<Iterator> iter{db_->NewIterator(ReadOptions())};
   ASSERT_OK(Flush());
   size_t value = options.write_buffer_manager->memory_usage();
   ASSERT_GT(value, base_value);
@@ -5115,7 +5192,7 @@ TEST_F(DBTest2, BackgroundPurgeTest) {
   test::SleepingBackgroundTask sleeping_task_after;
   db_->GetEnv()->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
                           &sleeping_task_after, Env::Priority::HIGH);
-  delete iter;
+  iter.reset();
 
   Env::Default()->SleepForMicroseconds(100000);
   value = options.write_buffer_manager->memory_usage();
