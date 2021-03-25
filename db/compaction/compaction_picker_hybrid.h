@@ -47,7 +47,7 @@ class HybridCompactionPicker : public CompactionPicker {
   HybridCompactionPicker(const ImmutableOptions& ioptions,
                          const InternalKeyComparator* icmp);
 
-  ~HybridCompactionPicker() override{};
+  ~HybridCompactionPicker() override = default;
 
  public:
   // pick a compaction
@@ -176,6 +176,7 @@ class HybridCompactionPicker : public CompactionPicker {
   bool LevelNeedsRearange(uint hyperLevelNum,
                           const VersionStorageInfo* vstorage,
                           uint firstLevel) const;
+
   static size_t CalculateHyperlevelSize(uint hyperLevelNum,
                                         const VersionStorageInfo* vstorage);
 
@@ -259,4 +260,5 @@ class HybridCompactionPicker : public CompactionPicker {
   PrevPlace prevSubCompaction_[s_maxNumHyperLevels];
   size_t max_open_files_;
 };
+
 }  // namespace ROCKSDB_NAMESPACE

@@ -200,7 +200,7 @@ struct CompactionJob::SubcompactionState {
     auto maxFileSize = compaction->max_output_file_size();
     max_sizes.resize(grandparents.size() + 1);
     size_t gpIndex = 0;
-    for (auto& f : grandparents) {
+    for (auto* f : grandparents) {
       // if almost reached the size than split to two files
       if (f->fd.file_size > maxFileSize / 2) {
         max_sizes[gpIndex] = maxFileSize / 3;
@@ -272,7 +272,7 @@ struct CompactionJob::SubcompactionState {
                  grandparents[grandparent_index]->smallest.user_key()) >= 0) {
         grandparent_index++;
       }
-      if (prefix_table_size && prefix_table_size < user_key.size()) {
+      if (prefix_table_size > 0 && prefix_table_size < user_key.size()) {
         first_key_prefix.assign(user_key.data(), prefix_table_size);
       }
       return false;
@@ -285,10 +285,10 @@ struct CompactionJob::SubcompactionState {
       max_sizes[grandparent_index] = -1ull;
       ret = true;
     }
-    if (prefix_table_size && prefix_table_size < user_key.size()) {
+    if (prefix_table_size > 0 && prefix_table_size < user_key.size()) {
       std::string prefix(user_key.data(), prefix_table_size);
       if (prefix != first_key_prefix) {
-        first_key_prefix = prefix;
+        first_key_prefix = std::move(prefix);
         ret = true;
       }
     }
@@ -552,16 +552,11 @@ struct RangeWithSize {
 
 void CompactionJob::GenSubcompactionBoundaries() {
   auto* c = compact_->compaction;
-  auto* cfd = c->column_family_data();
-  const Comparator* cfd_comparator = cfd->user_comparator();
-  std::vector<Slice> bounds;
-  int start_lvl = c->start_level();
-  int out_lvl = c->output_level();
   auto const& gp = c->grandparents();
   if (!gp.empty()) {
     double increment = (c->max_subcompactions() - 1.0) / gp.size();
     double count = 0;
-    for (auto f : gp) {
+    for (auto* f : gp) {
       if ((int)(count + increment) != (int)count) {
         boundaries_.emplace_back(f->smallest.user_key());
         sizes_.emplace_back(0);
@@ -571,6 +566,12 @@ void CompactionJob::GenSubcompactionBoundaries() {
     sizes_.emplace_back(0);
     return;
   }
+
+  auto* cfd = c->column_family_data();
+  const Comparator* cfd_comparator = cfd->user_comparator();
+  std::vector<Slice> bounds;
+  int start_lvl = c->start_level();
+  int out_lvl = c->output_level();
 
   // Add the starting and/or ending key of certain input files as a potential
   // boundary
@@ -631,7 +632,6 @@ void CompactionJob::GenSubcompactionBoundaries() {
   // earlier in SetInputVersioCompaction::SetInputVersion and will not change
   // when db_mutex_ is released below
   auto* v = compact_->compaction->input_version();
-  // auto &granp = c->grandparents_;
 
   for (auto it = bounds.begin();;) {
     const Slice a = *it;

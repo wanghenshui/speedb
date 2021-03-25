@@ -879,7 +879,6 @@ void DBImpl::PersistStats() {
 
 void DBImpl::OptionsLoad() {
   // for now the only work is to set io trace
-
   std::string full_path_to_trace = (immutable_db_options_.db_log_dir.empty()
                                         ? dbname_
                                         : immutable_db_options_.db_log_dir) +
@@ -3071,6 +3070,7 @@ SnapshotImpl* DBImpl::GetSnapshotImpl(bool is_write_conflict_boundary,
   if (!is_snapshot_supported_) {
     return nullptr;
   }
+
   if (lock) {
     mutex_.Lock();
   }

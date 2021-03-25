@@ -635,14 +635,11 @@ Compaction* HybridCompactionPicker::PickLevelCompaction(
       nSubCompactions++;
     }
   } else {
-    size_t lastHyperLevelSize =
-        CalculateHyperlevelSize(hyperLevelNum, vstorage);
-    size_t dbSize = vstorage->NumLevelBytes(LastLevel());
-    if (dbSize < (size_t)mutable_cf_options.write_buffer_size * 8) {
-      dbSize = (size_t)mutable_cf_options.write_buffer_size * 8;
-    }
+    const size_t lastHyperLevelSize =
+        spaceAmpFactor_ * CalculateHyperlevelSize(hyperLevelNum, vstorage);
+    size_t dbSize = std::max<size_t>(vstorage->NumLevelBytes(LastLevel()),
+                                     mutable_cf_options.write_buffer_size * 8);
     compactionOutputFileSize = std::min(compactionOutputFileSize, dbSize / 8);
-    lastHyperLevelSize *= spaceAmpFactor_;
     if (lastHyperLevelSize > dbSize) {
       nSubCompactions += lastHyperLevelSize * 10 / dbSize - 10;
       if (nSubCompactions > 4) {
@@ -654,12 +651,14 @@ Compaction* HybridCompactionPicker::PickLevelCompaction(
       nSubCompactions++;
     }
   }
+
   std::vector<CompactionInputFiles> inputs;
 
   if (!SelectNBuffers(inputs, lowPriority ? 1 : nSubCompactions * 4,
                       outputLevel, hyperLevelNum, vstorage)) {
     return nullptr;
   }
+
   bool trivial_compaction = false;
   if (inputs.size() == 1) {
     // inputs does not intersect with output so we can move
@@ -811,7 +810,7 @@ bool HybridCompactionPicker::Intersecting(
 bool HybridCompactionPicker::Intersecting(
     const std::vector<FileMetaData*>& f1,
     const std::vector<FileMetaData*>& f2) const {
-  for (auto f : f1) {
+  for (auto* f : f1) {
     if (Intersecting(f, f2)) {
       return true;
     }
@@ -1006,39 +1005,39 @@ void HybridCompactionPicker::expandSelection(
 bool HybridCompactionPicker::SelectNBuffers(
     std::vector<CompactionInputFiles>& inputs, uint nBuffers, uint outputLevel,
     uint hyperLevelNum, VersionStorageInfo* vstorage) {
-  uint startLevel = LastLevelInHyper(hyperLevelNum);
-  uint firstLevel = FirstLevelInHyper(hyperLevelNum) + 3;
-  if (vstorage->LevelFiles(startLevel).empty()) {
+  const uint lowest_level = LastLevelInHyper(hyperLevelNum);
+  if (vstorage->LevelFiles(lowest_level).empty()) {
     return false;
   }
 
+  uint upper_level = FirstLevelInHyper(hyperLevelNum) + 3;
   if (!prevSubCompaction_[hyperLevelNum - 1].empty() &&
-      firstLevel <= prevSubCompaction_[hyperLevelNum - 1].outputLevel) {
-    firstLevel = prevSubCompaction_[hyperLevelNum - 1].outputLevel + 1;
-    if (firstLevel > startLevel) {
+      upper_level <= prevSubCompaction_[hyperLevelNum - 1].outputLevel) {
+    upper_level = prevSubCompaction_[hyperLevelNum - 1].outputLevel + 1;
+    if (upper_level > lowest_level) {
       return false;
     }
   }
 
-  assert(startLevel >= firstLevel);
+  assert(lowest_level >= upper_level);
   uint count = 0;
-  for (uint s = startLevel; s >= firstLevel; s--) {
+  for (uint s = lowest_level; s >= upper_level; s--) {
     auto& levelFiles = vstorage->LevelFiles(s);
     if (!levelFiles.empty()) {
       count++;
     }
   }
 
-  Slice lowerBound, upperBound;
-  Slice smallestKey, largestKey;
-
   // select buffers from start level
   inputs.resize(count + 1);
   count--;
 
+  Slice lowerBound, upperBound;
+  Slice smallestKey, largestKey;
+
   bool lastFileWasSelected = true;
-  inputs[count].level = startLevel;
-  selectNBufferFromFirstLevel(vstorage->LevelFiles(startLevel),
+  inputs[count].level = lowest_level;
+  selectNBufferFromFirstLevel(vstorage->LevelFiles(lowest_level),
                               vstorage->LevelFiles(LastLevel()), nBuffers,
                               inputs[count].files, smallestKey, largestKey,
                               lowerBound, upperBound, lastFileWasSelected);
@@ -1051,7 +1050,7 @@ bool HybridCompactionPicker::SelectNBuffers(
     }
   }
 
-  for (uint level = startLevel - 1; level >= firstLevel; level--) {
+  for (uint level = lowest_level - 1; level >= upper_level; level--) {
     if (!vstorage->LevelFiles(level).empty()) {
       count--;
       inputs[count].level = level;

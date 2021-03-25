@@ -1,6 +1,12 @@
+#pragma once
+
 #include <math.h>
 #include <unistd.h>
-namespace rocksdb {
+
+#include "rocksdb/env.h"
+
+namespace ROCKSDB_NAMESPACE {
+
 class ExternalDelay {
  public:
   ExternalDelay() : delayPerByte_(0), increment_(0) {}
@@ -49,4 +55,5 @@ class ExternalDelay {
   double delayPerByte_;
   double increment_;
 };
-};  // namespace rocksdb
+
+};  // namespace ROCKSDB_NAMESPACE

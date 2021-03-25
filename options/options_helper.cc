@@ -310,7 +310,8 @@ std::map<CompactionStyle, std::string>
         {kCompactionStyleUniversal, "kCompactionStyleUniversal"},
         {kCompactionStyleFIFO, "kCompactionStyleFIFO"},
         {kCompactionStyleNone, "kCompactionStyleNone"},
-        {kCompactionStyleHybrid, "kCompactionStyleHybrid"}};
+        {kCompactionStyleHybrid, "kCompactionStyleHybrid"},
+};
 
 std::map<CompactionPri, std::string> OptionsHelper::compaction_pri_to_string = {
     {kByCompensatedSize, "kByCompensatedSize"},
@@ -910,7 +911,8 @@ std::unordered_map<std::string, CompactionStyle>
         {"kCompactionStyleUniversal", kCompactionStyleUniversal},
         {"kCompactionStyleFIFO", kCompactionStyleFIFO},
         {"kCompactionStyleNone", kCompactionStyleNone},
-        {"kCompactionStyleHybrid", kCompactionStyleHybrid}};
+        {"kCompactionStyleHybrid", kCompactionStyleHybrid},
+};
 
 std::unordered_map<std::string, CompactionPri>
     OptionsHelper::compaction_pri_string_map = {

@@ -756,7 +756,6 @@ void DBImpl::NotifyOnFlushBegin(ColumnFamilyData* cfd, FileMetaData* file_meta,
   // old message
   // no need to signal bg_cv_ as it will be signaled at the end of the
   // flush process.
-
 #else
   (void)cfd;
   (void)file_meta;
@@ -798,7 +797,6 @@ void DBImpl::NotifyOnFlushCompleted(
   mutex_.Lock();
   // no need to signal bg_cv_ as it will be signaled at the end of the
   // flush process.
-
 #else
   (void)cfd;
   (void)mutable_cf_options;
@@ -807,7 +805,9 @@ void DBImpl::NotifyOnFlushCompleted(
 }
 
 void DBImpl::RunLowPriorityCompaction() {
-  if (closed_ || shutdown_initiated_) return;
+  if (closed_ || shutdown_initiated_) {
+    return;
+  }
   InstrumentedMutexLock l(&mutex_);
   if (n_requests_in_last_cycle_ < 100) {
     if (closed_ || shutdown_initiated_) {
@@ -1487,7 +1487,6 @@ void DBImpl::NotifyOnCompactionCompleted(
   }
   mutex_.Lock();
   current->Unref();
-
 #else
   (void)cfd;
   (void)c;
