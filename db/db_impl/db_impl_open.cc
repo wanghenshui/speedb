@@ -1579,7 +1579,8 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
         std::max(max_write_buffer_size, cf.options.write_buffer_size);
   }
 
-  DBImpl* impl = new DBImpl(db_options, dbname, seq_per_batch, batch_per_txn);
+  std::unique_ptr<DBImpl> impl{
+      new DBImpl(db_options, dbname, seq_per_batch, batch_per_txn)};
   s = impl->env_->CreateDirIfMissing(impl->immutable_db_options_.wal_dir);
   if (s.ok()) {
     std::vector<std::string> paths;
@@ -1608,7 +1609,6 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     s = impl->CreateArchivalDirectory();
   }
   if (!s.ok()) {
-    delete impl;
     return s;
   }
 
@@ -1640,7 +1640,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
             impl->versions_->GetColumnFamilySet()->GetColumnFamily(cf.name);
         if (cfd != nullptr) {
           handles->push_back(
-              new ColumnFamilyHandleImpl(cfd, impl, &impl->mutex_));
+              new ColumnFamilyHandleImpl(cfd, impl.get(), &impl->mutex_));
           impl->NewThreadStatusCfInfo(cfd);
         } else {
           if (db_options.create_missing_column_families) {
@@ -1750,7 +1750,6 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     persist_options_status = impl->WriteOptionsFile(
         false /*need_mutex_lock*/, false /*need_enter_write_thread*/);
 
-    *dbptr = impl;
     impl->opened_successfully_ = true;
     impl->MaybeScheduleFlushOrCompaction();
   } else {
@@ -1839,7 +1838,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
 
   if (s.ok()) {
     ROCKS_LOG_HEADER(impl->immutable_db_options_.info_log, "DB pointer %p",
-                     impl);
+                     impl.get());
     LogFlush(impl->immutable_db_options_.info_log);
     assert(impl->TEST_WALBufferIsEmpty());
     // If the assert above fails then we need to FlushWAL before returning
@@ -1856,13 +1855,12 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   }
   if (s.ok()) {
     impl->StartPeriodicWorkScheduler();
+    *dbptr = impl.release();
   } else {
     for (auto* h : *handles) {
       delete h;
     }
     handles->clear();
-    delete impl;
-    *dbptr = nullptr;
   }
   return s;
 }
