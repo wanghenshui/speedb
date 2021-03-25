@@ -23,7 +23,7 @@ class RepeatableThread {
   RepeatableThread(std::function<void()> function,
                    const std::string& thread_name, SystemClock* clock,
                    uint64_t delay_us, uint64_t initial_delay_us = 0)
-      : function_(function),
+      : function_(std::move(function)),
         thread_name_("speedb:" + thread_name),
         clock_(clock),
         delay_us_(delay_us),
