@@ -256,10 +256,10 @@ struct CompactionJob::SubcompactionState {
     auto ucmp = compaction->column_family_data()->user_comparator();
 
     Slice prev_user_key(last_user_key.data(), last_user_key.size());
-    if (ucmp->Compare(user_key, prev_user_key) == 0) {
+    if (!prev_user_key.empty() && ucmp->Compare(user_key, prev_user_key) == 0) {
       return false;
     } else {
-      last_user_key = std::string(user_key.data(), user_key.size());
+      last_user_key.assign(user_key.data(), user_key.size());
     }
 
     const std::vector<FileMetaData*>& grandparents = compaction->grandparents();
