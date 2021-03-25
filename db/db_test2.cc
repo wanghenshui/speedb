@@ -5190,8 +5190,11 @@ TEST_F(DBTest2, BackgroundPurgeTest) {
 
   db_->GetEnv()->SetBackgroundThreads(1, Env::Priority::HIGH);
   test::SleepingBackgroundTask sleeping_task_after;
+  test::EnvUnscheduleGuard unschedule_guard_after{
+      env_, {{&sleeping_task_after, Env::Priority::HIGH}}};
   db_->GetEnv()->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
-                          &sleeping_task_after, Env::Priority::HIGH);
+                          &sleeping_task_after, Env::Priority::HIGH,
+                          &sleeping_task_after);
   iter.reset();
 
   Env::Default()->SleepForMicroseconds(100000);
@@ -5200,12 +5203,17 @@ TEST_F(DBTest2, BackgroundPurgeTest) {
 
   sleeping_task_after.WakeUp();
   sleeping_task_after.WaitUntilDone();
+  unschedule_guard_after.release();
 
   test::SleepingBackgroundTask sleeping_task_after2;
+  test::EnvUnscheduleGuard unschedule_guard_after2{
+      env_, {{&sleeping_task_after2, Env::Priority::HIGH}}};
   db_->GetEnv()->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
-                          &sleeping_task_after2, Env::Priority::HIGH);
+                          &sleeping_task_after2, Env::Priority::HIGH,
+                          &sleeping_task_after2);
   sleeping_task_after2.WakeUp();
   sleeping_task_after2.WaitUntilDone();
+  unschedule_guard_after2.release();
 
   value = options.write_buffer_manager->memory_usage();
   ASSERT_EQ(base_value, value);

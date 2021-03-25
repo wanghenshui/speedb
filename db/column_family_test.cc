@@ -2423,9 +2423,11 @@ TEST_P(ColumnFamilyTest, FlushAndDropRaceCondition) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
   test::SleepingBackgroundTask sleeping_task;
+  test::EnvUnscheduleGuard unschedule_guard{
+      env_, {{&sleeping_task, Env::Priority::HIGH}}};
 
   env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task,
-                 Env::Priority::HIGH);
+                 Env::Priority::HIGH, &sleeping_task);
   // Make sure the task is sleeping. Otherwise, it might start to execute
   // after sleeping_task.WaitUntilDone() and cause TSAN warning.
   sleeping_task.WaitUntilSleeping();
@@ -2442,12 +2444,14 @@ TEST_P(ColumnFamilyTest, FlushAndDropRaceCondition) {
   sleeping_task.Reset();
   // now we sleep again. this is just so we're certain that flush job finished
   env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task,
-                 Env::Priority::HIGH);
+                 Env::Priority::HIGH, &sleeping_task);
   // Make sure the task is sleeping. Otherwise, it might start to execute
   // after sleeping_task.WaitUntilDone() and cause TSAN warning.
   sleeping_task.WaitUntilSleeping();
   sleeping_task.WakeUp();
   sleeping_task.WaitUntilDone();
+
+  unschedule_guard.release();
 
   {
     // Since we didn't delete CF handle, RocksDB's contract guarantees that
@@ -2999,8 +3003,11 @@ TEST_P(ColumnFamilyTest, FlushCloseWALFiles) {
 
   // Block flush jobs from running
   test::SleepingBackgroundTask sleeping_task;
+  test::EnvUnscheduleGuard unschedule_guard{
+      env_, {{&sleeping_task, Env::Priority::HIGH}}};
+
   env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task,
-                 Env::Priority::HIGH);
+                 Env::Priority::HIGH, &sleeping_task);
   // Make sure the task is sleeping. Otherwise, it might start to execute
   // after sleeping_task.WaitUntilDone() and cause TSAN warning.
   sleeping_task.WaitUntilSleeping();
@@ -3013,6 +3020,7 @@ TEST_P(ColumnFamilyTest, FlushCloseWALFiles) {
 
   sleeping_task.WakeUp();
   sleeping_task.WaitUntilDone();
+  unschedule_guard.release();
   TEST_SYNC_POINT("FlushCloseWALFiles:0");
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   ASSERT_EQ(1, env.num_open_wal_file_.load());
@@ -3048,8 +3056,11 @@ TEST_P(ColumnFamilyTest, IteratorCloseWALFile1) {
   // block flush jobs from running, we trigger a condition where
   // the iterator destructor should close the WAL files.
   test::SleepingBackgroundTask sleeping_task;
+  test::EnvUnscheduleGuard unschedule_guard{
+      env_, {{&sleeping_task, Env::Priority::HIGH}}};
+
   env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task,
-                 Env::Priority::HIGH);
+                 Env::Priority::HIGH, &sleeping_task);
   // Make sure the task is sleeping. Otherwise, it might start to execute
   // after sleeping_task.WaitUntilDone() and cause TSAN warning.
   sleeping_task.WaitUntilSleeping();
@@ -3066,6 +3077,7 @@ TEST_P(ColumnFamilyTest, IteratorCloseWALFile1) {
 
   sleeping_task.WakeUp();
   sleeping_task.WaitUntilDone();
+  unschedule_guard.release();
   WaitForFlush(1);
 
   Reopen();

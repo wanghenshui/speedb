@@ -245,21 +245,29 @@ TEST_F(DeleteFileTest, BackgroundPurgeIteratorTest) {
   // 3 sst after compaction with live iterator
   CheckFileTypeCounts(dbname_, 0, 3, 1);
   test::SleepingBackgroundTask sleeping_task_before;
+  test::EnvUnscheduleGuard unschedule_guard_before{
+      env_, {{&sleeping_task_before, Env::Priority::HIGH}}};
   env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
-                 &sleeping_task_before, Env::Priority::HIGH);
+                 &sleeping_task_before, Env::Priority::HIGH,
+                 &sleeping_task_before);
   delete itr;
   test::SleepingBackgroundTask sleeping_task_after;
+  test::EnvUnscheduleGuard unschedule_guard_after{
+      env_, {{&sleeping_task_after, Env::Priority::HIGH}}};
   env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
-                 &sleeping_task_after, Env::Priority::HIGH);
+                 &sleeping_task_after, Env::Priority::HIGH,
+                 &sleeping_task_after);
 
   // Make sure no purges are executed foreground
   CheckFileTypeCounts(dbname_, 0, 3, 1);
   sleeping_task_before.WakeUp();
   sleeping_task_before.WaitUntilDone();
+  unschedule_guard_before.release();
 
   // Make sure all background purges are executed
   sleeping_task_after.WakeUp();
   sleeping_task_after.WaitUntilDone();
+  unschedule_guard_after.release();
   // 1 sst after iterator deletion
   CheckFileTypeCounts(dbname_, 0, 1, 1);
 }
@@ -292,8 +300,11 @@ TEST_F(DeleteFileTest, BackgroundPurgeCFDropTest) {
 
     delete cfh;
     test::SleepingBackgroundTask sleeping_task_after;
+    test::EnvUnscheduleGuard unschedule_guard{
+        env_, {{&sleeping_task_after, Env::Priority::HIGH}}};
     env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
-                   &sleeping_task_after, Env::Priority::HIGH);
+                   &sleeping_task_after, Env::Priority::HIGH,
+                   &sleeping_task_after);
     // If background purge is enabled, the file should still be there.
     CheckFileTypeCounts(dbname_, 0, bg_purge ? 1 : 0, 1);
     TEST_SYNC_POINT("DeleteFileTest::BackgroundPurgeCFDropTest:1");
@@ -301,6 +312,7 @@ TEST_F(DeleteFileTest, BackgroundPurgeCFDropTest) {
     // Execute background purges.
     sleeping_task_after.WakeUp();
     sleeping_task_after.WaitUntilDone();
+    unschedule_guard.release();
     // The file should have been deleted.
     CheckFileTypeCounts(dbname_, 0, 0, 1);
   };
@@ -359,12 +371,16 @@ TEST_F(DeleteFileTest, BackgroundPurgeCopyOptions) {
   delete itr;
 
   test::SleepingBackgroundTask sleeping_task_after;
+  test::EnvUnscheduleGuard unschedule_guard{
+      env_, {{&sleeping_task_after, Env::Priority::HIGH}}};
   env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
-                 &sleeping_task_after, Env::Priority::HIGH);
+                 &sleeping_task_after, Env::Priority::HIGH,
+                 &sleeping_task_after);
 
   // Make sure all background purges are executed
   sleeping_task_after.WakeUp();
   sleeping_task_after.WaitUntilDone();
+  unschedule_guard.release();
   // 1 sst after iterator deletion
   CheckFileTypeCounts(dbname_, 0, 1, 1);
 }

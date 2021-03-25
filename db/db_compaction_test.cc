@@ -858,9 +858,11 @@ TEST_F(DBCompactionTest, BGCompactionsAllowed) {
   const size_t kTotalTasks = 4;
   env_->SetBackgroundThreads(4, Env::LOW);
   test::SleepingBackgroundTask sleeping_tasks[kTotalTasks];
+  test::EnvUnscheduleGuard unschedule_guard{
+      env_, {{&sleeping_tasks, Env::Priority::LOW}}};
   for (size_t i = 0; i < kTotalTasks; i++) {
     env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
-                   &sleeping_tasks[i], Env::Priority::LOW);
+                   &sleeping_tasks[i], Env::Priority::LOW, &sleeping_tasks);
     sleeping_tasks[i].WaitUntilSleeping();
   }
 
@@ -909,7 +911,7 @@ TEST_F(DBCompactionTest, BGCompactionsAllowed) {
   for (size_t i = 0; i < kTotalTasks; i++) {
     sleeping_tasks[i].Reset();
     env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
-                   &sleeping_tasks[i], Env::Priority::LOW);
+                   &sleeping_tasks[i], Env::Priority::LOW, &sleeping_tasks);
     sleeping_tasks[i].WaitUntilSleeping();
   }
   for (int cf = 0; cf < 4; cf++) {
@@ -932,6 +934,7 @@ TEST_F(DBCompactionTest, BGCompactionsAllowed) {
     sleeping_tasks[i].WakeUp();
     sleeping_tasks[i].WaitUntilDone();
   }
+  unschedule_guard.release();
 }
 
 TEST_P(DBCompactionTestWithParam, CompactionsGenerateMultipleFiles) {
@@ -2863,8 +2866,10 @@ TEST_P(DBCompactionTestWithParam, PartialCompactionFailure) {
   env_->SetBackgroundThreads(1, Env::LOW);
   // stop the compaction thread until we simulate the file creation failure.
   test::SleepingBackgroundTask sleeping_task_low;
+  test::EnvUnscheduleGuard unschedule_guard{
+      env_, {{&sleeping_task_low, Env::Priority::LOW}}};
   env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
-                 Env::Priority::LOW);
+                 Env::Priority::LOW, &sleeping_task_low);
 
   options.env = env_;
 
@@ -2896,6 +2901,7 @@ TEST_P(DBCompactionTestWithParam, PartialCompactionFailure) {
   env_->non_writable_count_ = 1;
   sleeping_task_low.WakeUp();
   sleeping_task_low.WaitUntilDone();
+  unschedule_guard.release();
 
   // Expect compaction to fail here as one file will fail its
   // creation.
@@ -2956,8 +2962,10 @@ TEST_P(DBCompactionTestWithParam, DeleteMovedFileAfterCompaction) {
 
     // block compactions
     test::SleepingBackgroundTask sleeping_task;
+    test::EnvUnscheduleGuard unschedule_guard{
+        env_, {{&sleeping_task, Env::Priority::LOW}}};
     env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task,
-                   Env::Priority::LOW);
+                   Env::Priority::LOW, &sleeping_task);
 
     options.max_bytes_for_level_base = 1024 * 1024;  // 1 MB
     Reopen(options);
@@ -2966,6 +2974,7 @@ TEST_P(DBCompactionTestWithParam, DeleteMovedFileAfterCompaction) {
     // let compactions go
     sleeping_task.WakeUp();
     sleeping_task.WaitUntilDone();
+    unschedule_guard.release();
 
     // this should execute L1->L2 (move)
     ASSERT_OK(dbfull()->TEST_WaitForCompact());
@@ -4878,11 +4887,14 @@ TEST_F(DBCompactionTest, CompactionLimiter) {
   env_->SetBackgroundThreads((int)kTotalCompactTasks, Env::LOW);
 
   test::SleepingBackgroundTask sleeping_compact_tasks[kTotalCompactTasks];
+  test::EnvUnscheduleGuard unschedule_guard{
+      env_, {{&sleeping_compact_tasks, Env::Priority::LOW}}};
 
   // Block all compaction threads in thread pool.
   for (size_t i = 0; i < kTotalCompactTasks; i++) {
     env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
-                   &sleeping_compact_tasks[i], Env::LOW);
+                   &sleeping_compact_tasks[i], Env::LOW,
+                   &sleeping_compact_tasks);
     sleeping_compact_tasks[i].WaitUntilSleeping();
   }
 
@@ -4929,6 +4941,7 @@ TEST_F(DBCompactionTest, CompactionLimiter) {
     sleeping_compact_tasks[i].WakeUp();
     sleeping_compact_tasks[i].WaitUntilDone();
   }
+  unschedule_guard.release();
 
   for (unsigned int cf = 0; cf < cf_count; cf++) {
     ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable(handles_[cf]));
@@ -5603,8 +5616,10 @@ TEST_P(DBCompactionTestWithParam,
   // Stop run flush job
   env_->SetBackgroundThreads(1, Env::HIGH);
   test::SleepingBackgroundTask sleeping_tasks;
+  test::EnvUnscheduleGuard unschedule_guard{
+      env_, {{&sleeping_tasks, Env::Priority::HIGH}}};
   env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_tasks,
-                 Env::Priority::HIGH);
+                 Env::Priority::HIGH, &sleeping_tasks);
   sleeping_tasks.WaitUntilSleeping();
 
   // Put many keys to make memtable request to flush
@@ -5625,6 +5640,7 @@ TEST_P(DBCompactionTestWithParam,
   // Wake up flush job
   sleeping_tasks.WakeUp();
   sleeping_tasks.WaitUntilDone();
+  unschedule_guard.release();
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 

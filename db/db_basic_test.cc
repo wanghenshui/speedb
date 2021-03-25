@@ -446,11 +446,15 @@ TEST_F(DBBasicTest, FlushEmptyColumnFamily) {
   env_->SetBackgroundThreads(1, Env::HIGH);
   env_->SetBackgroundThreads(1, Env::LOW);
   test::SleepingBackgroundTask sleeping_task_low;
+  test::EnvUnscheduleGuard unschedule_guard_low{
+      env_, {{&sleeping_task_low, Env::Priority::LOW}}};
   env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
-                 Env::Priority::LOW);
+                 Env::Priority::LOW, &sleeping_task_low);
   test::SleepingBackgroundTask sleeping_task_high;
+  test::EnvUnscheduleGuard unschedule_guard_high{
+      env_, {{&sleeping_task_high, Env::Priority::HIGH}}};
   env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
-                 &sleeping_task_high, Env::Priority::HIGH);
+                 &sleeping_task_high, Env::Priority::HIGH, &sleeping_task_high);
 
   Options options = CurrentOptions();
   // disable compaction
@@ -477,6 +481,7 @@ TEST_F(DBBasicTest, FlushEmptyColumnFamily) {
 
   sleeping_task_high.WakeUp();
   sleeping_task_high.WaitUntilDone();
+  unschedule_guard_high.release();
 
   // Flush can still go through.
   ASSERT_OK(Flush(0));
@@ -484,6 +489,7 @@ TEST_F(DBBasicTest, FlushEmptyColumnFamily) {
 
   sleeping_task_low.WakeUp();
   sleeping_task_low.WaitUntilDone();
+  unschedule_guard_low.release();
 }
 
 TEST_F(DBBasicTest, Flush) {

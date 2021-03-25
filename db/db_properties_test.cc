@@ -736,11 +736,15 @@ TEST_F(DBPropertiesTest, DISABLED_GetProperty) {
   env_->SetBackgroundThreads(1, Env::HIGH);
   env_->SetBackgroundThreads(1, Env::LOW);
   test::SleepingBackgroundTask sleeping_task_low;
+  test::EnvUnscheduleGuard unschedule_guard_low{
+      env_, {{&sleeping_task_low, Env::Priority::LOW}}};
   env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
-                 Env::Priority::LOW);
+                 Env::Priority::LOW, &sleeping_task_low);
   test::SleepingBackgroundTask sleeping_task_high;
+  test::EnvUnscheduleGuard unschedule_guard_high{
+      env_, {{&sleeping_task_high, Env::Priority::HIGH}}};
   env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
-                 &sleeping_task_high, Env::Priority::HIGH);
+                 &sleeping_task_high, Env::Priority::HIGH, &sleeping_task_high);
 
   Options options = CurrentOptions();
   WriteOptions writeOpt = WriteOptions();
@@ -810,6 +814,7 @@ TEST_F(DBPropertiesTest, DISABLED_GetProperty) {
 
   sleeping_task_high.WakeUp();
   sleeping_task_high.WaitUntilDone();
+  unschedule_guard_high.release();
   dbfull()->TEST_WaitForFlushMemTable();
 
   ASSERT_OK(dbfull()->Put(writeOpt, "k4", big_value));
@@ -828,6 +833,7 @@ TEST_F(DBPropertiesTest, DISABLED_GetProperty) {
 
   sleeping_task_low.WakeUp();
   sleeping_task_low.WaitUntilDone();
+  unschedule_guard_low.release();
 
   // Wait for compaction to be done. This is important because otherwise RocksDB
   // might schedule a compaction when reopening the database, failing assertion
@@ -993,8 +999,10 @@ TEST_F(DBPropertiesTest, EstimatePendingCompBytes) {
   env_->SetBackgroundThreads(1, Env::HIGH);
   env_->SetBackgroundThreads(1, Env::LOW);
   test::SleepingBackgroundTask sleeping_task_low;
+  test::EnvUnscheduleGuard unschedule_guard{
+      env_, {{&sleeping_task_low, Env::Priority::LOW}}};
   env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
-                 Env::Priority::LOW);
+                 Env::Priority::LOW, &sleeping_task_low);
 
   Options options = CurrentOptions();
   WriteOptions writeOpt = WriteOptions();
@@ -1033,6 +1041,7 @@ TEST_F(DBPropertiesTest, EstimatePendingCompBytes) {
 
   sleeping_task_low.WakeUp();
   sleeping_task_low.WaitUntilDone();
+  unschedule_guard.release();
 
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_TRUE(dbfull()->GetIntProperty(

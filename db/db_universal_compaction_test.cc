@@ -158,8 +158,10 @@ TEST_P(DBTestUniversalCompaction, OptimizeFiltersForHits) {
   // block compaction from happening
   env_->SetBackgroundThreads(1, Env::LOW);
   test::SleepingBackgroundTask sleeping_task_low;
+  test::EnvUnscheduleGuard unschedule_guard{
+      env_, {{&sleeping_task_low, Env::Priority::LOW}}};
   env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
-                 Env::Priority::LOW);
+                 Env::Priority::LOW, &sleeping_task_low);
 
   for (int num = 0; num < options.level0_file_num_compaction_trigger; num++) {
     ASSERT_OK(Put(Key(num * 10), "val"));
@@ -190,6 +192,7 @@ TEST_P(DBTestUniversalCompaction, OptimizeFiltersForHits) {
 
   // Unblock compaction and wait it for happening.
   sleeping_task_low.WakeUp();
+  unschedule_guard.release();
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   // The same queries will not trigger bloom filter

@@ -3900,11 +3900,16 @@ TEST_F(DBTest, SanitizeNumThreads) {
     options.create_if_missing = true;
     DestroyAndReopen(options);
 
+    test::EnvUnscheduleGuard unschedule_guard{
+        env_,
+        {{&sleeping_tasks, Env::Priority::LOW},
+         {&sleeping_tasks, Env::Priority::HIGH}}};
+
     for (size_t i = 0; i < kTotalTasks; i++) {
       // Insert 5 tasks to low priority queue and 5 tasks to high priority queue
-      env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
-                     &sleeping_tasks[i],
-                     (i < 4) ? Env::Priority::LOW : Env::Priority::HIGH);
+      env_->Schedule(
+          &test::SleepingBackgroundTask::DoSleepTask, &sleeping_tasks[i],
+          (i < 4) ? Env::Priority::LOW : Env::Priority::HIGH, &sleeping_tasks);
     }
 
     // Wait until 10s for they are scheduled.
@@ -3930,6 +3935,8 @@ TEST_F(DBTest, SanitizeNumThreads) {
     ASSERT_EQ("def", Get("abc"));
     Flush();
     ASSERT_EQ("def", Get("abc"));
+
+    unschedule_guard.release();
   }
 }
 
@@ -4080,8 +4087,10 @@ TEST_F(DBTest, DynamicMemtableOptions) {
   // compaction thread
   env_->SetBackgroundThreads(1, Env::LOW);
   test::SleepingBackgroundTask sleeping_task_low;
+  test::EnvUnscheduleGuard unschedule_guard{
+      env_, {{&sleeping_task_low, Env::Priority::LOW}}};
   env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
-                 Env::Priority::LOW);
+                 Env::Priority::LOW, &sleeping_task_low);
   // Start from scratch and disable compaction/flush. Flush can only happen
   // during compaction but trigger is pretty high
   options.disable_auto_compactions = true;
@@ -4116,7 +4125,7 @@ TEST_F(DBTest, DynamicMemtableOptions) {
 
   sleeping_task_low.Reset();
   env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
-                 Env::Priority::LOW);
+                 Env::Priority::LOW, &sleeping_task_low);
   count = 0;
   while (!sleeping_task_low.WokenUp() && count < 1024) {
     ASSERT_OK(Put(Key(count), rnd.RandomString(1024), WriteOptions()));
@@ -4139,7 +4148,7 @@ TEST_F(DBTest, DynamicMemtableOptions) {
 
   sleeping_task_low.Reset();
   env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
-                 Env::Priority::LOW);
+                 Env::Priority::LOW, &sleeping_task_low);
 
   count = 0;
   while (!sleeping_task_low.WokenUp() && count < 1024) {
@@ -4153,6 +4162,7 @@ TEST_F(DBTest, DynamicMemtableOptions) {
   ASSERT_LT(static_cast<double>(count), 266 * 1.2);
 #endif
   sleeping_task_low.WaitUntilDone();
+  unschedule_guard.release();
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
@@ -4936,8 +4946,10 @@ TEST_F(DBTest, DynamicCompactionOptions) {
   dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
   // Block compaction
   test::SleepingBackgroundTask sleeping_task_low;
+  test::EnvUnscheduleGuard unschedule_guard{
+      env_, {{&sleeping_task_low, Env::Priority::LOW}}};
   env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
-                 Env::Priority::LOW);
+                 Env::Priority::LOW, &sleeping_task_low);
   sleeping_task_low.WaitUntilSleeping();
   ASSERT_EQ(NumTableFilesAtLevel(0), 0);
   int count = 0;
@@ -4968,7 +4980,7 @@ TEST_F(DBTest, DynamicCompactionOptions) {
   // Block compaction again
   sleeping_task_low.Reset();
   env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
-                 Env::Priority::LOW);
+                 Env::Priority::LOW, &sleeping_task_low);
   sleeping_task_low.WaitUntilSleeping();
   count = 0;
   while (count < 64) {
@@ -4983,6 +4995,7 @@ TEST_F(DBTest, DynamicCompactionOptions) {
   ASSERT_EQ(count, 6);
   // Unblock
   sleeping_task_low.WaitUntilDone();
+  unschedule_guard.release();
 
   // Test disable_auto_compactions
   // Compaction thread is unblocked but auto compaction is disabled. Write
@@ -5416,11 +5429,15 @@ TEST_F(DBTest, CloseSpeedup) {
   env_->SetBackgroundThreads(1, Env::LOW);
   env_->SetBackgroundThreads(1, Env::HIGH);
   test::SleepingBackgroundTask sleeping_task_low;
+  test::EnvUnscheduleGuard unschedule_guard_low{
+      env_, {{&sleeping_task_low, Env::Priority::LOW}}};
   env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
-                 Env::Priority::LOW);
+                 Env::Priority::LOW, &sleeping_task_low);
   test::SleepingBackgroundTask sleeping_task_high;
+  test::EnvUnscheduleGuard unschedule_guard_high{
+      env_, {{&sleeping_task_high, Env::Priority::HIGH}}};
   env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
-                 &sleeping_task_high, Env::Priority::HIGH);
+                 &sleeping_task_high, Env::Priority::HIGH, &sleeping_task_high);
 
   std::vector<std::string> filenames;
   env_->GetChildren(dbname_, &filenames);
@@ -5451,8 +5468,10 @@ TEST_F(DBTest, CloseSpeedup) {
   // Unblock background threads
   sleeping_task_high.WakeUp();
   sleeping_task_high.WaitUntilDone();
+  unschedule_guard_high.release();
   sleeping_task_low.WakeUp();
   sleeping_task_low.WaitUntilDone();
+  unschedule_guard_low.release();
 
   Destroy(options);
 }
@@ -6048,8 +6067,10 @@ TEST_F(DBTest, DelayedWriteRate) {
 
   // Block compactions
   test::SleepingBackgroundTask sleeping_task_low;
+  test::EnvUnscheduleGuard unschedule_guard{
+      env_, {{&sleeping_task_low, Env::Priority::LOW}}};
   env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
-                 Env::Priority::LOW);
+                 Env::Priority::LOW, &sleeping_task_low);
 
   for (int i = 0; i < 3; i++) {
     Put(Key(i), std::string(10000, 'x'));
@@ -6088,6 +6109,7 @@ TEST_F(DBTest, DelayedWriteRate) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   sleeping_task_low.WakeUp();
   sleeping_task_low.WaitUntilDone();
+  unschedule_guard.release();
 }
 
 TEST_F(DBTest, HardLimit) {
@@ -6108,8 +6130,10 @@ TEST_F(DBTest, HardLimit) {
 
   env_->SetBackgroundThreads(1, Env::LOW);
   test::SleepingBackgroundTask sleeping_task_low;
+  test::EnvUnscheduleGuard unschedule_guard{
+      env_, {{&sleeping_task_low, Env::Priority::LOW}}};
   env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
-                 Env::Priority::LOW);
+                 Env::Priority::LOW, &sleeping_task_low);
 
   CreateAndReopenWithCF({"pikachu"}, options);
 
@@ -6138,6 +6162,7 @@ TEST_F(DBTest, HardLimit) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   sleeping_task_low.WaitUntilDone();
+  unschedule_guard.release();
 }
 
 #if !defined(ROCKSDB_LITE) && !defined(ROCKSDB_DISABLE_STALL_NOTIFICATION)
@@ -6235,9 +6260,11 @@ TEST_F(DBTest, SoftLimit) {
   Put(Key(0), "");
 
   test::SleepingBackgroundTask sleeping_task_low;
+  test::EnvUnscheduleGuard unschedule_guard{
+      env_, {{&sleeping_task_low, Env::Priority::LOW}}};
   // Block compactions
   env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
-                 Env::Priority::LOW);
+                 Env::Priority::LOW, &sleeping_task_low);
   sleeping_task_low.WaitUntilSleeping();
 
   // Create 3 L0 files, making score of L0 to be 3.
@@ -6269,11 +6296,12 @@ TEST_F(DBTest, SoftLimit) {
         // Schedule a sleeping task.
         sleeping_task_low.Reset();
         env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
-                       &sleeping_task_low, Env::Priority::LOW);
+                       &sleeping_task_low, Env::Priority::LOW,
+                       &sleeping_task_low);
       });
 
   env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
-                 Env::Priority::LOW);
+                 Env::Priority::LOW, &sleeping_task_low);
   sleeping_task_low.WaitUntilSleeping();
   // Create 3 L0 files, making score of L0 to be 3
   for (int i = 0; i < 3; i++) {
@@ -6341,6 +6369,7 @@ TEST_F(DBTest, SoftLimit) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   sleeping_task_low.WakeUp();
   sleeping_task_low.WaitUntilDone();
+  unschedule_guard.release();
 }
 
 TEST_F(DBTest, LastWriteBufferDelay) {
@@ -6357,9 +6386,11 @@ TEST_F(DBTest, LastWriteBufferDelay) {
 
   Reopen(options);
   test::SleepingBackgroundTask sleeping_task;
+  test::EnvUnscheduleGuard unschedule_guard{
+      env_, {{&sleeping_task, Env::Priority::HIGH}}};
   // Block flushes
   env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task,
-                 Env::Priority::HIGH);
+                 Env::Priority::HIGH, &sleeping_task);
   sleeping_task.WaitUntilSleeping();
 
   // Create 3 L0 files, making score of L0 to be 3.
@@ -6376,6 +6407,7 @@ TEST_F(DBTest, LastWriteBufferDelay) {
 
   sleeping_task.WakeUp();
   sleeping_task.WaitUntilDone();
+  unschedule_guard.release();
 }
 #endif  // !defined(ROCKSDB_LITE) && !defined(ROCKSDB_DISABLE_STALL_NOTIFICATION)
 

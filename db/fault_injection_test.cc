@@ -391,10 +391,12 @@ TEST_P(FaultInjectionTestSplitted, FaultTest) {
 // Previous log file is not fsynced if sync is forced after log rolling.
 TEST_P(FaultInjectionTest, WriteOptionSyncTest) {
   test::SleepingBackgroundTask sleeping_task_low;
+  test::EnvUnscheduleGuard unschedule_guard{
+      env_, {{&sleeping_task_low, Env::Priority::HIGH}}};
   env_->SetBackgroundThreads(1, Env::HIGH);
   // Block the job queue to prevent flush job from running.
   env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
-                 Env::Priority::HIGH);
+                 Env::Priority::HIGH, &sleeping_task_low);
   sleeping_task_low.WaitUntilSleeping();
 
   WriteOptions write_options;
@@ -415,6 +417,7 @@ TEST_P(FaultInjectionTest, WriteOptionSyncTest) {
   NoWriteTestReopenWithFault(kResetDropAndDeleteUnsynced);
   sleeping_task_low.WakeUp();
   sleeping_task_low.WaitUntilDone();
+  unschedule_guard.release();
 
   ASSERT_OK(OpenDB());
   std::string val;
@@ -477,10 +480,12 @@ TEST_P(FaultInjectionTest, UninstalledCompaction) {
 
 TEST_P(FaultInjectionTest, ManualLogSyncTest) {
   test::SleepingBackgroundTask sleeping_task_low;
+  test::EnvUnscheduleGuard unschedule_guard{
+      env_, {{&sleeping_task_low, Env::Priority::HIGH}}};
   env_->SetBackgroundThreads(1, Env::HIGH);
   // Block the job queue to prevent flush job from running.
   env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
-                 Env::Priority::HIGH);
+                 Env::Priority::HIGH, &sleeping_task_low);
   sleeping_task_low.WaitUntilSleeping();
 
   WriteOptions write_options;
@@ -500,6 +505,7 @@ TEST_P(FaultInjectionTest, ManualLogSyncTest) {
   NoWriteTestReopenWithFault(kResetDropAndDeleteUnsynced);
   sleeping_task_low.WakeUp();
   sleeping_task_low.WaitUntilDone();
+  unschedule_guard.release();
 
   ASSERT_OK(OpenDB());
   std::string val;

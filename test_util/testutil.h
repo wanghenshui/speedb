@@ -428,6 +428,13 @@ class SleepingBackgroundTask {
         done_with_sleep_(false),
         sleeping_(false) {}
 
+  ~SleepingBackgroundTask() {
+    if (IsSleeping()) {
+      WakeUp();
+      WaitUntilDone();
+    }
+  }
+
   bool IsSleeping() {
     MutexLock l(&mutex_);
     return sleeping_;
@@ -826,6 +833,26 @@ class ChanglingCompactionFilterFactory : public CompactionFilterFactory {
 
  protected:
   std::string name_;
+};
+
+// An env schedule cleanup handler
+struct EnvUnscheduleGuard {
+  using UnscheduleTags = std::vector<std::tuple<void*, Env::Priority>>;
+
+  EnvUnscheduleGuard(Env* env, UnscheduleTags tags)
+      : env_(env), tags_(std::move(tags)) {}
+  ~EnvUnscheduleGuard() {
+    if (env_) {
+      for (auto& tag : tags_) {
+        env_->UnSchedule(std::get<0>(tag), std::get<1>(tag));
+      }
+    }
+  }
+  void release() { env_ = nullptr; }
+
+ private:
+  Env* env_;
+  UnscheduleTags tags_;
 };
 
 extern const Comparator* ComparatorWithU64Ts();
