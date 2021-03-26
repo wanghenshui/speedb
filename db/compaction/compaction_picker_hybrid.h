@@ -236,7 +236,7 @@ class HybridCompactionPicker : public CompactionPicker {
  private:
   // not sure if needed but this prevent running twice from two different
   // contents
-  // std::Mutex mutex_;
+  port::Mutex mutex_;
 
   // uint64_t   dbSize_;
   // those parameters are re-calculate each time the database increase it size
