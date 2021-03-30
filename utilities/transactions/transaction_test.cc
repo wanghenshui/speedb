@@ -93,24 +93,24 @@ TEST_P(TransactionTest, DoubleEmptyWrite) {
 
   // Also test committing empty transactions in 2PC
   TransactionOptions txn_options;
-  Transaction* txn0 = db->BeginTransaction(write_options, txn_options);
+  std::unique_ptr<Transaction> txn0{
+      db->BeginTransaction(write_options, txn_options)};
   ASSERT_OK(txn0->SetName("xid"));
   ASSERT_OK(txn0->Prepare());
   ASSERT_OK(txn0->Commit());
-  delete txn0;
+  txn0.reset();
 
   // Also test that it works during recovery
-  txn0 = db->BeginTransaction(write_options, txn_options);
+  txn0.reset(db->BeginTransaction(write_options, txn_options));
   ASSERT_OK(txn0->SetName("xid2"));
   ASSERT_OK(txn0->Put(Slice("foo0"), Slice("bar0a")));
   ASSERT_OK(txn0->Prepare());
-  delete txn0;
+  txn0.reset();
   reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
   ASSERT_OK(ReOpenNoDelete());
   assert(db != nullptr);
-  txn0 = db->GetTransactionByName("xid2");
+  txn0.reset(db->GetTransactionByName("xid2"));
   ASSERT_OK(txn0->Commit());
-  delete txn0;
 }
 
 TEST_P(TransactionTest, SuccessTest) {
@@ -123,7 +123,8 @@ TEST_P(TransactionTest, SuccessTest) {
   ASSERT_OK(db->Put(write_options, Slice("foo"), Slice("bar")));
   ASSERT_OK(db->Put(write_options, Slice("foo2"), Slice("bar")));
 
-  Transaction* txn = db->BeginTransaction(write_options, TransactionOptions());
+  std::unique_ptr<Transaction> txn{
+      db->BeginTransaction(write_options, TransactionOptions())};
   ASSERT_TRUE(txn);
 
   ASSERT_EQ(0, txn->GetNumPuts());
@@ -143,8 +144,6 @@ TEST_P(TransactionTest, SuccessTest) {
 
   ASSERT_OK(db->Get(read_options, "foo", &value));
   ASSERT_EQ(value, "bar2");
-
-  delete txn;
 }
 
 // The test clarifies the contract of do_validate and assume_tracked
@@ -160,7 +159,8 @@ TEST_P(TransactionTest, AssumeExclusiveTracked) {
   const bool DO_VALIDATE = true;
   const bool ASSUME_LOCKED = true;
 
-  Transaction* txn = db->BeginTransaction(write_options, txn_options);
+  std::unique_ptr<Transaction> txn{
+      db->BeginTransaction(write_options, txn_options)};
   ASSERT_TRUE(txn);
   txn->SetSnapshot();
 
@@ -199,7 +199,6 @@ TEST_P(TransactionTest, AssumeExclusiveTracked) {
                               ASSUME_LOCKED));
 
   ASSERT_OK(txn->Rollback());
-  delete txn;
 }
 
 // This test clarifies the contract of ValidateSnapshot
@@ -212,8 +211,8 @@ TEST_P(TransactionTest, ValidateSnapshotTest) {
       std::string value;
 
       assert(db != nullptr);
-      Transaction* txn1 =
-          db->BeginTransaction(write_options, TransactionOptions());
+      std::unique_ptr<Transaction> txn1{
+          db->BeginTransaction(write_options, TransactionOptions())};
       ASSERT_TRUE(txn1);
       ASSERT_OK(txn1->Put(Slice("foo"), Slice("bar1")));
       if (with_2pc) {
@@ -237,21 +236,21 @@ TEST_P(TransactionTest, ValidateSnapshotTest) {
         }
       }
 
-      Transaction* txn2 =
-          db->BeginTransaction(write_options, TransactionOptions());
+      std::unique_ptr<Transaction> txn2{
+          db->BeginTransaction(write_options, TransactionOptions())};
       ASSERT_TRUE(txn2);
       txn2->SetSnapshot();
 
       ASSERT_OK(txn1->Commit());
-      delete txn1;
+      txn1.reset();
 
-      auto pes_txn2 = dynamic_cast<PessimisticTransaction*>(txn2);
+      auto pes_txn2 = dynamic_cast<PessimisticTransaction*>(txn2.get());
       // Test the simple case where the key is not tracked yet
       auto trakced_seq = kMaxSequenceNumber;
       auto s = pes_txn2->ValidateSnapshot(db->DefaultColumnFamily(), "foo",
                                           &trakced_seq);
       ASSERT_TRUE(s.IsBusy());
-      delete txn2;
+      txn2.reset();
     }
   }
 }
@@ -268,15 +267,21 @@ TEST_P(TransactionTest, WaitingTxn) {
   ASSERT_OK(s);
 
   /* create second cf */
-  ColumnFamilyHandle* cfa;
-  ColumnFamilyOptions cf_options;
-  s = db->CreateColumnFamily(cf_options, "CFA", &cfa);
-  ASSERT_OK(s);
-  s = db->Put(write_options, cfa, Slice("foo"), Slice("bar"));
+  std::unique_ptr<ColumnFamilyHandle> cfa;
+  {
+    ColumnFamilyHandle* pcfa;
+    ColumnFamilyOptions cf_options;
+    s = db->CreateColumnFamily(cf_options, "CFA", &pcfa);
+    cfa.reset(pcfa);
+    ASSERT_OK(s);
+  }
+  s = db->Put(write_options, cfa.get(), Slice("foo"), Slice("bar"));
   ASSERT_OK(s);
 
-  Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
-  Transaction* txn2 = db->BeginTransaction(write_options, txn_options);
+  std::unique_ptr<Transaction> txn1{
+      db->BeginTransaction(write_options, txn_options)};
+  std::unique_ptr<Transaction> txn2{
+      db->BeginTransaction(write_options, txn_options)};
   TransactionID id1 = txn1->GetID();
   ASSERT_TRUE(txn1);
   ASSERT_TRUE(txn2);
@@ -300,7 +305,7 @@ TEST_P(TransactionTest, WaitingTxn) {
   ASSERT_EQ(get_perf_context()->key_lock_wait_count, 0);
 
   // lock key in cfa
-  s = txn1->GetForUpdate(read_options, cfa, "foo", &value);
+  s = txn1->GetForUpdate(read_options, cfa.get(), "foo", &value);
   ASSERT_OK(s);
   ASSERT_EQ(value, "bar");
   ASSERT_EQ(get_perf_context()->key_lock_wait_count, 0);
@@ -344,10 +349,6 @@ TEST_P(TransactionTest, WaitingTxn) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
-
-  delete cfa;
-  delete txn1;
-  delete txn2;
 }
 
 TEST_P(TransactionTest, SharedLocks) {
@@ -360,9 +361,12 @@ TEST_P(TransactionTest, SharedLocks) {
   s = db->Put(write_options, Slice("foo"), Slice("bar"));
   ASSERT_OK(s);
 
-  Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
-  Transaction* txn2 = db->BeginTransaction(write_options, txn_options);
-  Transaction* txn3 = db->BeginTransaction(write_options, txn_options);
+  std::unique_ptr<Transaction> txn1{
+      db->BeginTransaction(write_options, txn_options)};
+  std::unique_ptr<Transaction> txn2{
+      db->BeginTransaction(write_options, txn_options)};
+  std::unique_ptr<Transaction> txn3{
+      db->BeginTransaction(write_options, txn_options)};
   ASSERT_TRUE(txn1);
   ASSERT_TRUE(txn2);
   ASSERT_TRUE(txn3);
@@ -469,10 +473,6 @@ TEST_P(TransactionTest, SharedLocks) {
   txn1->UndoGetForUpdate("foo");
   s = txn2->GetForUpdate(read_options, "foo", nullptr, false /* exclusive */);
   ASSERT_OK(s);
-
-  delete txn1;
-  delete txn2;
-  delete txn3;
 }
 
 TEST_P(TransactionTest, DeadlockCycleShared) {
@@ -496,10 +496,10 @@ TEST_P(TransactionTest, DeadlockCycleShared) {
   // up to T31, then T[16 - 31] -> T1.
   // Note that Tn holds lock on floor(n / 2).
 
-  std::vector<Transaction*> txns(31);
+  std::vector<std::unique_ptr<Transaction>> txns(31);
 
   for (uint32_t i = 0; i < 31; i++) {
-    txns[i] = db->BeginTransaction(write_options, txn_options);
+    txns[i].reset(db->BeginTransaction(write_options, txn_options));
     ASSERT_TRUE(txns[i]);
     auto s = txns[i]->GetForUpdate(read_options, ToString((i + 1) / 2), nullptr,
                                    false /* exclusive */);
@@ -520,7 +520,7 @@ TEST_P(TransactionTest, DeadlockCycleShared) {
                                      true /* exclusive */);
       ASSERT_OK(s);
       ASSERT_OK(txns[i]->Rollback());
-      delete txns[i];
+      txns[i].reset();
     };
     threads.emplace_back(blocking_thread);
   }
@@ -582,7 +582,7 @@ TEST_P(TransactionTest, DeadlockCycleShared) {
   // Rollback the leaf transaction.
   for (uint32_t i = 15; i < 31; i++) {
     ASSERT_OK(txns[i]->Rollback());
-    delete txns[i];
+    txns[i].reset();
   }
 
   for (auto& t : threads) {
@@ -629,11 +629,11 @@ TEST_P(TransactionTest, DeadlockCycleShared) {
 
   // Contrived case of shared lock of cycle size 2 to verify that a shared
   // lock causing a deadlock is correctly reported as "shared" in the buffer.
-  std::vector<Transaction*> txns_shared(2);
+  std::vector<std::unique_ptr<Transaction>> txns_shared(2);
 
   // Create a cycle of size 2.
   for (uint32_t i = 0; i < 2; i++) {
-    txns_shared[i] = db->BeginTransaction(write_options, txn_options);
+    txns_shared[i].reset(db->BeginTransaction(write_options, txn_options));
     ASSERT_TRUE(txns_shared[i]);
     auto s = txns_shared[i]->GetForUpdate(read_options, ToString(i), nullptr);
     ASSERT_OK(s);
@@ -652,7 +652,7 @@ TEST_P(TransactionTest, DeadlockCycleShared) {
           txns_shared[i]->GetForUpdate(read_options, ToString(i + 1), nullptr);
       ASSERT_OK(s);
       ASSERT_OK(txns_shared[i]->Rollback());
-      delete txns_shared[i];
+      txns_shared[i].reset();
     };
     threads_shared.emplace_back(blocking_thread);
   }
@@ -679,7 +679,7 @@ TEST_P(TransactionTest, DeadlockCycleShared) {
   ASSERT_TRUE(dlock_buffer[0].path[0].m_exclusive);
   ASSERT_FALSE(dlock_buffer[0].path[1].m_exclusive);
   ASSERT_OK(txns_shared[1]->Rollback());
-  delete txns_shared[1];
+  txns_shared[1].reset();
 
   for (auto& t : threads_shared) {
     t.join();
@@ -703,10 +703,10 @@ TEST_P(TransactionStressTest, DeadlockCycle) {
     //
     // T1 -> T2 -> T3 -> ... -> Tlen
 
-    std::vector<Transaction*> txns(len);
+    std::vector<std::unique_ptr<Transaction>> txns(len);
 
     for (uint32_t i = 0; i < len; i++) {
-      txns[i] = db->BeginTransaction(write_options, txn_options);
+      txns[i].reset(db->BeginTransaction(write_options, txn_options));
       ASSERT_TRUE(txns[i]);
       auto s = txns[i]->GetForUpdate(read_options, ToString(i), nullptr);
       ASSERT_OK(s);
@@ -726,7 +726,7 @@ TEST_P(TransactionStressTest, DeadlockCycle) {
         auto s = txns[i]->GetForUpdate(read_options, ToString(i + 1), nullptr);
         ASSERT_OK(s);
         ASSERT_OK(txns[i]->Rollback());
-        delete txns[i];
+        txns[i].reset();
       };
       threads.emplace_back(blocking_thread);
     }
@@ -787,7 +787,7 @@ TEST_P(TransactionStressTest, DeadlockCycle) {
 
     // Rollback the last transaction.
     ASSERT_OK(txns[len - 1]->Rollback());
-    delete txns[len - 1];
+    txns[len - 1].reset();
 
     for (auto& t : threads) {
       t.join();
@@ -818,9 +818,9 @@ TEST_P(TransactionStressTest, DeadlockStress) {
   std::function<void(uint32_t)> stress_thread = [&](uint32_t seed) {
     std::default_random_engine g(seed);
 
-    Transaction* txn;
     for (uint32_t i = 0; i < NUM_ITERS; i++) {
-      txn = db->BeginTransaction(write_options, txn_options);
+      std::unique_ptr<Transaction> txn{
+          db->BeginTransaction(write_options, txn_options)};
       auto random_keys = keys;
       std::shuffle(random_keys.begin(), random_keys.end(), g);
 
@@ -835,8 +835,6 @@ TEST_P(TransactionStressTest, DeadlockStress) {
           break;
         }
       }
-
-      delete txn;
     }
   };
 
@@ -858,7 +856,8 @@ TEST_P(TransactionTest, CommitTimeBatchFailTest) {
   std::string value;
   Status s;
 
-  Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
+  std::unique_ptr<Transaction> txn1{
+      db->BeginTransaction(write_options, txn_options)};
   ASSERT_TRUE(txn1);
 
   ASSERT_OK(txn1->GetCommitTimeWriteBatch()->Put("cat", "dog"));
@@ -869,8 +868,6 @@ TEST_P(TransactionTest, CommitTimeBatchFailTest) {
   // fails due to non-empty commit-time batch
   s = txn1->Commit();
   ASSERT_EQ(s, Status::InvalidArgument());
-
-  delete txn1;
 }
 
 TEST_P(TransactionTest, LogMarkLeakTest) {
@@ -880,27 +877,28 @@ TEST_P(TransactionTest, LogMarkLeakTest) {
   ASSERT_OK(ReOpenNoDelete());
   assert(db != nullptr);
   Random rnd(47);
-  std::vector<Transaction*> txns;
+  std::vector<std::unique_ptr<Transaction>> txns;
   DBImpl* db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
   // At the beginning there should be no log containing prepare data
   ASSERT_EQ(db_impl->TEST_FindMinLogContainingOutstandingPrep(), 0);
   for (size_t i = 0; i < 100; i++) {
-    Transaction* txn = db->BeginTransaction(write_options, txn_options);
+    std::unique_ptr<Transaction> txn{
+        db->BeginTransaction(write_options, txn_options)};
     ASSERT_OK(txn->SetName("xid" + ToString(i)));
     ASSERT_OK(txn->Put(Slice("foo" + ToString(i)), Slice("bar")));
     ASSERT_OK(txn->Prepare());
     ASSERT_GT(db_impl->TEST_FindMinLogContainingOutstandingPrep(), 0);
     if (rnd.OneIn(5)) {
-      txns.push_back(txn);
+      txns.emplace_back(txn.release());
     } else {
       ASSERT_OK(txn->Commit());
-      delete txn;
+      txn.reset();
     }
     ASSERT_OK(db_impl->TEST_FlushMemTable(true));
   }
-  for (auto txn : txns) {
+  for (auto& txn : txns) {
     ASSERT_OK(txn->Commit());
-    delete txn;
+    txn.reset();
   }
   // At the end there should be no log left containing prepare data
   ASSERT_EQ(db_impl->TEST_FindMinLogContainingOutstandingPrep(), 0);
@@ -924,11 +922,12 @@ TEST_P(TransactionTest, SimpleTwoPhaseTransactionTest) {
 
     DBImpl* db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
 
-    Transaction* txn = db->BeginTransaction(write_options, txn_options);
+    std::unique_ptr<Transaction> txn{
+        db->BeginTransaction(write_options, txn_options)};
     s = txn->SetName("xid");
     ASSERT_OK(s);
 
-    ASSERT_EQ(db->GetTransactionByName("xid"), txn);
+    ASSERT_EQ(db->GetTransactionByName("xid"), txn.get());
 
     // transaction put
     s = txn->Put(Slice("foo"), Slice("bar"));
@@ -1035,7 +1034,7 @@ TEST_P(TransactionTest, SimpleTwoPhaseTransactionTest) {
     ASSERT_GT(db_impl->MinLogNumberToKeep(), log_containing_prep);
     ASSERT_EQ(0, db_impl->TEST_FindMinPrepLogReferencedByMemTable());
 
-    delete txn;
+    txn.reset();
 
     if (cwb4recovery) {
       // kill and reopen to trigger recovery
@@ -1058,11 +1057,14 @@ TEST_P(TransactionTest, TwoPhaseNameTest) {
 
   WriteOptions write_options;
   TransactionOptions txn_options;
-  Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
-  Transaction* txn2 = db->BeginTransaction(write_options, txn_options);
-  Transaction* txn3 = db->BeginTransaction(write_options, txn_options);
+  std::unique_ptr<Transaction> txn1{
+      db->BeginTransaction(write_options, txn_options)};
+  std::unique_ptr<Transaction> txn2{
+      db->BeginTransaction(write_options, txn_options)};
+  std::unique_ptr<Transaction> txn3{
+      db->BeginTransaction(write_options, txn_options)};
   ASSERT_TRUE(txn3);
-  delete txn3;
+  txn3.reset();
 
   // cant prepare txn without name
   s = txn1->Prepare();
@@ -1108,8 +1110,6 @@ TEST_P(TransactionTest, TwoPhaseNameTest) {
 
   ASSERT_OK(txn1->Rollback());
   ASSERT_OK(txn2->Rollback());
-  delete txn1;
-  delete txn2;
 }
 
 TEST_P(TransactionTest, TwoPhaseEmptyWriteTest) {
@@ -1127,9 +1127,11 @@ TEST_P(TransactionTest, TwoPhaseEmptyWriteTest) {
       TransactionOptions txn_options;
       txn_options.use_only_the_last_commit_time_batch_for_recovery =
           cwb4recovery;
-      Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
+      std::unique_ptr<Transaction> txn1{
+          db->BeginTransaction(write_options, txn_options)};
       ASSERT_TRUE(txn1);
-      Transaction* txn2 = db->BeginTransaction(write_options, txn_options);
+      std::unique_ptr<Transaction> txn2{
+          db->BeginTransaction(write_options, txn_options)};
       ASSERT_TRUE(txn2);
 
       s = txn1->SetName("joe");
@@ -1144,7 +1146,7 @@ TEST_P(TransactionTest, TwoPhaseEmptyWriteTest) {
       s = txn1->Commit();
       ASSERT_OK(s);
 
-      delete txn1;
+      txn1.reset();
 
       ASSERT_OK(
           txn2->GetCommitTimeWriteBatch()->Put(Slice("foo"), Slice("bar")));
@@ -1155,7 +1157,7 @@ TEST_P(TransactionTest, TwoPhaseEmptyWriteTest) {
       s = txn2->Commit();
       ASSERT_OK(s);
 
-      delete txn2;
+      txn2.reset();
       if (!cwb4recovery) {
         s = db->Get(read_options, "foo", &value);
         ASSERT_OK(s);
@@ -1189,8 +1191,10 @@ TEST_P(TransactionStressTest, TwoPhaseExpirationTest) {
   WriteOptions write_options;
   TransactionOptions txn_options;
   txn_options.expiration = 500;  // 500ms
-  Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
-  Transaction* txn2 = db->BeginTransaction(write_options, txn_options);
+  std::unique_ptr<Transaction> txn1{
+      db->BeginTransaction(write_options, txn_options)};
+  std::unique_ptr<Transaction> txn2{
+      db->BeginTransaction(write_options, txn_options)};
   ASSERT_TRUE(txn1);
   ASSERT_TRUE(txn1);
 
@@ -1210,9 +1214,6 @@ TEST_P(TransactionStressTest, TwoPhaseExpirationTest) {
 
   s = txn2->Prepare();
   ASSERT_EQ(s, Status::Expired());
-
-  delete txn1;
-  delete txn2;
 }
 
 TEST_P(TransactionTest, TwoPhaseRollbackTest) {
@@ -1225,7 +1226,8 @@ TEST_P(TransactionTest, TwoPhaseRollbackTest) {
   Status s;
 
   DBImpl* db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
-  Transaction* txn = db->BeginTransaction(write_options, txn_options);
+  std::unique_ptr<Transaction> txn{
+      db->BeginTransaction(write_options, txn_options)};
   s = txn->SetName("xid");
   ASSERT_OK(s);
 
@@ -1280,8 +1282,6 @@ TEST_P(TransactionTest, TwoPhaseRollbackTest) {
   // try rollback again
   s = txn->Rollback();
   ASSERT_EQ(s, Status::InvalidArgument());
-
-  delete txn;
 }
 
 TEST_P(TransactionTest, PersistentTwoPhaseTransactionTest) {
@@ -1297,11 +1297,12 @@ TEST_P(TransactionTest, PersistentTwoPhaseTransactionTest) {
 
   DBImpl* db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
 
-  Transaction* txn = db->BeginTransaction(write_options, txn_options);
+  std::unique_ptr<Transaction> txn{
+      db->BeginTransaction(write_options, txn_options)};
   s = txn->SetName("xid");
   ASSERT_OK(s);
 
-  ASSERT_EQ(db->GetTransactionByName("xid"), txn);
+  ASSERT_EQ(db->GetTransactionByName("xid"), txn.get());
 
   // transaction put
   s = txn->Put(Slice("foo"), Slice("bar"));
@@ -1336,7 +1337,7 @@ TEST_P(TransactionTest, PersistentTwoPhaseTransactionTest) {
   ASSERT_TRUE(s.IsNotFound());
 
   ASSERT_OK(db->FlushWAL(false));
-  delete txn;
+  txn.reset();
   // kill and reopen
   reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
   s = ReOpenNoDelete();
@@ -1349,10 +1350,10 @@ TEST_P(TransactionTest, PersistentTwoPhaseTransactionTest) {
   db->GetAllPreparedTransactions(&prepared_trans);
   ASSERT_EQ(prepared_trans.size(), 1);
 
-  txn = prepared_trans.front();
+  txn.reset(prepared_trans.front());
   ASSERT_TRUE(txn);
   ASSERT_EQ(txn->GetName(), "xid");
-  ASSERT_EQ(db->GetTransactionByName("xid"), txn);
+  ASSERT_EQ(db->GetTransactionByName("xid"), txn.get());
 
   // log has been marked
   auto log_containing_prep =
@@ -1415,7 +1416,7 @@ TEST_P(TransactionTest, PersistentTwoPhaseTransactionTest) {
   ASSERT_GT(db_impl->MinLogNumberToKeep(), log_containing_prep);
   ASSERT_EQ(0, db_impl->TEST_FindMinPrepLogReferencedByMemTable());
 
-  delete txn;
+  txn.reset();
 
   // deleting transaction should unregister transaction
   ASSERT_EQ(db->GetTransactionByName("xid"), nullptr);
@@ -1440,7 +1441,8 @@ TEST_P(TransactionTest, DISABLED_TwoPhaseMultiThreadTest) {
       txn_options.expiration = 1000000;
     }
     TransactionName name("xid_" + std::string(1, 'A' + static_cast<char>(id)));
-    Transaction* txn = db->BeginTransaction(write_options, txn_options);
+    std::unique_ptr<Transaction> txn{
+        db->BeginTransaction(write_options, txn_options)};
     ASSERT_OK(txn->SetName(name));
     for (int i = 0; i < 10; i++) {
       std::string key(name + "_" + std::string(1, static_cast<char>('A' + i)));
@@ -1448,7 +1450,6 @@ TEST_P(TransactionTest, DISABLED_TwoPhaseMultiThreadTest) {
     }
     ASSERT_OK(txn->Prepare());
     ASSERT_OK(txn->Commit());
-    delete txn;
   };
 
   // assure that all thread are in the same write group
@@ -1514,7 +1515,8 @@ TEST_P(TransactionStressTest, TwoPhaseLongPrepareTest) {
   std::string value;
   Status s;
 
-  Transaction* txn = db->BeginTransaction(write_options, txn_options);
+  std::unique_ptr<Transaction> txn{
+      db->BeginTransaction(write_options, txn_options)};
   s = txn->SetName("bob");
   ASSERT_OK(s);
 
@@ -1526,7 +1528,7 @@ TEST_P(TransactionStressTest, TwoPhaseLongPrepareTest) {
   s = txn->Prepare();
   ASSERT_OK(s);
 
-  delete txn;
+  txn.reset();
 
   for (int i = 0; i < 1000; i++) {
     std::string key(i, 'k');
@@ -1547,7 +1549,7 @@ TEST_P(TransactionStressTest, TwoPhaseLongPrepareTest) {
   }
 
   // commit old txn
-  txn = db->GetTransactionByName("bob");
+  txn.reset(db->GetTransactionByName("bob"));
   ASSERT_TRUE(txn);
   s = txn->Commit();
   ASSERT_OK(s);
@@ -1565,8 +1567,6 @@ TEST_P(TransactionStressTest, TwoPhaseLongPrepareTest) {
     ASSERT_EQ(s, Status::OK());
     ASSERT_EQ(value, val);
   }
-
-  delete txn;
 }
 
 TEST_P(TransactionTest, TwoPhaseSequenceTest) {
@@ -1580,7 +1580,8 @@ TEST_P(TransactionTest, TwoPhaseSequenceTest) {
   std::string value;
   Status s;
 
-  Transaction* txn = db->BeginTransaction(write_options, txn_options);
+  std::unique_ptr<Transaction> txn{
+      db->BeginTransaction(write_options, txn_options)};
   s = txn->SetName("xid");
   ASSERT_OK(s);
 
@@ -1602,7 +1603,7 @@ TEST_P(TransactionTest, TwoPhaseSequenceTest) {
   s = txn->Commit();
   ASSERT_OK(s);
 
-  delete txn;
+  txn.reset();
 
   // kill and reopen
   env->SetFilesystemActive(false);
@@ -1626,7 +1627,8 @@ TEST_P(TransactionTest, TwoPhaseDoubleRecoveryTest) {
   std::string value;
   Status s;
 
-  Transaction* txn = db->BeginTransaction(write_options, txn_options);
+  std::unique_ptr<Transaction> txn{
+      db->BeginTransaction(write_options, txn_options)};
   s = txn->SetName("a");
   ASSERT_OK(s);
 
@@ -1638,7 +1640,7 @@ TEST_P(TransactionTest, TwoPhaseDoubleRecoveryTest) {
   s = txn->Prepare();
   ASSERT_OK(s);
 
-  delete txn;
+  txn.reset();
 
   // kill and reopen
   env->SetFilesystemActive(false);
@@ -1647,8 +1649,8 @@ TEST_P(TransactionTest, TwoPhaseDoubleRecoveryTest) {
 
   // commit old txn
   assert(db != nullptr);  // Make clang analyze happy.
-  txn = db->GetTransactionByName("a");
-  assert(txn != nullptr);
+  txn.reset(db->GetTransactionByName("a"));
+  assert(txn.get() != nullptr);
   s = txn->Commit();
   ASSERT_OK(s);
 
@@ -1656,9 +1658,9 @@ TEST_P(TransactionTest, TwoPhaseDoubleRecoveryTest) {
   ASSERT_EQ(s, Status::OK());
   ASSERT_EQ(value, "bar");
 
-  delete txn;
+  txn.reset();
 
-  txn = db->BeginTransaction(write_options, txn_options);
+  txn.reset(db->BeginTransaction(write_options, txn_options));
   s = txn->SetName("b");
   ASSERT_OK(s);
 
@@ -1671,7 +1673,7 @@ TEST_P(TransactionTest, TwoPhaseDoubleRecoveryTest) {
   s = txn->Commit();
   ASSERT_OK(s);
 
-  delete txn;
+  txn.reset();
 
   // kill and reopen
   env->SetFilesystemActive(false);
@@ -1693,37 +1695,42 @@ TEST_P(TransactionTest, TwoPhaseLogRollingTest) {
 
   Status s;
   std::string v;
-  ColumnFamilyHandle *cfa, *cfb;
+  std::unique_ptr<ColumnFamilyHandle> cfa, cfb;
 
   // Create 2 new column families
-  ColumnFamilyOptions cf_options;
-  s = db->CreateColumnFamily(cf_options, "CFA", &cfa);
-  ASSERT_OK(s);
-  s = db->CreateColumnFamily(cf_options, "CFB", &cfb);
-  ASSERT_OK(s);
+  {
+    ColumnFamilyHandle* pcf;
+    ColumnFamilyOptions cf_options;
+    s = db->CreateColumnFamily(cf_options, "CFA", &pcf);
+    cfa.reset(pcf);
+    ASSERT_OK(s);
+    s = db->CreateColumnFamily(cf_options, "CFB", &pcf);
+    cfb.reset(pcf);
+    ASSERT_OK(s);
+  }
 
   WriteOptions wopts;
   wopts.disableWAL = false;
   wopts.sync = true;
 
   TransactionOptions topts1;
-  Transaction* txn1 = db->BeginTransaction(wopts, topts1);
+  std::unique_ptr<Transaction> txn1{db->BeginTransaction(wopts, topts1)};
   s = txn1->SetName("xid1");
   ASSERT_OK(s);
 
   TransactionOptions topts2;
-  Transaction* txn2 = db->BeginTransaction(wopts, topts2);
+  std::unique_ptr<Transaction> txn2{db->BeginTransaction(wopts, topts2)};
   s = txn2->SetName("xid2");
   ASSERT_OK(s);
 
   // transaction put in two column families
-  s = txn1->Put(cfa, "ka1", "va1");
+  s = txn1->Put(cfa.get(), "ka1", "va1");
   ASSERT_OK(s);
 
   // transaction put in two column families
-  s = txn2->Put(cfa, "ka2", "va2");
+  s = txn2->Put(cfa.get(), "ka2", "va2");
   ASSERT_OK(s);
-  s = txn2->Put(cfb, "kb2", "vb2");
+  s = txn2->Put(cfb.get(), "kb2", "vb2");
   ASSERT_OK(s);
 
   // write prep section to wal
@@ -1808,7 +1815,7 @@ TEST_P(TransactionTest, TwoPhaseLogRollingTest) {
   }
 
   // flush only cfa memtable
-  s = db_impl->TEST_FlushMemTable(true, false, cfa);
+  s = db_impl->TEST_FlushMemTable(true, false, cfa.get());
   ASSERT_OK(s);
 
   switch (txn_db_options.write_policy) {
@@ -1827,49 +1834,49 @@ TEST_P(TransactionTest, TwoPhaseLogRollingTest) {
   }
 
   // flush only cfb memtable
-  s = db_impl->TEST_FlushMemTable(true, false, cfb);
+  s = db_impl->TEST_FlushMemTable(true, false, cfb.get());
   ASSERT_OK(s);
 
   // should show not dependency on logs
   ASSERT_EQ(db_impl->TEST_FindMinPrepLogReferencedByMemTable(), 0);
   ASSERT_EQ(db_impl->TEST_FindMinLogContainingOutstandingPrep(), 0);
-
-  delete txn1;
-  delete txn2;
-  delete cfa;
-  delete cfb;
 }
 
 TEST_P(TransactionTest, TwoPhaseLogRollingTest2) {
   DBImpl* db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
 
   Status s;
-  ColumnFamilyHandle *cfa, *cfb;
+  std::unique_ptr<ColumnFamilyHandle> cfa, cfb;
 
-  ColumnFamilyOptions cf_options;
-  s = db->CreateColumnFamily(cf_options, "CFA", &cfa);
-  ASSERT_OK(s);
-  s = db->CreateColumnFamily(cf_options, "CFB", &cfb);
-  ASSERT_OK(s);
+  {
+    ColumnFamilyHandle* pcf;
+    ColumnFamilyOptions cf_options;
+    s = db->CreateColumnFamily(cf_options, "CFA", &pcf);
+    cfa.reset(pcf);
+    ASSERT_OK(s);
+    s = db->CreateColumnFamily(cf_options, "CFB", &pcf);
+    cfb.reset(pcf);
+    ASSERT_OK(s);
+  }
 
   WriteOptions wopts;
   wopts.disableWAL = false;
   wopts.sync = true;
 
-  auto cfh_a = static_cast_with_check<ColumnFamilyHandleImpl>(cfa);
-  auto cfh_b = static_cast_with_check<ColumnFamilyHandleImpl>(cfb);
+  auto cfh_a = static_cast_with_check<ColumnFamilyHandleImpl>(cfa.get());
+  auto cfh_b = static_cast_with_check<ColumnFamilyHandleImpl>(cfb.get());
 
   TransactionOptions topts1;
-  Transaction* txn1 = db->BeginTransaction(wopts, topts1);
+  std::unique_ptr<Transaction> txn1{db->BeginTransaction(wopts, topts1)};
   s = txn1->SetName("xid1");
   ASSERT_OK(s);
-  s = txn1->Put(cfa, "boys", "girls1");
+  s = txn1->Put(cfa.get(), "boys", "girls1");
   ASSERT_OK(s);
 
-  Transaction* txn2 = db->BeginTransaction(wopts, topts1);
+  std::unique_ptr<Transaction> txn2{db->BeginTransaction(wopts, topts1)};
   s = txn2->SetName("xid2");
   ASSERT_OK(s);
-  s = txn2->Put(cfb, "up", "down1");
+  s = txn2->Put(cfb.get(), "up", "down1");
   ASSERT_OK(s);
 
   // prepre transaction in LOG A
@@ -1971,11 +1978,6 @@ TEST_P(TransactionTest, TwoPhaseLogRollingTest2) {
   // all data in LOG A resides in a memtable that has been
   // requested for a flush
   ASSERT_TRUE(db_impl->TEST_IsLogGettingFlushed());
-
-  delete txn1;
-  delete txn2;
-  delete cfa;
-  delete cfb;
 }
 /*
  * 1) use prepare to keep first log around to determine starting sequence
@@ -2048,21 +2050,19 @@ TEST_P(TransactionTest, FirstWriteTest) {
   // will have sequence 1.
   Status s = db->Put(write_options, "A", "a");
 
-  Transaction* txn = db->BeginTransaction(write_options);
+  std::unique_ptr<Transaction> txn{db->BeginTransaction(write_options)};
   txn->SetSnapshot();
 
   ASSERT_OK(s);
 
   s = txn->Put("A", "b");
   ASSERT_OK(s);
-
-  delete txn;
 }
 
 TEST_P(TransactionTest, FirstWriteTest2) {
   WriteOptions write_options;
 
-  Transaction* txn = db->BeginTransaction(write_options);
+  std::unique_ptr<Transaction> txn{db->BeginTransaction(write_options)};
   txn->SetSnapshot();
 
   // Test conflict checking against the very first write to a db.
@@ -2073,8 +2073,6 @@ TEST_P(TransactionTest, FirstWriteTest2) {
 
   s = txn->Put("A", "b");
   ASSERT_TRUE(s.IsBusy());
-
-  delete txn;
 }
 
 TEST_P(TransactionTest, WriteOptionsTest) {
@@ -2082,7 +2080,7 @@ TEST_P(TransactionTest, WriteOptionsTest) {
   write_options.sync = true;
   write_options.disableWAL = true;
 
-  Transaction* txn = db->BeginTransaction(write_options);
+  std::unique_ptr<Transaction> txn{db->BeginTransaction(write_options)};
   ASSERT_TRUE(txn);
 
   ASSERT_TRUE(txn->GetWriteOptions()->sync);
@@ -2091,8 +2089,6 @@ TEST_P(TransactionTest, WriteOptionsTest) {
   txn->SetWriteOptions(write_options);
   ASSERT_FALSE(txn->GetWriteOptions()->sync);
   ASSERT_TRUE(txn->GetWriteOptions()->disableWAL);
-
-  delete txn;
 }
 
 TEST_P(TransactionTest, WriteConflictTest) {
@@ -2104,7 +2100,7 @@ TEST_P(TransactionTest, WriteConflictTest) {
   ASSERT_OK(db->Put(write_options, "foo", "A"));
   ASSERT_OK(db->Put(write_options, "foo2", "B"));
 
-  Transaction* txn = db->BeginTransaction(write_options);
+  std::unique_ptr<Transaction> txn{db->BeginTransaction(write_options)};
   ASSERT_TRUE(txn);
 
   s = txn->Put("foo", "A2");
@@ -2127,8 +2123,6 @@ TEST_P(TransactionTest, WriteConflictTest) {
   ASSERT_EQ(value, "A2");
   db->Get(read_options, "foo2", &value);
   ASSERT_EQ(value, "B2");
-
-  delete txn;
 }
 
 TEST_P(TransactionTest, WriteConflictTest2) {
@@ -2141,7 +2135,8 @@ TEST_P(TransactionTest, WriteConflictTest2) {
   ASSERT_OK(db->Put(write_options, "foo", "bar"));
 
   txn_options.set_snapshot = true;
-  Transaction* txn = db->BeginTransaction(write_options, txn_options);
+  std::unique_ptr<Transaction> txn{
+      db->BeginTransaction(write_options, txn_options)};
   ASSERT_TRUE(txn);
 
   // This Put outside of a transaction will conflict with a later write
@@ -2175,8 +2170,6 @@ TEST_P(TransactionTest, WriteConflictTest2) {
 
   db->Get(read_options, "foo3", &value);
   ASSERT_EQ(value, "Y");
-
-  delete txn;
 }
 
 TEST_P(TransactionTest, ReadConflictTest) {
@@ -2190,7 +2183,8 @@ TEST_P(TransactionTest, ReadConflictTest) {
   ASSERT_OK(db->Put(write_options, "foo2", "bar"));
 
   txn_options.set_snapshot = true;
-  Transaction* txn = db->BeginTransaction(write_options, txn_options);
+  std::unique_ptr<Transaction> txn{
+      db->BeginTransaction(write_options, txn_options)};
   ASSERT_TRUE(txn);
 
   txn->SetSnapshot();
@@ -2211,8 +2205,6 @@ TEST_P(TransactionTest, ReadConflictTest) {
 
   s = txn->Commit();
   ASSERT_OK(s);
-
-  delete txn;
 }
 
 TEST_P(TransactionTest, TxnOnlyTest) {
@@ -2224,7 +2216,7 @@ TEST_P(TransactionTest, TxnOnlyTest) {
   std::string value;
   Status s;
 
-  Transaction* txn = db->BeginTransaction(write_options);
+  std::unique_ptr<Transaction> txn{db->BeginTransaction(write_options)};
   ASSERT_TRUE(txn);
 
   s = txn->Put("x", "y");
@@ -2232,8 +2224,6 @@ TEST_P(TransactionTest, TxnOnlyTest) {
 
   s = txn->Commit();
   ASSERT_OK(s);
-
-  delete txn;
 }
 
 TEST_P(TransactionTest, FlushTest) {
@@ -2245,7 +2235,7 @@ TEST_P(TransactionTest, FlushTest) {
   ASSERT_OK(db->Put(write_options, Slice("foo"), Slice("bar")));
   ASSERT_OK(db->Put(write_options, Slice("foo2"), Slice("bar")));
 
-  Transaction* txn = db->BeginTransaction(write_options);
+  std::unique_ptr<Transaction> txn{db->BeginTransaction(write_options)};
   ASSERT_TRUE(txn);
 
   snapshot_read_options.snapshot = txn->GetSnapshot();
@@ -2273,8 +2263,6 @@ TEST_P(TransactionTest, FlushTest) {
 
   db->Get(read_options, "foo", &value);
   ASSERT_EQ(value, "bar2");
-
-  delete txn;
 }
 
 TEST_P(TransactionTest, FlushTest2) {
@@ -2312,7 +2300,8 @@ TEST_P(TransactionTest, FlushTest2) {
     ASSERT_OK(db->Put(write_options, Slice("foo3"), Slice("bar3")));
 
     txn_options.set_snapshot = true;
-    Transaction* txn = db->BeginTransaction(write_options, txn_options);
+    std::unique_ptr<Transaction> txn{
+        db->BeginTransaction(write_options, txn_options)};
     ASSERT_TRUE(txn);
 
     snapshot_read_options.snapshot = txn->GetSnapshot();
@@ -2424,8 +2413,6 @@ TEST_P(TransactionTest, FlushTest2) {
     s = db->Get(read_options, "Z", &value);
     ASSERT_OK(s);
     ASSERT_EQ("z", value);
-
-  delete txn;
   }
 }
 
@@ -2437,7 +2424,7 @@ TEST_P(TransactionTest, NoSnapshotTest) {
 
   ASSERT_OK(db->Put(write_options, "AAA", "bar"));
 
-  Transaction* txn = db->BeginTransaction(write_options);
+  std::unique_ptr<Transaction> txn{db->BeginTransaction(write_options)};
   ASSERT_TRUE(txn);
 
   // Modify key after transaction start
@@ -2455,8 +2442,6 @@ TEST_P(TransactionTest, NoSnapshotTest) {
 
   ASSERT_OK(txn->GetForUpdate(read_options, "AAA", &value));
   ASSERT_EQ(value, "bar2");
-
-  delete txn;
 }
 
 TEST_P(TransactionTest, MultipleSnapshotTest) {
@@ -2469,7 +2454,7 @@ TEST_P(TransactionTest, MultipleSnapshotTest) {
   ASSERT_OK(db->Put(write_options, "BBB", "bar"));
   ASSERT_OK(db->Put(write_options, "CCC", "bar"));
 
-  Transaction* txn = db->BeginTransaction(write_options);
+  std::unique_ptr<Transaction> txn{db->BeginTransaction(write_options)};
   ASSERT_TRUE(txn);
 
   ASSERT_OK(db->Put(write_options, "AAA", "bar1"));
@@ -2538,8 +2523,8 @@ TEST_P(TransactionTest, MultipleSnapshotTest) {
   ASSERT_EQ(value, "bar2");
 
   // verify that we track multiple writes to the same key at different snapshots
-  delete txn;
-  txn = db->BeginTransaction(write_options);
+  txn.reset();
+  txn.reset(db->BeginTransaction(write_options));
 
   // Potentially conflicting writes
   ASSERT_OK(db->Put(write_options, "ZZZ", "zzz"));
@@ -2549,7 +2534,8 @@ TEST_P(TransactionTest, MultipleSnapshotTest) {
 
   TransactionOptions txn_options;
   txn_options.set_snapshot = true;
-  Transaction* txn2 = db->BeginTransaction(write_options, txn_options);
+  std::unique_ptr<Transaction> txn2{
+      db->BeginTransaction(write_options, txn_options)};
   txn2->SetSnapshot();
 
   // This should not conflict in txn since the snapshot is later than the
@@ -2560,7 +2546,7 @@ TEST_P(TransactionTest, MultipleSnapshotTest) {
   s = txn->Commit();
   ASSERT_OK(s);
 
-  delete txn;
+  txn.reset();
 
   // This will conflict since the snapshot is earlier than another write to ZZZ
   s = txn2->Put("ZZZ", "xxxxx");
@@ -2572,8 +2558,6 @@ TEST_P(TransactionTest, MultipleSnapshotTest) {
   s = db->Get(read_options, "ZZZ", &value);
   ASSERT_OK(s);
   ASSERT_EQ(value, "zzzz");
-
-  delete txn2;
 }
 
 TEST_P(TransactionTest, ColumnFamiliesTest) {
@@ -2583,17 +2567,20 @@ TEST_P(TransactionTest, ColumnFamiliesTest) {
   string value;
   Status s;
 
-  ColumnFamilyHandle *cfa, *cfb;
-  ColumnFamilyOptions cf_options;
 
   // Create 2 new column families
-  s = db->CreateColumnFamily(cf_options, "CFA", &cfa);
-  ASSERT_OK(s);
-  s = db->CreateColumnFamily(cf_options, "CFB", &cfb);
-  ASSERT_OK(s);
+  {
+    std::unique_ptr<ColumnFamilyHandle> cfa, cfb;
+    ColumnFamilyHandle* pcf;
+    ColumnFamilyOptions cf_options;
+    s = db->CreateColumnFamily(cf_options, "CFA", &pcf);
+    cfa.reset(pcf);
+    ASSERT_OK(s);
+    s = db->CreateColumnFamily(cf_options, "CFB", &pcf);
+    cfb.reset(pcf);
+    ASSERT_OK(s);
+  }
 
-  delete cfa;
-  delete cfb;
   delete db;
   db = nullptr;
 
@@ -2608,39 +2595,46 @@ TEST_P(TransactionTest, ColumnFamiliesTest) {
   column_families.push_back(
       ColumnFamilyDescriptor("CFB", ColumnFamilyOptions()));
 
-  std::vector<ColumnFamilyHandle*> handles;
+  std::vector<std::unique_ptr<ColumnFamilyHandle>> handles;
 
-  ASSERT_OK(ReOpenNoDelete(column_families, &handles));
-  assert(db != nullptr);
+  {
+    std::vector<ColumnFamilyHandle*> _handles;
+    ASSERT_OK(ReOpenNoDelete(column_families, &_handles));
+    for (auto* handle : _handles) {
+      handles.emplace_back(handle);
+    }
+    assert(db != nullptr);
+  }
 
-  Transaction* txn = db->BeginTransaction(write_options);
+  std::unique_ptr<Transaction> txn{db->BeginTransaction(write_options)};
   ASSERT_TRUE(txn);
 
   txn->SetSnapshot();
   snapshot_read_options.snapshot = txn->GetSnapshot();
 
   txn_options.set_snapshot = true;
-  Transaction* txn2 = db->BeginTransaction(write_options, txn_options);
+  std::unique_ptr<Transaction> txn2{
+      db->BeginTransaction(write_options, txn_options)};
   ASSERT_TRUE(txn2);
 
   // Write some data to the db
   WriteBatch batch;
   ASSERT_OK(batch.Put("foo", "foo"));
-  ASSERT_OK(batch.Put(handles[1], "AAA", "bar"));
-  ASSERT_OK(batch.Put(handles[1], "AAAZZZ", "bar"));
+  ASSERT_OK(batch.Put(handles[1].get(), "AAA", "bar"));
+  ASSERT_OK(batch.Put(handles[1].get(), "AAAZZZ", "bar"));
   s = db->Write(write_options, &batch);
   ASSERT_OK(s);
-  ASSERT_OK(db->Delete(write_options, handles[1], "AAAZZZ"));
+  ASSERT_OK(db->Delete(write_options, handles[1].get(), "AAAZZZ"));
 
   // These keys do not conflict with existing writes since they're in
   // different column families
   s = txn->Delete("AAA");
   ASSERT_OK(s);
-  s = txn->GetForUpdate(snapshot_read_options, handles[1], "foo", &value);
+  s = txn->GetForUpdate(snapshot_read_options, handles[1].get(), "foo", &value);
   ASSERT_TRUE(s.IsNotFound());
   Slice key_slice("AAAZZZ");
   Slice value_slices[2] = {Slice("bar"), Slice("bar")};
-  s = txn->Put(handles[2], SliceParts(&key_slice, 1),
+  s = txn->Put(handles[2].get(), SliceParts(&key_slice, 1),
                SliceParts(value_slices, 2));
   ASSERT_OK(s);
   ASSERT_EQ(3, txn->GetNumKeys());
@@ -2649,39 +2643,39 @@ TEST_P(TransactionTest, ColumnFamiliesTest) {
   ASSERT_OK(s);
   s = db->Get(read_options, "AAA", &value);
   ASSERT_TRUE(s.IsNotFound());
-  s = db->Get(read_options, handles[2], "AAAZZZ", &value);
+  s = db->Get(read_options, handles[2].get(), "AAAZZZ", &value);
   ASSERT_EQ(value, "barbar");
 
   Slice key_slices[3] = {Slice("AAA"), Slice("ZZ"), Slice("Z")};
   Slice value_slice("barbarbar");
 
-  s = txn2->Delete(handles[2], "XXX");
+  s = txn2->Delete(handles[2].get(), "XXX");
   ASSERT_OK(s);
-  s = txn2->Delete(handles[1], "XXX");
+  s = txn2->Delete(handles[1].get(), "XXX");
   ASSERT_OK(s);
 
   // This write will cause a conflict with the earlier batch write
-  s = txn2->Put(handles[1], SliceParts(key_slices, 3),
+  s = txn2->Put(handles[1].get(), SliceParts(key_slices, 3),
                 SliceParts(&value_slice, 1));
   ASSERT_TRUE(s.IsBusy());
 
   s = txn2->Commit();
   ASSERT_OK(s);
   // In the above the latest change to AAAZZZ in handles[1] is delete.
-  s = db->Get(read_options, handles[1], "AAAZZZ", &value);
+  s = db->Get(read_options, handles[1].get(), "AAAZZZ", &value);
   ASSERT_TRUE(s.IsNotFound());
 
-  delete txn;
-  delete txn2;
+  txn.reset();
+  txn2.reset();
 
-  txn = db->BeginTransaction(write_options, txn_options);
+  txn.reset(db->BeginTransaction(write_options, txn_options));
   snapshot_read_options.snapshot = txn->GetSnapshot();
 
-  txn2 = db->BeginTransaction(write_options, txn_options);
+  txn2.reset(db->BeginTransaction(write_options, txn_options));
   ASSERT_TRUE(txn);
 
-  std::vector<ColumnFamilyHandle*> multiget_cfh = {handles[1], handles[2],
-                                                   handles[0], handles[2]};
+  std::vector<ColumnFamilyHandle*> multiget_cfh = {
+      handles[1].get(), handles[2].get(), handles[0].get(), handles[2].get()};
   std::vector<Slice> multiget_keys = {"AAA", "AAAZZZ", "foo", "foo"};
   std::vector<std::string> values(4);
   std::vector<Status> results = txn->MultiGetForUpdate(
@@ -2694,15 +2688,15 @@ TEST_P(TransactionTest, ColumnFamiliesTest) {
   ASSERT_EQ(values[1], "barbar");
   ASSERT_EQ(values[2], "foo");
 
-  s = txn->SingleDelete(handles[2], "ZZZ");
+  s = txn->SingleDelete(handles[2].get(), "ZZZ");
   ASSERT_OK(s);
-  s = txn->Put(handles[2], "ZZZ", "YYY");
+  s = txn->Put(handles[2].get(), "ZZZ", "YYY");
   ASSERT_OK(s);
-  s = txn->Put(handles[2], "ZZZ", "YYYY");
+  s = txn->Put(handles[2].get(), "ZZZ", "YYYY");
   ASSERT_OK(s);
-  s = txn->Delete(handles[2], "ZZZ");
+  s = txn->Delete(handles[2].get(), "ZZZ");
   ASSERT_OK(s);
-  s = txn->Put(handles[2], "AAAZZZ", "barbarbar");
+  s = txn->Put(handles[2].get(), "AAAZZZ", "barbarbar");
   ASSERT_OK(s);
 
   ASSERT_EQ(5, txn->GetNumKeys());
@@ -2710,11 +2704,11 @@ TEST_P(TransactionTest, ColumnFamiliesTest) {
   // Txn should commit
   s = txn->Commit();
   ASSERT_OK(s);
-  s = db->Get(read_options, handles[2], "ZZZ", &value);
+  s = db->Get(read_options, handles[2].get(), "ZZZ", &value);
   ASSERT_TRUE(s.IsNotFound());
 
   // Put a key which will conflict with the next txn using the previous snapshot
-  ASSERT_OK(db->Put(write_options, handles[2], "foo", "000"));
+  ASSERT_OK(db->Put(write_options, handles[2].get(), "foo", "000"));
 
   results = txn2->MultiGetForUpdate(snapshot_read_options, multiget_cfh,
                                     multiget_keys, &values);
@@ -2724,23 +2718,21 @@ TEST_P(TransactionTest, ColumnFamiliesTest) {
   ASSERT_TRUE(results[2].IsBusy());
   ASSERT_TRUE(results[3].IsBusy());
 
-  s = db->Get(read_options, handles[2], "foo", &value);
+  s = db->Get(read_options, handles[2].get(), "foo", &value);
   ASSERT_EQ(value, "000");
 
   s = txn2->Commit();
   ASSERT_OK(s);
 
-  s = db->DropColumnFamily(handles[1]);
+  s = db->DropColumnFamily(handles[1].get());
   ASSERT_OK(s);
-  s = db->DropColumnFamily(handles[2]);
+  s = db->DropColumnFamily(handles[2].get());
   ASSERT_OK(s);
 
-  delete txn;
-  delete txn2;
+  txn.reset();
+  txn2.reset();
 
-  for (auto handle : handles) {
-    delete handle;
-  }
+  handles.clear();
 }
 
 TEST_P(TransactionTest, MultiGetBatchedTest) {
@@ -2750,14 +2742,16 @@ TEST_P(TransactionTest, MultiGetBatchedTest) {
   string value;
   Status s;
 
-  ColumnFamilyHandle* cf;
-  ColumnFamilyOptions cf_options;
-
   // Create a new column families
-  s = db->CreateColumnFamily(cf_options, "CF", &cf);
-  ASSERT_OK(s);
+  ColumnFamilyOptions cf_options;
+  {
+    std::unique_ptr<ColumnFamilyHandle> cf;
+    ColumnFamilyHandle* pcf;
+    s = db->CreateColumnFamily(cf_options, "CF", &pcf);
+    cf.reset(pcf);
+    ASSERT_OK(s);
+  }
 
-  delete cf;
   delete db;
   db = nullptr;
 
@@ -2770,25 +2764,31 @@ TEST_P(TransactionTest, MultiGetBatchedTest) {
   cf_options.merge_operator = MergeOperators::CreateStringAppendOperator();
   column_families.push_back(ColumnFamilyDescriptor("CF", cf_options));
 
-  std::vector<ColumnFamilyHandle*> handles;
+  std::vector<std::unique_ptr<ColumnFamilyHandle>> handles;
 
   options.merge_operator = MergeOperators::CreateStringAppendOperator();
-  ASSERT_OK(ReOpenNoDelete(column_families, &handles));
-  assert(db != nullptr);
+  {
+    std::vector<ColumnFamilyHandle*> _handles;
+    ASSERT_OK(ReOpenNoDelete(column_families, &_handles));
+    for (auto* handle : _handles) {
+      handles.emplace_back(handle);
+    }
+    assert(db != nullptr);
+  }
 
   // Write some data to the db
   WriteBatch batch;
-  ASSERT_OK(batch.Put(handles[1], "aaa", "val1"));
-  ASSERT_OK(batch.Put(handles[1], "bbb", "val2"));
-  ASSERT_OK(batch.Put(handles[1], "ccc", "val3"));
-  ASSERT_OK(batch.Put(handles[1], "ddd", "foo"));
-  ASSERT_OK(batch.Put(handles[1], "eee", "val5"));
-  ASSERT_OK(batch.Put(handles[1], "fff", "val6"));
-  ASSERT_OK(batch.Merge(handles[1], "ggg", "foo"));
+  ASSERT_OK(batch.Put(handles[1].get(), "aaa", "val1"));
+  ASSERT_OK(batch.Put(handles[1].get(), "bbb", "val2"));
+  ASSERT_OK(batch.Put(handles[1].get(), "ccc", "val3"));
+  ASSERT_OK(batch.Put(handles[1].get(), "ddd", "foo"));
+  ASSERT_OK(batch.Put(handles[1].get(), "eee", "val5"));
+  ASSERT_OK(batch.Put(handles[1].get(), "fff", "val6"));
+  ASSERT_OK(batch.Merge(handles[1].get(), "ggg", "foo"));
   s = db->Write(write_options, &batch);
   ASSERT_OK(s);
 
-  Transaction* txn = db->BeginTransaction(write_options);
+  std::unique_ptr<Transaction> txn{db->BeginTransaction(write_options)};
   ASSERT_TRUE(txn);
 
   txn->SetSnapshot();
@@ -2796,19 +2796,19 @@ TEST_P(TransactionTest, MultiGetBatchedTest) {
 
   txn_options.set_snapshot = true;
   // Write some data to the db
-  s = txn->Delete(handles[1], "bbb");
+  s = txn->Delete(handles[1].get(), "bbb");
   ASSERT_OK(s);
-  s = txn->Put(handles[1], "ccc", "val3_new");
+  s = txn->Put(handles[1].get(), "ccc", "val3_new");
   ASSERT_OK(s);
-  s = txn->Merge(handles[1], "ddd", "bar");
+  s = txn->Merge(handles[1].get(), "ddd", "bar");
   ASSERT_OK(s);
 
   std::vector<Slice> keys = {"aaa", "bbb", "ccc", "ddd", "eee", "fff", "ggg"};
   std::vector<PinnableSlice> values(keys.size());
   std::vector<Status> statuses(keys.size());
 
-  txn->MultiGet(snapshot_read_options, handles[1], keys.size(), keys.data(),
-                values.data(), statuses.data());
+  txn->MultiGet(snapshot_read_options, handles[1].get(), keys.size(),
+                keys.data(), values.data(), statuses.data());
   ASSERT_TRUE(statuses[0].ok());
   ASSERT_EQ(values[0], "val1");
   ASSERT_TRUE(statuses[1].IsNotFound());
@@ -2822,10 +2822,8 @@ TEST_P(TransactionTest, MultiGetBatchedTest) {
   ASSERT_EQ(values[5], "val6");
   ASSERT_TRUE(statuses[6].ok());
   ASSERT_EQ(values[6], "foo");
-  delete txn;
-  for (auto handle : handles) {
-    delete handle;
-  }
+  txn.reset();
+  handles.clear();
 }
 
 // This test calls WriteBatchWithIndex::MultiGetFromBatchAndDB with a large
@@ -2864,33 +2862,40 @@ TEST_P(TransactionTest, MultiGetLargeBatchedTest) {
   cf_options.merge_operator = MergeOperators::CreateStringAppendOperator();
   column_families.push_back(ColumnFamilyDescriptor("CF", cf_options));
 
-  std::vector<ColumnFamilyHandle*> handles;
+  std::vector<std::unique_ptr<ColumnFamilyHandle>> handles;
 
   options.merge_operator = MergeOperators::CreateStringAppendOperator();
-  ASSERT_OK(ReOpenNoDelete(column_families, &handles));
-  assert(db != nullptr);
+  {
+    std::vector<ColumnFamilyHandle*> _handles;
+    ASSERT_OK(ReOpenNoDelete(column_families, &_handles));
+    for (auto* handle : _handles) {
+      handles.emplace_back(handle);
+    }
+    assert(db != nullptr);
+  }
 
   // Write some data to the db
   WriteBatch batch;
   for (int i = 0; i < 3 * MultiGetContext::MAX_BATCH_SIZE; ++i) {
     std::string val = "val" + std::to_string(i);
-    ASSERT_OK(batch.Put(handles[1], key_str[i], val));
+    ASSERT_OK(batch.Put(handles[1].get(), key_str[i], val));
   }
   s = db->Write(write_options, &batch);
   ASSERT_OK(s);
 
   WriteBatchWithIndex wb;
   // Write some data to the db
-  s = wb.Delete(handles[1], std::to_string(1));
+  s = wb.Delete(handles[1].get(), std::to_string(1));
   ASSERT_OK(s);
-  s = wb.Put(handles[1], std::to_string(2), "new_val" + std::to_string(2));
+  s = wb.Put(handles[1].get(), std::to_string(2),
+             "new_val" + std::to_string(2));
   ASSERT_OK(s);
   // Write a lot of merges so when we call MultiGetFromBatchAndDB later on,
   // it is forced to use std::vector in ROCKSDB_NAMESPACE::autovector to
   // allocate MergeContexts. The number of merges needs to be >
   // MultiGetContext::MAX_BATCH_SIZE
   for (int i = 8; i < MultiGetContext::MAX_BATCH_SIZE + 24; ++i) {
-    s = wb.Merge(handles[1], std::to_string(i), "merge");
+    s = wb.Merge(handles[1].get(), std::to_string(i), "merge");
     ASSERT_OK(s);
   }
 
@@ -2902,8 +2907,9 @@ TEST_P(TransactionTest, MultiGetLargeBatchedTest) {
   std::vector<PinnableSlice> values(keys.size());
   std::vector<Status> statuses(keys.size());
 
-  wb.MultiGetFromBatchAndDB(db, snapshot_read_options, handles[1], keys.size(), keys.data(),
-                values.data(), statuses.data(), false);
+  wb.MultiGetFromBatchAndDB(db, snapshot_read_options, handles[1].get(),
+                            keys.size(), keys.data(), values.data(),
+                            statuses.data(), false);
   for (size_t i =0; i < keys.size(); ++i) {
     if (i == 1) {
       ASSERT_TRUE(statuses[1].IsNotFound());
@@ -2921,9 +2927,7 @@ TEST_P(TransactionTest, MultiGetLargeBatchedTest) {
     }
   }
 
-  for (auto handle : handles) {
-    delete handle;
-  }
+  handles.clear();
 }
 
 TEST_P(TransactionTest, MultiGetSnapshot) {
@@ -2982,9 +2986,9 @@ TEST_P(TransactionTest, ColumnFamiliesTest2) {
   s = db->CreateColumnFamily(cf_options, "TWO", &two);
   ASSERT_OK(s);
 
-  Transaction* txn1 = db->BeginTransaction(write_options);
+  std::unique_ptr<Transaction> txn1{db->BeginTransaction(write_options)};
   ASSERT_TRUE(txn1);
-  Transaction* txn2 = db->BeginTransaction(write_options);
+  std::unique_ptr<Transaction> txn2{db->BeginTransaction(write_options)};
   ASSERT_TRUE(txn2);
 
   s = txn1->Put(one, "X", "1");
@@ -3008,8 +3012,8 @@ TEST_P(TransactionTest, ColumnFamiliesTest2) {
   s = txn2->Commit();
   ASSERT_OK(s);
 
-  delete txn1;
-  txn1 = db->BeginTransaction(write_options);
+  txn1.reset();
+  txn1.reset(db->BeginTransaction(write_options));
   ASSERT_TRUE(txn1);
 
   // Should fail since column family was dropped
@@ -3036,9 +3040,6 @@ TEST_P(TransactionTest, ColumnFamiliesTest2) {
   s = db->DropColumnFamily(two);
   ASSERT_OK(s);
 
-  delete txn1;
-  delete txn2;
-
   delete one;
   delete two;
 }
@@ -3052,24 +3053,24 @@ TEST_P(TransactionTest, EmptyTest) {
   s = db->Put(write_options, "aaa", "aaa");
   ASSERT_OK(s);
 
-  Transaction* txn = db->BeginTransaction(write_options);
+  std::unique_ptr<Transaction> txn{db->BeginTransaction(write_options)};
   s = txn->Commit();
   ASSERT_OK(s);
-  delete txn;
+  txn.reset();
 
-  txn = db->BeginTransaction(write_options);
+  txn.reset(db->BeginTransaction(write_options));
   ASSERT_OK(txn->Rollback());
-  delete txn;
+  txn.reset();
 
-  txn = db->BeginTransaction(write_options);
+  txn.reset(db->BeginTransaction(write_options));
   s = txn->GetForUpdate(read_options, "aaa", &value);
   ASSERT_EQ(value, "aaa");
 
   s = txn->Commit();
   ASSERT_OK(s);
-  delete txn;
+  txn.reset();
 
-  txn = db->BeginTransaction(write_options);
+  txn.reset(db->BeginTransaction(write_options));
   txn->SetSnapshot();
 
   s = txn->GetForUpdate(read_options, "aaa", &value);
@@ -3082,7 +3083,6 @@ TEST_P(TransactionTest, EmptyTest) {
   // transaction expired!
   s = txn->Commit();
   ASSERT_OK(s);
-  delete txn;
 }
 
 TEST_P(TransactionTest, PredicateManyPreceders) {
@@ -3093,10 +3093,11 @@ TEST_P(TransactionTest, PredicateManyPreceders) {
   Status s;
 
   txn_options.set_snapshot = true;
-  Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
+  std::unique_ptr<Transaction> txn1{
+      db->BeginTransaction(write_options, txn_options)};
   read_options1.snapshot = txn1->GetSnapshot();
 
-  Transaction* txn2 = db->BeginTransaction(write_options);
+  std::unique_ptr<Transaction> txn2{db->BeginTransaction(write_options)};
   txn2->SetSnapshot();
   read_options2.snapshot = txn2->GetSnapshot();
 
@@ -3126,13 +3127,13 @@ TEST_P(TransactionTest, PredicateManyPreceders) {
   s = txn1->Commit();
   ASSERT_OK(s);
 
-  delete txn1;
-  delete txn2;
+  txn1.reset();
+  txn2.reset();
 
-  txn1 = db->BeginTransaction(write_options, txn_options);
+  txn1.reset(db->BeginTransaction(write_options, txn_options));
   read_options1.snapshot = txn1->GetSnapshot();
 
-  txn2 = db->BeginTransaction(write_options, txn_options);
+  txn2.reset(db->BeginTransaction(write_options, txn_options));
   read_options2.snapshot = txn2->GetSnapshot();
 
   s = txn1->Put("4", "x");
@@ -3148,9 +3149,6 @@ TEST_P(TransactionTest, PredicateManyPreceders) {
   ASSERT_TRUE(s.IsBusy());
 
   ASSERT_OK(txn2->Rollback());
-
-  delete txn1;
-  delete txn2;
 }
 
 TEST_P(TransactionTest, LostUpdate) {
@@ -3163,8 +3161,8 @@ TEST_P(TransactionTest, LostUpdate) {
   // Test 2 transactions writing to the same key in multiple orders and
   // with/without snapshots
 
-  Transaction* txn1 = db->BeginTransaction(write_options);
-  Transaction* txn2 = db->BeginTransaction(write_options);
+  std::unique_ptr<Transaction> txn1{db->BeginTransaction(write_options)};
+  std::unique_ptr<Transaction> txn2{db->BeginTransaction(write_options)};
 
   s = txn1->Put("1", "1");
   ASSERT_OK(s);
@@ -3182,14 +3180,14 @@ TEST_P(TransactionTest, LostUpdate) {
   ASSERT_OK(s);
   ASSERT_EQ("1", value);
 
-  delete txn1;
-  delete txn2;
+  txn1.reset();
+  txn2.reset();
 
   txn_options.set_snapshot = true;
-  txn1 = db->BeginTransaction(write_options, txn_options);
+  txn1.reset(db->BeginTransaction(write_options, txn_options));
   read_options1.snapshot = txn1->GetSnapshot();
 
-  txn2 = db->BeginTransaction(write_options, txn_options);
+  txn2.reset(db->BeginTransaction(write_options, txn_options));
   read_options2.snapshot = txn2->GetSnapshot();
 
   s = txn1->Put("1", "3");
@@ -3207,13 +3205,13 @@ TEST_P(TransactionTest, LostUpdate) {
   ASSERT_OK(s);
   ASSERT_EQ("3", value);
 
-  delete txn1;
-  delete txn2;
+  txn1.reset();
+  txn2.reset();
 
-  txn1 = db->BeginTransaction(write_options, txn_options);
+  txn1.reset(db->BeginTransaction(write_options, txn_options));
   read_options1.snapshot = txn1->GetSnapshot();
 
-  txn2 = db->BeginTransaction(write_options, txn_options);
+  txn2.reset(db->BeginTransaction(write_options, txn_options));
   read_options2.snapshot = txn2->GetSnapshot();
 
   s = txn1->Put("1", "5");
@@ -3231,13 +3229,13 @@ TEST_P(TransactionTest, LostUpdate) {
   ASSERT_OK(s);
   ASSERT_EQ("5", value);
 
-  delete txn1;
-  delete txn2;
+  txn1.reset();
+  txn2.reset();
 
-  txn1 = db->BeginTransaction(write_options, txn_options);
+  txn1.reset(db->BeginTransaction(write_options, txn_options));
   read_options1.snapshot = txn1->GetSnapshot();
 
-  txn2 = db->BeginTransaction(write_options, txn_options);
+  txn2.reset(db->BeginTransaction(write_options, txn_options));
   read_options2.snapshot = txn2->GetSnapshot();
 
   s = txn1->Put("1", "7");
@@ -3255,11 +3253,11 @@ TEST_P(TransactionTest, LostUpdate) {
   ASSERT_OK(s);
   ASSERT_EQ("8", value);
 
-  delete txn1;
-  delete txn2;
+  txn1.reset();
+  txn2.reset();
 
-  txn1 = db->BeginTransaction(write_options);
-  txn2 = db->BeginTransaction(write_options);
+  txn1.reset(db->BeginTransaction(write_options));
+  txn2.reset(db->BeginTransaction(write_options));
 
   s = txn1->Put("1", "9");
   ASSERT_OK(s);
@@ -3271,8 +3269,8 @@ TEST_P(TransactionTest, LostUpdate) {
   s = txn2->Commit();
   ASSERT_OK(s);
 
-  delete txn1;
-  delete txn2;
+  txn1.reset();
+  txn2.reset();
 
   s = db->Get(read_options, "1", &value);
   ASSERT_OK(s);
@@ -3292,7 +3290,7 @@ TEST_P(TransactionTest, UntrackedWrites) {
   Status s;
 
   // Verify transaction rollback works for untracked keys.
-  Transaction* txn = db->BeginTransaction(write_options);
+  std::unique_ptr<Transaction> txn{db->BeginTransaction(write_options)};
   txn->SetSnapshot();
 
   s = txn->PutUntracked("untracked", "0");
@@ -3301,8 +3299,8 @@ TEST_P(TransactionTest, UntrackedWrites) {
   s = db->Get(read_options, "untracked", &value);
   ASSERT_TRUE(s.IsNotFound());
 
-  delete txn;
-  txn = db->BeginTransaction(write_options);
+  txn.reset();
+  txn.reset(db->BeginTransaction(write_options));
   txn->SetSnapshot();
 
   s = db->Put(write_options, "untracked", "x");
@@ -3325,8 +3323,6 @@ TEST_P(TransactionTest, UntrackedWrites) {
 
   s = db->Get(read_options, "untracked", &value);
   ASSERT_TRUE(s.IsNotFound());
-
-  delete txn;
 }
 
 TEST_P(TransactionTest, ExpiredTransaction) {
@@ -3338,7 +3334,8 @@ TEST_P(TransactionTest, ExpiredTransaction) {
 
   // Set txn expiration timeout to 0 microseconds (expires instantly)
   txn_options.expiration = 0;
-  Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
+  std::unique_ptr<Transaction> txn1{
+      db->BeginTransaction(write_options, txn_options)};
 
   s = txn1->Put("X", "1");
   ASSERT_OK(s);
@@ -3346,7 +3343,7 @@ TEST_P(TransactionTest, ExpiredTransaction) {
   s = txn1->Put("Y", "1");
   ASSERT_OK(s);
 
-  Transaction* txn2 = db->BeginTransaction(write_options);
+  std::unique_ptr<Transaction> txn2{db->BeginTransaction(write_options)};
 
   // txn2 should be able to write to X since txn1 has expired
   s = txn2->Put("X", "2");
@@ -3370,9 +3367,6 @@ TEST_P(TransactionTest, ExpiredTransaction) {
 
   s = db->Get(read_options, "Z", &value);
   ASSERT_TRUE(s.IsNotFound());
-
-  delete txn1;
-  delete txn2;
 }
 
 TEST_P(TransactionTest, ReinitializeTest) {
@@ -3384,11 +3378,12 @@ TEST_P(TransactionTest, ReinitializeTest) {
 
   // Set txn expiration timeout to 0 microseconds (expires instantly)
   txn_options.expiration = 0;
-  Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
+  std::unique_ptr<Transaction> txn1{
+      db->BeginTransaction(write_options, txn_options)};
 
   // Reinitialize transaction to no long expire
   txn_options.expiration = -1;
-  txn1 = db->BeginTransaction(write_options, txn_options, txn1);
+  txn1.reset(db->BeginTransaction(write_options, txn_options, txn1.release()));
 
   s = txn1->Put("Z", "z");
   ASSERT_OK(s);
@@ -3397,20 +3392,21 @@ TEST_P(TransactionTest, ReinitializeTest) {
   s = txn1->Commit();
   ASSERT_OK(s);
 
-  txn1 = db->BeginTransaction(write_options, txn_options, txn1);
+  txn1.reset(db->BeginTransaction(write_options, txn_options, txn1.release()));
 
   s = txn1->Put("Z", "zz");
   ASSERT_OK(s);
 
   // Reinitilize txn1 and verify that Z gets unlocked
-  txn1 = db->BeginTransaction(write_options, txn_options, txn1);
+  txn1.reset(db->BeginTransaction(write_options, txn_options, txn1.release()));
 
-  Transaction* txn2 = db->BeginTransaction(write_options, txn_options, nullptr);
+  std::unique_ptr<Transaction> txn2{
+      db->BeginTransaction(write_options, txn_options, nullptr)};
   s = txn2->Put("Z", "zzz");
   ASSERT_OK(s);
   s = txn2->Commit();
   ASSERT_OK(s);
-  delete txn2;
+  txn2.reset();
 
   s = db->Get(read_options, "Z", &value);
   ASSERT_OK(s);
@@ -3428,12 +3424,12 @@ TEST_P(TransactionTest, ReinitializeTest) {
   ASSERT_OK(s);
   ASSERT_EQ(value, "zzzz");
 
-  txn1 = db->BeginTransaction(write_options, txn_options, txn1);
+  txn1.reset(db->BeginTransaction(write_options, txn_options, txn1.release()));
   const Snapshot* snapshot = txn1->GetSnapshot();
   ASSERT_FALSE(snapshot);
 
   txn_options.set_snapshot = true;
-  txn1 = db->BeginTransaction(write_options, txn_options, txn1);
+  txn1.reset(db->BeginTransaction(write_options, txn_options, txn1.release()));
   snapshot = txn1->GetSnapshot();
   ASSERT_TRUE(snapshot);
 
@@ -3446,7 +3442,7 @@ TEST_P(TransactionTest, ReinitializeTest) {
   ASSERT_OK(s);
 
   txn_options.set_snapshot = false;
-  txn1 = db->BeginTransaction(write_options, txn_options, txn1);
+  txn1.reset(db->BeginTransaction(write_options, txn_options, txn1.release()));
   snapshot = txn1->GetSnapshot();
   ASSERT_FALSE(snapshot);
 
@@ -3463,7 +3459,7 @@ TEST_P(TransactionTest, ReinitializeTest) {
   s = db->Get(read_options, "Y", &value);
   ASSERT_TRUE(s.IsNotFound());
 
-  txn1 = db->BeginTransaction(write_options, txn_options, txn1);
+  txn1.reset(db->BeginTransaction(write_options, txn_options, txn1.release()));
 
   s = txn1->SetName("name");
   ASSERT_OK(s);
@@ -3473,12 +3469,10 @@ TEST_P(TransactionTest, ReinitializeTest) {
   s = txn1->Commit();
   ASSERT_OK(s);
 
-  txn1 = db->BeginTransaction(write_options, txn_options, txn1);
+  txn1.reset(db->BeginTransaction(write_options, txn_options, txn1.release()));
 
   s = txn1->SetName("name");
   ASSERT_OK(s);
-
-  delete txn1;
 }
 
 TEST_P(TransactionTest, Rollback) {
@@ -3488,21 +3482,22 @@ TEST_P(TransactionTest, Rollback) {
   std::string value;
   Status s;
 
-  Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
+  std::unique_ptr<Transaction> txn1{
+      db->BeginTransaction(write_options, txn_options)};
 
   ASSERT_OK(s);
 
   s = txn1->Put("X", "1");
   ASSERT_OK(s);
 
-  Transaction* txn2 = db->BeginTransaction(write_options);
+  std::unique_ptr<Transaction> txn2{db->BeginTransaction(write_options)};
 
   // txn2 should not be able to write to X since txn1 has it locked
   s = txn2->Put("X", "2");
   ASSERT_TRUE(s.IsTimedOut());
 
   ASSERT_OK(txn1->Rollback());
-  delete txn1;
+  txn1.reset();
 
   // txn2 should now be able to write to X
   s = txn2->Put("X", "3");
@@ -3514,8 +3509,6 @@ TEST_P(TransactionTest, Rollback) {
   s = db->Get(read_options, "X", &value);
   ASSERT_OK(s);
   ASSERT_EQ("3", value);
-
-  delete txn2;
 }
 
 TEST_P(TransactionTest, LockLimitTest) {
@@ -3535,7 +3528,8 @@ TEST_P(TransactionTest, LockLimitTest) {
   ASSERT_OK(s);
 
   // Create a txn and verify we can only lock up to 3 keys
-  Transaction* txn = db->BeginTransaction(write_options, txn_options);
+  std::unique_ptr<Transaction> txn{
+      db->BeginTransaction(write_options, txn_options)};
   ASSERT_TRUE(txn);
 
   s = txn->Put("X", "x");
@@ -3568,7 +3562,8 @@ TEST_P(TransactionTest, LockLimitTest) {
   s = txn->Get(read_options, "W", &value);
   ASSERT_TRUE(s.IsNotFound());
 
-  Transaction* txn2 = db->BeginTransaction(write_options, txn_options);
+  std::unique_ptr<Transaction> txn2{
+      db->BeginTransaction(write_options, txn_options)};
   ASSERT_TRUE(txn2);
 
   // "X" currently locked
@@ -3619,9 +3614,6 @@ TEST_P(TransactionTest, LockLimitTest) {
 
   s = db->Get(read_options, "X", &value);
   ASSERT_TRUE(s.IsNotFound());
-
-  delete txn;
-  delete txn2;
 }
 
 TEST_P(TransactionTest, IteratorTest) {
@@ -3652,7 +3644,7 @@ TEST_P(TransactionTest, IteratorTest) {
   s = db->Put(write_options, "D", "d");
   ASSERT_OK(s);
 
-  Transaction* txn = db->BeginTransaction(write_options);
+  std::unique_ptr<Transaction> txn{db->BeginTransaction(write_options)};
   ASSERT_TRUE(txn);
 
   // Write some keys in a txn
@@ -3679,7 +3671,7 @@ TEST_P(TransactionTest, IteratorTest) {
   ASSERT_OK(s);
 
   read_options.snapshot = snapshot;
-  Iterator* iter = txn->GetIterator(read_options);
+  std::unique_ptr<Iterator> iter{txn->GetIterator(read_options)};
   ASSERT_OK(iter->status());
   iter->SeekToFirst();
 
@@ -3743,9 +3735,6 @@ TEST_P(TransactionTest, IteratorTest) {
 
   s = txn->Commit();
   ASSERT_OK(s);
-
-  delete iter;
-  delete txn;
 }
 
 TEST_P(TransactionTest, DisableIndexingTest) {
@@ -3764,7 +3753,7 @@ TEST_P(TransactionTest, DisableIndexingTest) {
   std::string value;
   Status s;
 
-  Transaction* txn = db->BeginTransaction(write_options);
+  std::unique_ptr<Transaction> txn{db->BeginTransaction(write_options)};
   ASSERT_TRUE(txn);
 
   s = txn->Put("A", "a");
@@ -3782,7 +3771,7 @@ TEST_P(TransactionTest, DisableIndexingTest) {
   s = txn->Get(read_options, "B", &value);
   ASSERT_TRUE(s.IsNotFound());
 
-  Iterator* iter = txn->GetIterator(read_options);
+  std::unique_ptr<Iterator> iter{txn->GetIterator(read_options)};
   ASSERT_OK(iter->status());
 
   iter->Seek("B");
@@ -3815,9 +3804,6 @@ TEST_P(TransactionTest, DisableIndexingTest) {
   s = txn->Get(read_options, "A", &value);
   ASSERT_OK(s);
   ASSERT_EQ("aa", value);
-
-  delete iter;
-  delete txn;
 }
 
 TEST_P(TransactionTest, SavepointTest) {
@@ -3826,7 +3812,7 @@ TEST_P(TransactionTest, SavepointTest) {
   std::string value;
   Status s;
 
-  Transaction* txn = db->BeginTransaction(write_options);
+  std::unique_ptr<Transaction> txn{db->BeginTransaction(write_options)};
   ASSERT_TRUE(txn);
 
   ASSERT_EQ(0, txn->GetNumPuts());
@@ -3853,8 +3839,8 @@ TEST_P(TransactionTest, SavepointTest) {
   ASSERT_OK(s);
   ASSERT_EQ("b", value);
 
-  delete txn;
-  txn = db->BeginTransaction(write_options);
+  txn.reset();
+  txn.reset(db->BeginTransaction(write_options));
   ASSERT_TRUE(txn);
 
   s = txn->Put("A", "a");
@@ -4009,8 +3995,6 @@ TEST_P(TransactionTest, SavepointTest) {
 
   s = db->Get(read_options, "E", &value);
   ASSERT_TRUE(s.IsNotFound());
-
-  delete txn;
 }
 
 TEST_P(TransactionTest, SavepointTest2) {
@@ -4020,7 +4004,8 @@ TEST_P(TransactionTest, SavepointTest2) {
   Status s;
 
   txn_options.lock_timeout = 1;  // 1 ms
-  Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
+  std::unique_ptr<Transaction> txn1{
+      db->BeginTransaction(write_options, txn_options)};
   ASSERT_TRUE(txn1);
 
   s = txn1->Put("A", "");
@@ -4044,7 +4029,8 @@ TEST_P(TransactionTest, SavepointTest2) {
   ASSERT_OK(txn1->RollbackToSavePoint());  // Rollback to 2
 
   // Verify that "A" and "C" is still locked while "B" is not
-  Transaction* txn2 = db->BeginTransaction(write_options, txn_options);
+  std::unique_ptr<Transaction> txn2{
+      db->BeginTransaction(write_options, txn_options)};
   ASSERT_TRUE(txn2);
 
   s = txn2->Put("A", "a2");
@@ -4061,7 +4047,7 @@ TEST_P(TransactionTest, SavepointTest2) {
 
   s = txn2->Commit();
   ASSERT_OK(s);
-  delete txn2;
+  txn2.reset();
 
   s = txn1->Put("A", "aaa");
   ASSERT_OK(s);
@@ -4074,7 +4060,7 @@ TEST_P(TransactionTest, SavepointTest2) {
   ASSERT_OK(txn1->RollbackToSavePoint());  // Rollback to 3
 
   // Verify that "A", "B", "C" are still locked
-  txn2 = db->BeginTransaction(write_options, txn_options);
+  txn2.reset(db->BeginTransaction(write_options, txn_options));
   ASSERT_TRUE(txn2);
 
   s = txn2->Put("A", "a2");
@@ -4096,7 +4082,7 @@ TEST_P(TransactionTest, SavepointTest2) {
 
   s = txn1->Commit();
   ASSERT_OK(s);
-  delete txn1;
+  txn1.reset();
 
   // Verify "A" "C" "B" are no longer locked
   s = txn2->Put("A", "a4");
@@ -4108,7 +4094,6 @@ TEST_P(TransactionTest, SavepointTest2) {
 
   s = txn2->Commit();
   ASSERT_OK(s);
-  delete txn2;
 }
 
 TEST_P(TransactionTest, SavepointTest3) {
@@ -4118,7 +4103,8 @@ TEST_P(TransactionTest, SavepointTest3) {
   Status s;
 
   txn_options.lock_timeout = 1;  // 1 ms
-  Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
+  std::unique_ptr<Transaction> txn1{
+      db->BeginTransaction(write_options, txn_options)};
   ASSERT_TRUE(txn1);
 
   s = txn1->PopSavePoint();  // No SavePoint present
@@ -4139,12 +4125,13 @@ TEST_P(TransactionTest, SavepointTest3) {
   ASSERT_TRUE(txn1->RollbackToSavePoint().IsNotFound());
 
   // Verify that "A" is still locked
-  Transaction* txn2 = db->BeginTransaction(write_options, txn_options);
+  std::unique_ptr<Transaction> txn2{
+      db->BeginTransaction(write_options, txn_options)};
   ASSERT_TRUE(txn2);
 
   s = txn2->Put("A", "a2");
   ASSERT_TRUE(s.IsTimedOut());
-  delete txn2;
+  txn2.reset();
 
   txn1->SetSavePoint();  // 2
 
@@ -4166,7 +4153,7 @@ TEST_P(TransactionTest, SavepointTest3) {
 
   s = txn1->Commit();
   ASSERT_OK(s);
-  delete txn1;
+  txn1.reset();
 
   std::string value;
 
@@ -4191,7 +4178,8 @@ TEST_P(TransactionTest, SavepointTest4) {
   Status s;
 
   txn_options.lock_timeout = 1;  // 1 ms
-  Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
+  std::unique_ptr<Transaction> txn1{
+      db->BeginTransaction(write_options, txn_options)};
   ASSERT_TRUE(txn1);
 
   txn1->SetSavePoint();  // 1
@@ -4223,7 +4211,8 @@ TEST_P(TransactionTest, SavepointTest4) {
   ASSERT_TRUE(s.IsNotFound());
 
   // Nothing should be locked
-  Transaction* txn2 = db->BeginTransaction(write_options, txn_options);
+  std::unique_ptr<Transaction> txn2{
+      db->BeginTransaction(write_options, txn_options)};
   ASSERT_TRUE(txn2);
 
   s = txn2->Put("A", "");
@@ -4231,9 +4220,6 @@ TEST_P(TransactionTest, SavepointTest4) {
 
   s = txn2->Put("B", "");
   ASSERT_OK(s);
-
-  delete txn2;
-  delete txn1;
 }
 
 TEST_P(TransactionTest, UndoGetForUpdateTest) {
@@ -4244,23 +4230,25 @@ TEST_P(TransactionTest, UndoGetForUpdateTest) {
   Status s;
 
   txn_options.lock_timeout = 1;  // 1 ms
-  Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
+  std::unique_ptr<Transaction> txn1{
+      db->BeginTransaction(write_options, txn_options)};
   ASSERT_TRUE(txn1);
 
   txn1->UndoGetForUpdate("A");
 
   s = txn1->Commit();
   ASSERT_OK(s);
-  delete txn1;
+  txn1.reset();
 
-  txn1 = db->BeginTransaction(write_options, txn_options);
+  txn1.reset(db->BeginTransaction(write_options, txn_options));
 
   txn1->UndoGetForUpdate("A");
   s = txn1->GetForUpdate(read_options, "A", &value);
   ASSERT_TRUE(s.IsNotFound());
 
   // Verify that A is locked
-  Transaction* txn2 = db->BeginTransaction(write_options, txn_options);
+  std::unique_ptr<Transaction> txn2{
+      db->BeginTransaction(write_options, txn_options)};
   s = txn2->Put("A", "a");
   ASSERT_TRUE(s.IsTimedOut());
 
@@ -4270,7 +4258,7 @@ TEST_P(TransactionTest, UndoGetForUpdateTest) {
   s = txn2->Put("A", "a2");
   ASSERT_OK(s);
   ASSERT_OK(txn2->Commit());
-  delete txn2;
+  txn2.reset();
   s = db->Get(read_options, "A", &value);
   ASSERT_OK(s);
   ASSERT_EQ("a2", value);
@@ -4289,14 +4277,14 @@ TEST_P(TransactionTest, UndoGetForUpdateTest) {
   txn1->UndoGetForUpdate("B");
 
   // Verify that A and B are still locked
-  txn2 = db->BeginTransaction(write_options, txn_options);
+  txn2.reset(db->BeginTransaction(write_options, txn_options));
   s = txn2->Put("A", "a4");
   ASSERT_TRUE(s.IsTimedOut());
   s = txn2->Put("B", "b4");
   ASSERT_TRUE(s.IsTimedOut());
 
   ASSERT_OK(txn1->Rollback());
-  delete txn1;
+  txn1.reset();
 
   // Verify that A and B are no longer locked
   s = txn2->Put("A", "a5");
@@ -4304,10 +4292,10 @@ TEST_P(TransactionTest, UndoGetForUpdateTest) {
   s = txn2->Put("B", "b5");
   ASSERT_OK(s);
   s = txn2->Commit();
-  delete txn2;
+  txn2.reset();
   ASSERT_OK(s);
 
-  txn1 = db->BeginTransaction(write_options, txn_options);
+  txn1.reset(db->BeginTransaction(write_options, txn_options));
 
   s = txn1->GetForUpdate(read_options, "A", &value);
   ASSERT_OK(s);
@@ -4331,7 +4319,7 @@ TEST_P(TransactionTest, UndoGetForUpdateTest) {
   txn1->UndoGetForUpdate("X");
 
   // Verify A,B,C are locked
-  txn2 = db->BeginTransaction(write_options, txn_options);
+  txn2.reset(db->BeginTransaction(write_options, txn_options));
   s = txn2->Put("A", "a6");
   ASSERT_TRUE(s.IsTimedOut());
   s = txn2->Delete("B");
@@ -4373,11 +4361,10 @@ TEST_P(TransactionTest, UndoGetForUpdateTest) {
 
   s = txn2->Commit();
   ASSERT_OK(s);
-  delete txn2;
+  txn2.reset();
 
   s = txn1->Commit();
   ASSERT_OK(s);
-  delete txn1;
 }
 
 TEST_P(TransactionTest, UndoGetForUpdateTest2) {
@@ -4391,7 +4378,8 @@ TEST_P(TransactionTest, UndoGetForUpdateTest2) {
   ASSERT_OK(s);
 
   txn_options.lock_timeout = 1;  // 1 ms
-  Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
+  std::unique_ptr<Transaction> txn1{
+      db->BeginTransaction(write_options, txn_options)};
   ASSERT_TRUE(txn1);
 
   s = txn1->GetForUpdate(read_options, "A", &value);
@@ -4420,7 +4408,8 @@ TEST_P(TransactionTest, UndoGetForUpdateTest2) {
   ASSERT_OK(s);
 
   // Verify A,B,C,D,E,F are still locked
-  Transaction* txn2 = db->BeginTransaction(write_options, txn_options);
+  std::unique_ptr<Transaction> txn2{
+      db->BeginTransaction(write_options, txn_options)};
   s = txn2->Put("A", "a1");
   ASSERT_TRUE(s.IsTimedOut());
   s = txn2->Put("B", "b1");
@@ -4581,9 +4570,6 @@ TEST_P(TransactionTest, UndoGetForUpdateTest2) {
   ASSERT_OK(s);
   s = txn2->Commit();
   ASSERT_OK(s);
-
-  delete txn1;
-  delete txn2;
 }
 
 TEST_P(TransactionTest, TimeoutTest) {
@@ -4611,7 +4597,8 @@ TEST_P(TransactionTest, TimeoutTest) {
   TransactionOptions txn_options0;
   txn_options0.expiration = 100;  // 100ms
   txn_options0.lock_timeout = 50;  // txn timeout no longer infinite
-  Transaction* txn1 = db->BeginTransaction(write_options, txn_options0);
+  std::unique_ptr<Transaction> txn1{
+      db->BeginTransaction(write_options, txn_options0)};
 
   s = txn1->GetForUpdate(read_options, "aaa", nullptr);
   ASSERT_OK(s);
@@ -4632,7 +4619,7 @@ TEST_P(TransactionTest, TimeoutTest) {
   ASSERT_OK(s);
   ASSERT_EQ("xxx", value);
 
-  delete txn1;
+  txn1.reset();
   delete db;
 
   // transaction writes have 10ms timeout,
@@ -4648,7 +4635,7 @@ TEST_P(TransactionTest, TimeoutTest) {
 
   TransactionOptions txn_options;
   txn_options.expiration = 100;  // 100ms
-  txn1 = db->BeginTransaction(write_options, txn_options);
+  txn1.reset(db->BeginTransaction(write_options, txn_options));
 
   s = txn1->GetForUpdate(read_options, "aaa", nullptr);
   ASSERT_OK(s);
@@ -4666,15 +4653,16 @@ TEST_P(TransactionTest, TimeoutTest) {
   ASSERT_OK(s);
   ASSERT_EQ("xxx", value);
 
-  delete txn1;
+  txn1.reset();
   txn_options.expiration = 6000000;  // 100 minutes
   txn_options.lock_timeout = 1;      // 1ms
-  txn1 = db->BeginTransaction(write_options, txn_options);
+  txn1.reset(db->BeginTransaction(write_options, txn_options));
   txn1->SetLockTimeout(100);
 
   TransactionOptions txn_options2;
   txn_options2.expiration = 10;  // 10ms
-  Transaction* txn2 = db->BeginTransaction(write_options, txn_options2);
+  std::unique_ptr<Transaction> txn2{
+      db->BeginTransaction(write_options, txn_options2)};
   ASSERT_OK(s);
 
   s = txn2->Put("a", "2");
@@ -4691,12 +4679,12 @@ TEST_P(TransactionTest, TimeoutTest) {
   s = txn2->Commit();
   ASSERT_TRUE(s.IsExpired());
 
-  delete txn1;
-  delete txn2;
+  txn1.reset();
+  txn2.reset();
   txn_options.expiration = 6000000;  // 100 minutes
-  txn1 = db->BeginTransaction(write_options, txn_options);
+  txn1.reset(db->BeginTransaction(write_options, txn_options));
   txn_options2.expiration = 100000000;
-  txn2 = db->BeginTransaction(write_options, txn_options2);
+  txn2.reset(db->BeginTransaction(write_options, txn_options2));
 
   s = txn1->Delete("asdf");
   ASSERT_OK(s);
@@ -4718,9 +4706,6 @@ TEST_P(TransactionTest, TimeoutTest) {
   s = db->Get(read_options, "asdf", &value);
   ASSERT_OK(s);
   ASSERT_EQ("asdf", value);
-
-  delete txn1;
-  delete txn2;
 }
 
 TEST_P(TransactionTest, SingleDeleteTest) {
@@ -4729,7 +4714,7 @@ TEST_P(TransactionTest, SingleDeleteTest) {
   std::string value;
   Status s;
 
-  Transaction* txn = db->BeginTransaction(write_options);
+  std::unique_ptr<Transaction> txn{db->BeginTransaction(write_options)};
   ASSERT_TRUE(txn);
 
   s = txn->SingleDelete("A");
@@ -4740,9 +4725,9 @@ TEST_P(TransactionTest, SingleDeleteTest) {
 
   s = txn->Commit();
   ASSERT_OK(s);
-  delete txn;
+  txn.reset();
 
-  txn = db->BeginTransaction(write_options);
+  txn.reset(db->BeginTransaction(write_options));
 
   s = txn->SingleDelete("A");
   ASSERT_OK(s);
@@ -4756,13 +4741,13 @@ TEST_P(TransactionTest, SingleDeleteTest) {
 
   s = txn->Commit();
   ASSERT_OK(s);
-  delete txn;
+  txn.reset();
 
   s = db->Get(read_options, "A", &value);
   ASSERT_OK(s);
   ASSERT_EQ("a", value);
 
-  txn = db->BeginTransaction(write_options);
+  txn.reset(db->BeginTransaction(write_options));
 
   s = txn->SingleDelete("A");
   ASSERT_OK(s);
@@ -4772,13 +4757,13 @@ TEST_P(TransactionTest, SingleDeleteTest) {
 
   s = txn->Commit();
   ASSERT_OK(s);
-  delete txn;
+  txn.reset();
 
   s = db->Get(read_options, "A", &value);
   ASSERT_TRUE(s.IsNotFound());
 
-  txn = db->BeginTransaction(write_options);
-  Transaction* txn2 = db->BeginTransaction(write_options);
+  txn.reset(db->BeginTransaction(write_options));
+  std::unique_ptr<Transaction> txn2{db->BeginTransaction(write_options)};
   txn2->SetSnapshot();
 
   s = txn->Put("A", "a");
@@ -4804,11 +4789,11 @@ TEST_P(TransactionTest, SingleDeleteTest) {
   ASSERT_TRUE(s.IsTimedOut());
   s = txn2->Commit();
   ASSERT_OK(s);
-  delete txn2;
+  txn2.reset();
 
   s = txn->Commit();
   ASSERT_OK(s);
-  delete txn;
+  txn.reset();
 
   // According to db.h, doing a SingleDelete on a key that has been
   // overwritten will have undefinied behavior.  So it is unclear what the
@@ -4827,7 +4812,8 @@ TEST_P(TransactionTest, MergeTest) {
   std::string value;
   Status s;
 
-  Transaction* txn = db->BeginTransaction(write_options, TransactionOptions());
+  std::unique_ptr<Transaction> txn{
+      db->BeginTransaction(write_options, TransactionOptions())};
   ASSERT_TRUE(txn);
 
   s = db->Put(write_options, "A", "a0");
@@ -4859,7 +4845,8 @@ TEST_P(TransactionTest, MergeTest) {
 
   TransactionOptions txn_options;
   txn_options.lock_timeout = 1;  // 1 ms
-  Transaction* txn2 = db->BeginTransaction(write_options, txn_options);
+  std::unique_ptr<Transaction> txn2{
+      db->BeginTransaction(write_options, txn_options)};
   ASSERT_TRUE(txn2);
 
   // verify that txn has "A" locked
@@ -4868,11 +4855,11 @@ TEST_P(TransactionTest, MergeTest) {
 
   s = txn2->Commit();
   ASSERT_OK(s);
-  delete txn2;
+  txn2.reset();
 
   s = txn->Commit();
   ASSERT_OK(s);
-  delete txn;
+  txn.reset();
 
   s = db->Get(read_options, "A", &value);
   ASSERT_OK(s);
@@ -4938,8 +4925,8 @@ TEST_P(TransactionTest, DeferSnapshotTest) {
   s = db->Put(write_options, "A", "a0");
   ASSERT_OK(s);
 
-  Transaction* txn1 = db->BeginTransaction(write_options);
-  Transaction* txn2 = db->BeginTransaction(write_options);
+  std::unique_ptr<Transaction> txn1{db->BeginTransaction(write_options)};
+  std::unique_ptr<Transaction> txn2{db->BeginTransaction(write_options)};
 
   txn1->SetSnapshotOnNextOperation();
   auto snapshot = txn1->GetSnapshot();
@@ -4949,7 +4936,7 @@ TEST_P(TransactionTest, DeferSnapshotTest) {
   ASSERT_OK(s);
   s = txn2->Commit();
   ASSERT_OK(s);
-  delete txn2;
+  txn2.reset();
 
   s = txn1->GetForUpdate(read_options, "A", &value);
   // Should not conflict with txn2 since snapshot wasn't set until
@@ -4969,7 +4956,7 @@ TEST_P(TransactionTest, DeferSnapshotTest) {
 
   s = txn1->Commit();
   ASSERT_OK(s);
-  delete txn1;
+  txn1.reset();
 
   s = db->Get(read_options, "A", &value);
   ASSERT_OK(s);
@@ -4986,7 +4973,7 @@ TEST_P(TransactionTest, DeferSnapshotTest2) {
   std::string value;
   Status s;
 
-  Transaction* txn1 = db->BeginTransaction(write_options);
+  std::unique_ptr<Transaction> txn1{db->BeginTransaction(write_options)};
 
   txn1->SetSnapshot();
 
@@ -5034,7 +5021,6 @@ TEST_P(TransactionTest, DeferSnapshotTest2) {
 
   s = txn1->Commit();
   ASSERT_OK(s);
-  delete txn1;
 }
 
 TEST_P(TransactionTest, DeferSnapshotSavePointTest) {
@@ -5043,7 +5029,7 @@ TEST_P(TransactionTest, DeferSnapshotSavePointTest) {
   std::string value;
   Status s;
 
-  Transaction* txn1 = db->BeginTransaction(write_options);
+  std::unique_ptr<Transaction> txn1{db->BeginTransaction(write_options)};
 
   txn1->SetSavePoint();  // 1
 
@@ -5141,8 +5127,6 @@ TEST_P(TransactionTest, DeferSnapshotSavePointTest) {
 
   s = txn1->Commit();
   ASSERT_OK(s);
-
-  delete txn1;
 }
 
 TEST_P(TransactionTest, SetSnapshotOnNextOperationWithNotification) {
@@ -5170,7 +5154,7 @@ TEST_P(TransactionTest, SetSnapshotOnNextOperationWithNotification) {
   s = db->Put(write_options, "B", "0");
   ASSERT_OK(s);
 
-  Transaction* txn1 = db->BeginTransaction(write_options);
+  std::unique_ptr<Transaction> txn1{db->BeginTransaction(write_options)};
 
   txn1->SetSnapshotOnNextOperation(notifier);
   ASSERT_FALSE(read_options.snapshot);
@@ -5200,8 +5184,6 @@ TEST_P(TransactionTest, SetSnapshotOnNextOperationWithNotification) {
 
   s = txn1->Commit();
   ASSERT_OK(s);
-
-  delete txn1;
 }
 
 TEST_P(TransactionTest, ClearSnapshotTest) {
@@ -5213,7 +5195,7 @@ TEST_P(TransactionTest, ClearSnapshotTest) {
   s = db->Put(write_options, "foo", "0");
   ASSERT_OK(s);
 
-  Transaction* txn = db->BeginTransaction(write_options);
+  std::unique_ptr<Transaction> txn{db->BeginTransaction(write_options)};
   ASSERT_TRUE(txn);
 
   s = db->Put(write_options, "foo", "1");
@@ -5247,8 +5229,6 @@ TEST_P(TransactionTest, ClearSnapshotTest) {
 
   s = txn->Commit();
   ASSERT_OK(s);
-
-  delete txn;
 }
 
 TEST_P(TransactionTest, ToggleAutoCompactionTest) {
@@ -5285,28 +5265,33 @@ TEST_P(TransactionTest, ToggleAutoCompactionTest) {
   cf_opt_cfa->disable_auto_compactions = true;
   cf_opt_cfb->disable_auto_compactions = false;
 
-  std::vector<ColumnFamilyHandle*> handles;
+  std::vector<std::unique_ptr<ColumnFamilyHandle>> handles;
 
-  s = TransactionDB::Open(options, txn_db_options, dbname, column_families,
-                          &handles, &db);
-  ASSERT_OK(s);
+  {
+    std::vector<ColumnFamilyHandle*> _handles;
+    s = TransactionDB::Open(options, txn_db_options, dbname, column_families,
+                            &_handles, &db);
+    for (auto* handle : _handles) {
+      handles.emplace_back(handle);
+    }
+    ASSERT_OK(s);
+  }
 
-  auto cfh_default = static_cast_with_check<ColumnFamilyHandleImpl>(handles[0]);
+  auto cfh_default =
+      static_cast_with_check<ColumnFamilyHandleImpl>(handles[0].get());
   auto opt_default = *cfh_default->cfd()->GetLatestMutableCFOptions();
 
-  auto cfh_a = static_cast_with_check<ColumnFamilyHandleImpl>(handles[1]);
+  auto cfh_a = static_cast_with_check<ColumnFamilyHandleImpl>(handles[1].get());
   auto opt_a = *cfh_a->cfd()->GetLatestMutableCFOptions();
 
-  auto cfh_b = static_cast_with_check<ColumnFamilyHandleImpl>(handles[2]);
+  auto cfh_b = static_cast_with_check<ColumnFamilyHandleImpl>(handles[2].get());
   auto opt_b = *cfh_b->cfd()->GetLatestMutableCFOptions();
 
   ASSERT_EQ(opt_default.disable_auto_compactions, false);
   ASSERT_EQ(opt_a.disable_auto_compactions, true);
   ASSERT_EQ(opt_b.disable_auto_compactions, false);
 
-  for (auto handle : handles) {
-    delete handle;
-  }
+  handles.clear();
 }
 
 TEST_P(TransactionStressTest, ExpiredTransactionDataRace1) {
@@ -5323,13 +5308,14 @@ TEST_P(TransactionStressTest, ExpiredTransactionDataRace1) {
         /* sleep override */
         std::this_thread::sleep_for(std::chrono::milliseconds(1500));
 
-        Transaction* txn2 = db->BeginTransaction(write_options, txn_options);
+        std::unique_ptr<Transaction> txn2{
+            db->BeginTransaction(write_options, txn_options)};
         Status s;
         s = txn2->Put("X", "2");
         ASSERT_TRUE(s.IsTimedOut());
         s = txn2->Commit();
         ASSERT_OK(s);
-        delete txn2;
+        txn2.reset();
       });
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
@@ -5338,7 +5324,8 @@ TEST_P(TransactionStressTest, ExpiredTransactionDataRace1) {
   TransactionOptions txn_options;
 
   txn_options.expiration = 1000;  // 1 second
-  Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
+  std::unique_ptr<Transaction> txn1{
+      db->BeginTransaction(write_options, txn_options)};
 
   Status s;
   s = txn1->Put("X", "1");
@@ -5352,7 +5339,7 @@ TEST_P(TransactionStressTest, ExpiredTransactionDataRace1) {
   ASSERT_OK(s);
   ASSERT_EQ("1", value);
 
-  delete txn1;
+  txn1.reset();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
@@ -5498,7 +5485,8 @@ TEST_P(TransactionTest, MemoryLimitTest) {
   std::string value;
   Status s;
 
-  Transaction* txn = db->BeginTransaction(WriteOptions(), txn_options);
+  std::unique_ptr<Transaction> txn{
+      db->BeginTransaction(WriteOptions(), txn_options)};
   ASSERT_TRUE(txn);
 
   ASSERT_EQ(0, txn->GetNumPuts());
@@ -5517,7 +5505,6 @@ TEST_P(TransactionTest, MemoryLimitTest) {
   ASSERT_EQ(2, txn->GetNumPuts());
 
   ASSERT_OK(txn->Rollback());
-  delete txn;
 }
 
 // This test clarifies the existing expectation from the sequence number
@@ -5701,13 +5688,14 @@ TEST_P(TransactionTest, GetWithoutSnapshot) {
   ROCKSDB_NAMESPACE::port::Thread commit_thread([&]() {
     for (int i = 0; i < 100; i++) {
       TransactionOptions txn_options;
-      Transaction* txn = db->BeginTransaction(write_options, txn_options);
+      std::unique_ptr<Transaction> txn{
+          db->BeginTransaction(write_options, txn_options)};
       ASSERT_OK(txn->SetName("xid"));
       ASSERT_OK(txn->Put("key", "overridedvalue"));
       ASSERT_OK(txn->Put("key", "value"));
       ASSERT_OK(txn->Prepare());
       ASSERT_OK(txn->Commit());
-      delete txn;
+      txn.reset();
     }
     finish = true;
   });
@@ -5728,9 +5716,13 @@ TEST_P(TransactionTest, GetWithoutSnapshot) {
 TEST_P(TransactionTest, DuplicateKeys) {
   ColumnFamilyOptions cf_options;
   std::string cf_name = "two";
-  ColumnFamilyHandle* cf_handle = nullptr;
   {
-    ASSERT_OK(db->CreateColumnFamily(cf_options, cf_name, &cf_handle));
+    std::unique_ptr<ColumnFamilyHandle> cf_handle;
+    {
+      ColumnFamilyHandle* pcf = nullptr;
+      ASSERT_OK(db->CreateColumnFamily(cf_options, cf_name, &pcf));
+      cf_handle.reset(pcf);
+    }
     WriteOptions write_options;
     WriteBatch batch;
     ASSERT_OK(batch.Put(Slice("key"), Slice("value")));
@@ -5742,7 +5734,7 @@ TEST_P(TransactionTest, DuplicateKeys) {
     ASSERT_OK(batch.Put(Slice("key2"), Slice("value4")));
     // duplicate the keys but in a different cf. It should not be counted as
     // duplicate keys
-    ASSERT_OK(batch.Put(cf_handle, Slice("key"), Slice("value5")));
+    ASSERT_OK(batch.Put(cf_handle.get(), Slice("key"), Slice("value5")));
 
     ASSERT_OK(db->Write(write_options, &batch));
 
@@ -5754,11 +5746,9 @@ TEST_P(TransactionTest, DuplicateKeys) {
     s = db->Get(ropt, db->DefaultColumnFamily(), "key2", &pinnable_val);
     ASSERT_OK(s);
     ASSERT_TRUE(pinnable_val == ("value4"));
-    s = db->Get(ropt, cf_handle, "key", &pinnable_val);
+    s = db->Get(ropt, cf_handle.get(), "key", &pinnable_val);
     ASSERT_OK(s);
     ASSERT_TRUE(pinnable_val == ("value5"));
-
-    delete cf_handle;
   }
 
   // Test with non-bytewise comparator
@@ -5766,35 +5756,39 @@ TEST_P(TransactionTest, DuplicateKeys) {
     ASSERT_OK(ReOpen());
     std::unique_ptr<const Comparator> comp_gc(new ThreeBytewiseComparator());
     cf_options.comparator = comp_gc.get();
-    ASSERT_OK(db->CreateColumnFamily(cf_options, cf_name, &cf_handle));
+    std::unique_ptr<ColumnFamilyHandle> cf_handle;
+    {
+      ColumnFamilyHandle* pcf;
+      ASSERT_OK(db->CreateColumnFamily(cf_options, cf_name, &pcf));
+      cf_handle.reset(pcf);
+    }
     WriteOptions write_options;
     WriteBatch batch;
-    ASSERT_OK(batch.Put(cf_handle, Slice("key"), Slice("value")));
+    ASSERT_OK(batch.Put(cf_handle.get(), Slice("key"), Slice("value")));
     // The first three bytes are the same, do it must be counted as duplicate
-    ASSERT_OK(batch.Put(cf_handle, Slice("key2"), Slice("value2")));
+    ASSERT_OK(batch.Put(cf_handle.get(), Slice("key2"), Slice("value2")));
     // check for 2nd duplicate key in cf with non-default comparator
-    ASSERT_OK(batch.Put(cf_handle, Slice("key2b"), Slice("value2b")));
+    ASSERT_OK(batch.Put(cf_handle.get(), Slice("key2b"), Slice("value2b")));
     ASSERT_OK(db->Write(write_options, &batch));
 
     // The value must be the most recent value for all the keys equal to "key",
     // including "key2"
     ReadOptions ropt;
     PinnableSlice pinnable_val;
-    ASSERT_OK(db->Get(ropt, cf_handle, "key", &pinnable_val));
+    ASSERT_OK(db->Get(ropt, cf_handle.get(), "key", &pinnable_val));
     ASSERT_TRUE(pinnable_val == ("value2b"));
 
     // Test duplicate keys with rollback
     TransactionOptions txn_options;
-    Transaction* txn0 = db->BeginTransaction(write_options, txn_options);
+    std::unique_ptr<Transaction> txn0{
+        db->BeginTransaction(write_options, txn_options)};
     ASSERT_OK(txn0->SetName("xid"));
-    ASSERT_OK(txn0->Put(cf_handle, Slice("key3"), Slice("value3")));
-    ASSERT_OK(txn0->Merge(cf_handle, Slice("key4"), Slice("value4")));
+    ASSERT_OK(txn0->Put(cf_handle.get(), Slice("key3"), Slice("value3")));
+    ASSERT_OK(txn0->Merge(cf_handle.get(), Slice("key4"), Slice("value4")));
     ASSERT_OK(txn0->Rollback());
-    ASSERT_OK(db->Get(ropt, cf_handle, "key5", &pinnable_val));
+    ASSERT_OK(db->Get(ropt, cf_handle.get(), "key5", &pinnable_val));
     ASSERT_TRUE(pinnable_val == ("value2b"));
-    delete txn0;
-
-    delete cf_handle;
+    txn0.reset();
     cf_options.comparator = BytewiseComparator();
   }
 
@@ -5808,11 +5802,17 @@ TEST_P(TransactionTest, DuplicateKeys) {
           continue;
         }
         ASSERT_OK(ReOpen());
-        ASSERT_OK(db->CreateColumnFamily(cf_options, cf_name, &cf_handle));
+        std::unique_ptr<ColumnFamilyHandle> cf_handle;
+        {
+          ColumnFamilyHandle* pcf;
+          ASSERT_OK(db->CreateColumnFamily(cf_options, cf_name, &pcf));
+          cf_handle.reset(pcf);
+        }
         TransactionOptions txn_options;
         txn_options.use_only_the_last_commit_time_batch_for_recovery = false;
         WriteOptions write_options;
-        Transaction* txn0 = db->BeginTransaction(write_options, txn_options);
+        std::unique_ptr<Transaction> txn0{
+            db->BeginTransaction(write_options, txn_options)};
         auto s = txn0->SetName("xid");
         ASSERT_OK(s);
         s = txn0->Put(Slice("foo0"), Slice("bar0a"));
@@ -5832,7 +5832,7 @@ TEST_P(TransactionTest, DuplicateKeys) {
         ASSERT_OK(s);
         // duplicate the keys but in a different cf. It should not be counted as
         // duplicate.
-        s = txn0->Put(cf_handle, Slice("foo0"), Slice("bar0-cf1"));
+        s = txn0->Put(cf_handle.get(), Slice("foo0"), Slice("bar0-cf1"));
         ASSERT_OK(s);
         s = txn0->Put(Slice("foo3"), Slice("bar3"));
         ASSERT_OK(s);
@@ -5877,14 +5877,14 @@ TEST_P(TransactionTest, DuplicateKeys) {
           s = txn0->Commit();
           ASSERT_OK(s);
         }
-        delete txn0;
+        txn0.reset();
         ReadOptions ropt;
         PinnableSlice pinnable_val;
 
         if (do_rollback) {
           s = db->Get(ropt, db->DefaultColumnFamily(), "foo0", &pinnable_val);
           ASSERT_TRUE(s.IsNotFound());
-          s = db->Get(ropt, cf_handle, "foo0", &pinnable_val);
+          s = db->Get(ropt, cf_handle.get(), "foo0", &pinnable_val);
           ASSERT_TRUE(s.IsNotFound());
           s = db->Get(ropt, db->DefaultColumnFamily(), "foo1", &pinnable_val);
           ASSERT_TRUE(s.IsNotFound());
@@ -5898,7 +5898,7 @@ TEST_P(TransactionTest, DuplicateKeys) {
           s = db->Get(ropt, db->DefaultColumnFamily(), "foo0", &pinnable_val);
           ASSERT_OK(s);
           ASSERT_TRUE(pinnable_val == ("bar0c"));
-          s = db->Get(ropt, cf_handle, "foo0", &pinnable_val);
+          s = db->Get(ropt, cf_handle.get(), "foo0", &pinnable_val);
           ASSERT_OK(s);
           ASSERT_TRUE(pinnable_val == ("bar0-cf1"));
           s = db->Get(ropt, db->DefaultColumnFamily(), "foo1", &pinnable_val);
@@ -5920,7 +5920,6 @@ TEST_P(TransactionTest, DuplicateKeys) {
             ASSERT_TRUE(s.IsNotFound());
           }
         }
-        delete cf_handle;
       }  // with_commit_batch
     }    // do_rollback
   }      // do_prepare
@@ -5932,22 +5931,27 @@ TEST_P(TransactionTest, DuplicateKeys) {
     cf_options.max_successive_merges = 2;
     cf_options.merge_operator = MergeOperators::CreateStringAppendOperator();
     ASSERT_OK(ReOpen());
-    db->CreateColumnFamily(cf_options, cf_name, &cf_handle);
+    std::unique_ptr<ColumnFamilyHandle> cf_handle;
+    {
+      ColumnFamilyHandle* pcf;
+      db->CreateColumnFamily(cf_options, cf_name, &pcf);
+      cf_handle.reset(pcf);
+    }
     WriteOptions write_options;
     // Ensure one value for the key
-    ASSERT_OK(db->Put(write_options, cf_handle, Slice("key"), Slice("value")));
+    ASSERT_OK(
+        db->Put(write_options, cf_handle.get(), Slice("key"), Slice("value")));
     WriteBatch batch;
     // Merge more than max_successive_merges times
-    ASSERT_OK(batch.Merge(cf_handle, Slice("key"), Slice("1")));
-    ASSERT_OK(batch.Merge(cf_handle, Slice("key"), Slice("2")));
-    ASSERT_OK(batch.Merge(cf_handle, Slice("key"), Slice("3")));
-    ASSERT_OK(batch.Merge(cf_handle, Slice("key"), Slice("4")));
+    ASSERT_OK(batch.Merge(cf_handle.get(), Slice("key"), Slice("1")));
+    ASSERT_OK(batch.Merge(cf_handle.get(), Slice("key"), Slice("2")));
+    ASSERT_OK(batch.Merge(cf_handle.get(), Slice("key"), Slice("3")));
+    ASSERT_OK(batch.Merge(cf_handle.get(), Slice("key"), Slice("4")));
     ASSERT_OK(db->Write(write_options, &batch));
     ReadOptions read_options;
     string value;
-    ASSERT_OK(db->Get(read_options, cf_handle, "key", &value));
+    ASSERT_OK(db->Get(read_options, cf_handle.get(), "key", &value));
     ASSERT_EQ(value, "value,1,2,3,4");
-    delete cf_handle;
   }
 
   {
@@ -5955,13 +5959,13 @@ TEST_P(TransactionTest, DuplicateKeys) {
     // to a save point
     TransactionOptions txn_options;
     WriteOptions write_options;
-    Transaction* txn0 = db->BeginTransaction(write_options, txn_options);
+    std::unique_ptr<Transaction> txn0{
+        db->BeginTransaction(write_options, txn_options)};
     ASSERT_OK(txn0->Put(Slice("foo0"), Slice("bar0a")));
     ASSERT_OK(txn0->Put(Slice("foo0"), Slice("bar0b")));
     txn0->SetSavePoint();
     ASSERT_OK(txn0->RollbackToSavePoint());
     ASSERT_OK(txn0->Commit());
-    delete txn0;
   }
 
   // Test sucessfull recovery after a crash
@@ -5970,67 +5974,93 @@ TEST_P(TransactionTest, DuplicateKeys) {
     TransactionOptions txn_options;
     WriteOptions write_options;
     ReadOptions ropt;
-    Transaction* txn0;
+    std::unique_ptr<Transaction> txn0;
     PinnableSlice pinnable_val;
     Status s;
 
     std::unique_ptr<const Comparator> comp_gc(new ThreeBytewiseComparator());
     cf_options.comparator = comp_gc.get();
     cf_options.merge_operator = MergeOperators::CreateStringAppendOperator();
-    ASSERT_OK(db->CreateColumnFamily(cf_options, cf_name, &cf_handle));
-    delete cf_handle;
+    {
+      std::unique_ptr<ColumnFamilyHandle> cf_handle;
+      ColumnFamilyHandle* pcf;
+      ASSERT_OK(db->CreateColumnFamily(cf_options, cf_name, &pcf));
+      cf_handle.reset(pcf);
+    }
     std::vector<ColumnFamilyDescriptor> cfds{
         ColumnFamilyDescriptor(kDefaultColumnFamilyName,
                                ColumnFamilyOptions(options)),
         ColumnFamilyDescriptor(cf_name, cf_options),
     };
-    std::vector<ColumnFamilyHandle*> handles;
-    ASSERT_OK(ReOpenNoDelete(cfds, &handles));
+
+    std::vector<std::unique_ptr<ColumnFamilyHandle>> handles;
+
+    {
+      std::vector<ColumnFamilyHandle*> _handles;
+      ASSERT_OK(ReOpenNoDelete(cfds, &_handles));
+      for (auto* handle : _handles) {
+        handles.emplace_back(handle);
+      }
+    }
 
     assert(db != nullptr);
     ASSERT_OK(db->Put(write_options, "foo0", "init"));
     ASSERT_OK(db->Put(write_options, "foo1", "init"));
-    ASSERT_OK(db->Put(write_options, handles[1], "foo0", "init"));
-    ASSERT_OK(db->Put(write_options, handles[1], "foo1", "init"));
+    ASSERT_OK(db->Put(write_options, handles[1].get(), "foo0", "init"));
+    ASSERT_OK(db->Put(write_options, handles[1].get(), "foo1", "init"));
 
     // one entry
-    txn0 = db->BeginTransaction(write_options, txn_options);
+    txn0.reset(db->BeginTransaction(write_options, txn_options));
     ASSERT_OK(txn0->SetName("xid"));
     ASSERT_OK(txn0->Put(Slice("foo0"), Slice("bar0a")));
     ASSERT_OK(txn0->Prepare());
-    delete txn0;
+    txn0.reset();
     // This will check the asserts inside recovery code
     ASSERT_OK(db->FlushWAL(true));
-    reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
-    ASSERT_OK(ReOpenNoDelete(cfds, &handles));
-    txn0 = db->GetTransactionByName("xid");
+    {
+      reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
+      handles.clear();
+      std::vector<ColumnFamilyHandle*> _handles;
+      ASSERT_OK(ReOpenNoDelete(cfds, &_handles));
+      for (auto* handle : _handles) {
+        handles.emplace_back(handle);
+      }
+    }
+    txn0.reset(db->GetTransactionByName("xid"));
     ASSERT_TRUE(txn0 != nullptr);
     ASSERT_OK(txn0->Commit());
-    delete txn0;
+    txn0.reset();
     s = db->Get(ropt, db->DefaultColumnFamily(), "foo0", &pinnable_val);
     ASSERT_OK(s);
     ASSERT_TRUE(pinnable_val == ("bar0a"));
 
     // two entries, no duplicate
-    txn0 = db->BeginTransaction(write_options, txn_options);
+    txn0.reset(db->BeginTransaction(write_options, txn_options));
     ASSERT_OK(txn0->SetName("xid"));
-    ASSERT_OK(txn0->Put(handles[1], Slice("foo0"), Slice("bar0b")));
-    ASSERT_OK(txn0->Put(handles[1], Slice("fol1"), Slice("bar1b")));
+    ASSERT_OK(txn0->Put(handles[1].get(), Slice("foo0"), Slice("bar0b")));
+    ASSERT_OK(txn0->Put(handles[1].get(), Slice("fol1"), Slice("bar1b")));
     ASSERT_OK(txn0->Put(Slice("foo0"), Slice("bar0b")));
     ASSERT_OK(txn0->Put(Slice("foo1"), Slice("bar1b")));
     ASSERT_OK(txn0->Prepare());
-    delete txn0;
+    txn0.reset();
     // This will check the asserts inside recovery code
     ASSERT_OK(db->FlushWAL(true));
     // Flush only cf 1
     ASSERT_OK(static_cast_with_check<DBImpl>(db->GetRootDB())
-                  ->TEST_FlushMemTable(true, false, handles[1]));
-    reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
-    ASSERT_OK(ReOpenNoDelete(cfds, &handles));
-    txn0 = db->GetTransactionByName("xid");
+                  ->TEST_FlushMemTable(true, false, handles[1].get()));
+    {
+      reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
+      handles.clear();
+      std::vector<ColumnFamilyHandle*> _handles;
+      ASSERT_OK(ReOpenNoDelete(cfds, &_handles));
+      for (auto* handle : _handles) {
+        handles.emplace_back(handle);
+      }
+    }
+    txn0.reset(db->GetTransactionByName("xid"));
     ASSERT_TRUE(txn0 != nullptr);
     ASSERT_OK(txn0->Commit());
-    delete txn0;
+    txn0.reset();
     pinnable_val.Reset();
     s = db->Get(ropt, db->DefaultColumnFamily(), "foo0", &pinnable_val);
     ASSERT_OK(s);
@@ -6040,35 +6070,44 @@ TEST_P(TransactionTest, DuplicateKeys) {
     ASSERT_OK(s);
     ASSERT_TRUE(pinnable_val == ("bar1b"));
     pinnable_val.Reset();
-    s = db->Get(ropt, handles[1], "foo0", &pinnable_val);
+    s = db->Get(ropt, handles[1].get(), "foo0", &pinnable_val);
     ASSERT_OK(s);
     ASSERT_TRUE(pinnable_val == ("bar0b"));
     pinnable_val.Reset();
-    s = db->Get(ropt, handles[1], "fol1", &pinnable_val);
+    s = db->Get(ropt, handles[1].get(), "fol1", &pinnable_val);
     ASSERT_OK(s);
     ASSERT_TRUE(pinnable_val == ("bar1b"));
 
     // one duplicate with ::Put
-    txn0 = db->BeginTransaction(write_options, txn_options);
+    txn0.reset(db->BeginTransaction(write_options, txn_options));
     ASSERT_OK(txn0->SetName("xid"));
-    ASSERT_OK(txn0->Put(handles[1], Slice("key-nonkey0"), Slice("bar0c")));
-    ASSERT_OK(txn0->Put(handles[1], Slice("key-nonkey1"), Slice("bar1d")));
+    ASSERT_OK(
+        txn0->Put(handles[1].get(), Slice("key-nonkey0"), Slice("bar0c")));
+    ASSERT_OK(
+        txn0->Put(handles[1].get(), Slice("key-nonkey1"), Slice("bar1d")));
     ASSERT_OK(txn0->Put(Slice("foo0"), Slice("bar0c")));
     ASSERT_OK(txn0->Put(Slice("foo1"), Slice("bar1c")));
     ASSERT_OK(txn0->Put(Slice("foo0"), Slice("bar0d")));
     ASSERT_OK(txn0->Prepare());
-    delete txn0;
+    txn0.reset();
     // This will check the asserts inside recovery code
     ASSERT_OK(db->FlushWAL(true));
     // Flush only cf 1
     ASSERT_OK(static_cast_with_check<DBImpl>(db->GetRootDB())
-                  ->TEST_FlushMemTable(true, false, handles[1]));
-    reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
-    ASSERT_OK(ReOpenNoDelete(cfds, &handles));
-    txn0 = db->GetTransactionByName("xid");
+                  ->TEST_FlushMemTable(true, false, handles[1].get()));
+    {
+      reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
+      handles.clear();
+      std::vector<ColumnFamilyHandle*> _handles;
+      ASSERT_OK(ReOpenNoDelete(cfds, &_handles));
+      for (auto* handle : _handles) {
+        handles.emplace_back(handle);
+      }
+    }
+    txn0.reset(db->GetTransactionByName("xid"));
     ASSERT_TRUE(txn0 != nullptr);
     ASSERT_OK(txn0->Commit());
-    delete txn0;
+    txn0.reset();
     pinnable_val.Reset();
     s = db->Get(ropt, db->DefaultColumnFamily(), "foo0", &pinnable_val);
     ASSERT_OK(s);
@@ -6078,96 +6117,119 @@ TEST_P(TransactionTest, DuplicateKeys) {
     ASSERT_OK(s);
     ASSERT_TRUE(pinnable_val == ("bar1c"));
     pinnable_val.Reset();
-    s = db->Get(ropt, handles[1], "key-nonkey2", &pinnable_val);
+    s = db->Get(ropt, handles[1].get(), "key-nonkey2", &pinnable_val);
     ASSERT_OK(s);
     ASSERT_TRUE(pinnable_val == ("bar1d"));
 
     // Duplicate with ::Put, ::Delete
-    txn0 = db->BeginTransaction(write_options, txn_options);
+    txn0.reset(db->BeginTransaction(write_options, txn_options));
     ASSERT_OK(txn0->SetName("xid"));
-    ASSERT_OK(txn0->Put(handles[1], Slice("key-nonkey0"), Slice("bar0e")));
-    ASSERT_OK(txn0->Delete(handles[1], Slice("key-nonkey1")));
+    ASSERT_OK(
+        txn0->Put(handles[1].get(), Slice("key-nonkey0"), Slice("bar0e")));
+    ASSERT_OK(txn0->Delete(handles[1].get(), Slice("key-nonkey1")));
     ASSERT_OK(txn0->Put(Slice("foo0"), Slice("bar0e")));
     ASSERT_OK(txn0->Delete(Slice("foo0")));
     ASSERT_OK(txn0->Prepare());
-    delete txn0;
+    txn0.reset();
     // This will check the asserts inside recovery code
     ASSERT_OK(db->FlushWAL(true));
     // Flush only cf 1
     ASSERT_OK(static_cast_with_check<DBImpl>(db->GetRootDB())
-                  ->TEST_FlushMemTable(true, false, handles[1]));
-    reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
-    ASSERT_OK(ReOpenNoDelete(cfds, &handles));
-    txn0 = db->GetTransactionByName("xid");
+                  ->TEST_FlushMemTable(true, false, handles[1].get()));
+    {
+      reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
+      handles.clear();
+      std::vector<ColumnFamilyHandle*> _handles;
+      ASSERT_OK(ReOpenNoDelete(cfds, &_handles));
+      for (auto* handle : _handles) {
+        handles.emplace_back(handle);
+      }
+    }
+    txn0.reset(db->GetTransactionByName("xid"));
     ASSERT_TRUE(txn0 != nullptr);
     ASSERT_OK(txn0->Commit());
-    delete txn0;
+    txn0.reset();
     pinnable_val.Reset();
     s = db->Get(ropt, db->DefaultColumnFamily(), "foo0", &pinnable_val);
     ASSERT_TRUE(s.IsNotFound());
     pinnable_val.Reset();
-    s = db->Get(ropt, handles[1], "key-nonkey2", &pinnable_val);
+    s = db->Get(ropt, handles[1].get(), "key-nonkey2", &pinnable_val);
     ASSERT_TRUE(s.IsNotFound());
 
     // Duplicate with ::Put, ::SingleDelete
-    txn0 = db->BeginTransaction(write_options, txn_options);
+    txn0.reset(db->BeginTransaction(write_options, txn_options));
     ASSERT_OK(txn0->SetName("xid"));
-    ASSERT_OK(txn0->Put(handles[1], Slice("key-nonkey0"), Slice("bar0g")));
-    ASSERT_OK(txn0->SingleDelete(handles[1], Slice("key-nonkey1")));
+    ASSERT_OK(
+        txn0->Put(handles[1].get(), Slice("key-nonkey0"), Slice("bar0g")));
+    ASSERT_OK(txn0->SingleDelete(handles[1].get(), Slice("key-nonkey1")));
     ASSERT_OK(txn0->Put(Slice("foo0"), Slice("bar0e")));
     ASSERT_OK(txn0->SingleDelete(Slice("foo0")));
     ASSERT_OK(txn0->Prepare());
-    delete txn0;
+    txn0.reset();
     // This will check the asserts inside recovery code
     ASSERT_OK(db->FlushWAL(true));
     // Flush only cf 1
     ASSERT_OK(static_cast_with_check<DBImpl>(db->GetRootDB())
-                  ->TEST_FlushMemTable(true, false, handles[1]));
-    reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
-    ASSERT_OK(ReOpenNoDelete(cfds, &handles));
-    txn0 = db->GetTransactionByName("xid");
+                  ->TEST_FlushMemTable(true, false, handles[1].get()));
+    {
+      reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
+      handles.clear();
+      std::vector<ColumnFamilyHandle*> _handles;
+      ASSERT_OK(ReOpenNoDelete(cfds, &_handles));
+      for (auto* handle : _handles) {
+        handles.emplace_back(handle);
+      }
+    }
+    txn0.reset(db->GetTransactionByName("xid"));
     ASSERT_TRUE(txn0 != nullptr);
     ASSERT_OK(txn0->Commit());
-    delete txn0;
+    txn0.reset();
     pinnable_val.Reset();
     s = db->Get(ropt, db->DefaultColumnFamily(), "foo0", &pinnable_val);
     ASSERT_TRUE(s.IsNotFound());
     pinnable_val.Reset();
-    s = db->Get(ropt, handles[1], "key-nonkey2", &pinnable_val);
+    s = db->Get(ropt, handles[1].get(), "key-nonkey2", &pinnable_val);
     ASSERT_TRUE(s.IsNotFound());
 
     // Duplicate with ::Put, ::Merge
-    txn0 = db->BeginTransaction(write_options, txn_options);
+    txn0.reset(db->BeginTransaction(write_options, txn_options));
     ASSERT_OK(txn0->SetName("xid"));
-    ASSERT_OK(txn0->Put(handles[1], Slice("key-nonkey0"), Slice("bar1i")));
-    ASSERT_OK(txn0->Merge(handles[1], Slice("key-nonkey1"), Slice("bar1j")));
+    ASSERT_OK(
+        txn0->Put(handles[1].get(), Slice("key-nonkey0"), Slice("bar1i")));
+    ASSERT_OK(
+        txn0->Merge(handles[1].get(), Slice("key-nonkey1"), Slice("bar1j")));
     ASSERT_OK(txn0->Put(Slice("foo0"), Slice("bar0f")));
     ASSERT_OK(txn0->Merge(Slice("foo0"), Slice("bar0g")));
     ASSERT_OK(txn0->Prepare());
-    delete txn0;
+    txn0.reset();
     // This will check the asserts inside recovery code
     ASSERT_OK(db->FlushWAL(true));
     // Flush only cf 1
     ASSERT_OK(static_cast_with_check<DBImpl>(db->GetRootDB())
-                  ->TEST_FlushMemTable(true, false, handles[1]));
-    reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
-    ASSERT_OK(ReOpenNoDelete(cfds, &handles));
-    txn0 = db->GetTransactionByName("xid");
+                  ->TEST_FlushMemTable(true, false, handles[1].get()));
+    {
+      reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
+      handles.clear();
+      std::vector<ColumnFamilyHandle*> _handles;
+      ASSERT_OK(ReOpenNoDelete(cfds, &_handles));
+      for (auto* handle : _handles) {
+        handles.emplace_back(handle);
+      }
+    }
+    txn0.reset(db->GetTransactionByName("xid"));
     ASSERT_TRUE(txn0 != nullptr);
     ASSERT_OK(txn0->Commit());
-    delete txn0;
+    txn0.reset();
     pinnable_val.Reset();
     s = db->Get(ropt, db->DefaultColumnFamily(), "foo0", &pinnable_val);
     ASSERT_OK(s);
     ASSERT_TRUE(pinnable_val == ("bar0f,bar0g"));
     pinnable_val.Reset();
-    s = db->Get(ropt, handles[1], "key-nonkey2", &pinnable_val);
+    s = db->Get(ropt, handles[1].get(), "key-nonkey2", &pinnable_val);
     ASSERT_OK(s);
     ASSERT_TRUE(pinnable_val == ("bar1i,bar1j"));
 
-    for (auto h : handles) {
-      delete h;
-    }
+    handles.clear();
     delete db;
     db = nullptr;
   }
@@ -6186,7 +6248,8 @@ TEST_P(TransactionTest, ReseekOptimization) {
   ASSERT_OK(db->Put(write_options, Slice("foo0"), Slice("initv")));
 
   TransactionOptions txn_options;
-  Transaction* txn0 = db->BeginTransaction(write_options, txn_options);
+  std::unique_ptr<Transaction> txn0{
+      db->BeginTransaction(write_options, txn_options)};
   ASSERT_OK(txn0->SetName("xid"));
   // Duplicate keys will result into separate sequence numbers in WritePrepared
   // and WriteUnPrepared
@@ -6199,7 +6262,7 @@ TEST_P(TransactionTest, ReseekOptimization) {
   ReadOptions read_options;
   // To avoid loops
   read_options.max_skippable_internal_keys = 10 * max_skip;
-  Iterator* iter = db->NewIterator(read_options);
+  std::unique_ptr<Iterator> iter{db->NewIterator(read_options)};
   ASSERT_OK(iter->status());
   size_t cnt = 0;
   iter->SeekToFirst();
@@ -6217,9 +6280,7 @@ TEST_P(TransactionTest, ReseekOptimization) {
     cnt++;
   }
   ASSERT_EQ(cnt, 2);
-  delete iter;
   ASSERT_OK(txn0->Rollback());
-  delete txn0;
 }
 
 // After recovery in kPointInTimeRecovery mode, the corrupted log file remains
@@ -6233,13 +6294,18 @@ TEST_P(TransactionTest, DoubleCrashInRecovery) {
       ASSERT_OK(ReOpen());
       std::string cf_name = "two";
       ColumnFamilyOptions cf_options;
-      ColumnFamilyHandle* cf_handle = nullptr;
-      ASSERT_OK(db->CreateColumnFamily(cf_options, cf_name, &cf_handle));
+      std::unique_ptr<ColumnFamilyHandle> cf_handle;
+      {
+        ColumnFamilyHandle* pcf = nullptr;
+        ASSERT_OK(db->CreateColumnFamily(cf_options, cf_name, &pcf));
+        cf_handle.reset(pcf);
+      }
 
       // Add a prepare entry to prevent the older logs from being deleted.
       WriteOptions write_options;
       TransactionOptions txn_options;
-      Transaction* txn = db->BeginTransaction(write_options, txn_options);
+      std::unique_ptr<Transaction> txn{
+          db->BeginTransaction(write_options, txn_options)};
       ASSERT_OK(txn->SetName("xid"));
       ASSERT_OK(txn->Put(Slice("foo-prepare"), Slice("bar-prepare")));
       ASSERT_OK(txn->Prepare());
@@ -6248,9 +6314,9 @@ TEST_P(TransactionTest, DoubleCrashInRecovery) {
       ASSERT_OK(db->Flush(flush_ops));
       // Now we have a log that cannot be deleted
 
-      ASSERT_OK(db->Put(write_options, cf_handle, "foo1", "bar1"));
+      ASSERT_OK(db->Put(write_options, cf_handle.get(), "foo1", "bar1"));
       // Flush only the 2nd cf
-      ASSERT_OK(db->Flush(flush_ops, cf_handle));
+      ASSERT_OK(db->Flush(flush_ops, cf_handle.get()));
 
       // The value is large enough to be touched by the corruption we ingest
       // below.
@@ -6267,8 +6333,8 @@ TEST_P(TransactionTest, DoubleCrashInRecovery) {
       uint64_t wal_file_id = db_impl->TEST_LogfileNumber();
       std::string fname = LogFileName(dbname, wal_file_id);
       reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
-      delete txn;
-      delete cf_handle;
+      txn.reset();
+      cf_handle.reset();
       delete db;
       db = nullptr;
 
@@ -6282,14 +6348,20 @@ TEST_P(TransactionTest, DoubleCrashInRecovery) {
       ASSERT_OK(WriteStringToFile(env, file_content, fname, true));
 
       // Recover from corruption
-      std::vector<ColumnFamilyHandle*> handles;
+      std::vector<std::unique_ptr<ColumnFamilyHandle>> handles;
       std::vector<ColumnFamilyDescriptor> column_families;
       column_families.push_back(ColumnFamilyDescriptor(kDefaultColumnFamilyName,
                                                        ColumnFamilyOptions()));
       column_families.push_back(
           ColumnFamilyDescriptor("two", ColumnFamilyOptions()));
-      ASSERT_OK(ReOpenNoDelete(column_families, &handles));
-      assert(db != nullptr);
+      {
+        std::vector<ColumnFamilyHandle*> _handles;
+        ASSERT_OK(ReOpenNoDelete(column_families, &_handles));
+        assert(db != nullptr);
+        for (auto* handle : _handles) {
+          handles.emplace_back(handle);
+        }
+      }
 
       if (write_after_recovery) {
         // Write data to the log right after the corrupted log
@@ -6299,15 +6371,20 @@ TEST_P(TransactionTest, DoubleCrashInRecovery) {
       // Persist data written to WAL during recovery or by the last Put
       ASSERT_OK(db->FlushWAL(true));
       // 2nd crash to recover while having a valid log after the corrupted one.
-      ASSERT_OK(ReOpenNoDelete(column_families, &handles));
-      assert(db != nullptr);
-      txn = db->GetTransactionByName("xid");
+      {
+        handles.clear();
+        std::vector<ColumnFamilyHandle*> _handles;
+        ASSERT_OK(ReOpenNoDelete(column_families, &_handles));
+        for (auto* handle : _handles) {
+          handles.emplace_back(handle);
+        }
+        assert(db != nullptr);
+      }
+      txn.reset(db->GetTransactionByName("xid"));
       ASSERT_TRUE(txn != nullptr);
       ASSERT_OK(txn->Commit());
-      delete txn;
-      for (auto handle : handles) {
-        delete handle;
-      }
+      txn.reset();
+      handles.clear();
     }
   }
 }
@@ -6318,9 +6395,10 @@ TEST_P(TransactionTest, CommitWithoutPrepare) {
     WriteOptions write_options;
     TransactionOptions txn_options;
     txn_options.skip_prepare = false;
-    Transaction* txn = db->BeginTransaction(write_options, txn_options);
+    std::unique_ptr<Transaction> txn{
+        db->BeginTransaction(write_options, txn_options)};
     ASSERT_TRUE(txn->Commit().IsTxnNotPrepared());
-    delete txn;
+    txn.reset();
   }
 
   {
@@ -6328,9 +6406,10 @@ TEST_P(TransactionTest, CommitWithoutPrepare) {
     WriteOptions write_options;
     TransactionOptions txn_options;
     txn_options.skip_prepare = true;
-    Transaction* txn = db->BeginTransaction(write_options, txn_options);
+    std::unique_ptr<Transaction> txn{
+        db->BeginTransaction(write_options, txn_options)};
     ASSERT_OK(txn->Commit());
-    delete txn;
+    txn.reset();
   }
 }
 
