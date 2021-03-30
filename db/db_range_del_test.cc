@@ -420,8 +420,8 @@ TEST_F(DBRangeDelTest, ValidLevelSubcompactionBoundaries) {
         ASSERT_OK(db_->SetOptions(db_->DefaultColumnFamily(),
                                   {{"disable_auto_compactions", "true"}}));
         EXPECT_EQ(NumTableFilesAtLevel(0), 0);
-        ASSERT_GT(NumTableFilesAtLevel(1), 0);
-        ASSERT_GT(NumTableFilesAtLevel(2), 0);
+        EXPECT_GT(NumTableFilesAtLevel(1), 0);
+        EXPECT_GT(NumTableFilesAtLevel(2), 0);
       }
     }
   }
@@ -1035,7 +1035,7 @@ TEST_F(DBRangeDelTest, CompactionTreatsSplitInputLevelDeletionAtomically) {
     ASSERT_OK(Put("", ""));
     ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
     ASSERT_OK(dbfull()->TEST_WaitForCompact());
-    ASSERT_EQ(0, NumTableFilesAtLevel(0));
+    EXPECT_EQ(0, NumTableFilesAtLevel(0));
     EXPECT_EQ(kNumFilesPerLevel, NumTableFilesAtLevel(1));
 
     ColumnFamilyMetaData meta;
@@ -1694,7 +1694,7 @@ TEST_F(DBRangeDelTest, OverlappedKeys) {
   // with the grandparent
   ASSERT_OK(dbfull()->TEST_CompactRange(0, nullptr, nullptr, nullptr,
                                         true /* disallow_trivial_move */));
-  ASSERT_EQ(3, NumTableFilesAtLevel(1));
+  EXPECT_EQ(3, NumTableFilesAtLevel(1));
 
   ASSERT_OK(dbfull()->TEST_CompactRange(1, nullptr, nullptr, nullptr,
                                         true /* disallow_trivial_move */));

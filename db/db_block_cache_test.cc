@@ -912,7 +912,7 @@ TEST_F(DBBlockCacheTest, CacheCompressionDict) {
     }
     ASSERT_OK(dbfull()->TEST_WaitForCompact());
     EXPECT_EQ(0, NumTableFilesAtLevel(0));
-    ASSERT_EQ(kNumFiles, NumTableFilesAtLevel(1));
+    EXPECT_EQ(kNumFiles, NumTableFilesAtLevel(1));
 
     // Compression dictionary blocks are preloaded.
     CheckCacheCountersForCompressionDict(
