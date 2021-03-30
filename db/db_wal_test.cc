@@ -351,9 +351,10 @@ TEST_F(DBWALTest, RecoverWithTableHandle) {
       total_files += level.size();
     }
     ASSERT_EQ(total_files, 3);
+    const int actual_max_open_files = db_->GetOptions().max_open_files;
     for (const auto& level : files) {
       for (const auto& file : level) {
-        if (options.max_open_files == kSmallMaxOpenFiles) {
+        if (actual_max_open_files == kSmallMaxOpenFiles) {
           ASSERT_TRUE(file.table_reader_handle == nullptr);
         } else {
           ASSERT_TRUE(file.table_reader_handle != nullptr);
