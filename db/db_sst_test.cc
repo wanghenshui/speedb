@@ -158,6 +158,7 @@ TEST_F(DBSSTTest, DontDeleteMovedFile) {
   options.max_bytes_for_level_base = 1024 * 1024;  // 1 MB
   options.level0_file_num_compaction_trigger =
       2;  // trigger compaction when we have 2 files
+  options.level0_slowdown_writes_trigger = 3;
   DestroyAndReopen(options);
 
   Random rnd(301);
@@ -200,6 +201,7 @@ TEST_F(DBSSTTest, DeleteObsoleteFilesPendingOutputs) {
   options.max_bytes_for_level_base = 1024 * 1024;  // 1 MB
   options.level0_file_num_compaction_trigger =
       2;  // trigger compaction when we have 2 files
+  options.level0_slowdown_writes_trigger = 3;
   options.max_background_flushes = 2;
   options.max_background_compactions = 2;
 
@@ -236,6 +238,7 @@ TEST_F(DBSSTTest, DeleteObsoleteFilesPendingOutputs) {
       }
     }
     if (blocking) {
+      env_->table_write_callback_ = nullptr;
       blocking_thread.DoSleep();
     }
   };
@@ -1117,6 +1120,7 @@ TEST_F(DBSSTTest, CancellingCompactionsWorks) {
   Options options = CurrentOptions();
   options.sst_file_manager = sst_file_manager;
   options.level0_file_num_compaction_trigger = 2;
+  options.level0_slowdown_writes_trigger = 3;
   options.statistics = CreateDBStatistics();
   DestroyAndReopen(options);
 
