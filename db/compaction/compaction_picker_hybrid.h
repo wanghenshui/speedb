@@ -101,7 +101,8 @@ class HybridCompactionPicker : public CompactionPicker {
     } else if (space_amp < 110) {
       space_amp = 110;
     }
-    options.OptimizeForPointLookup(0);
+
+    options.memtable_whole_key_filtering = true;
   }
 
  private:

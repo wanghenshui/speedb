@@ -1018,18 +1018,11 @@ class AlwaysFalseFilter : public FilterBitsReader {
 
 }  // namespace
 
-const std::vector<BloomFilterPolicy::Mode> BloomFilterPolicy::kAllFixedImpls = {
-    kLegacyBloom,
-    kDeprecatedBlock,
-    kFastLocalBloom,
-    kStandard128Ribbon,
-};
+constexpr decltype(BloomFilterPolicy::kAllFixedImpls)
+    BloomFilterPolicy::kAllFixedImpls;
 
-const std::vector<BloomFilterPolicy::Mode> BloomFilterPolicy::kAllUserModes = {
-    kDeprecatedBlock,
-    kAutoBloom,
-    kStandard128Ribbon,
-};
+constexpr decltype(BloomFilterPolicy::kAllUserModes)
+    BloomFilterPolicy::kAllUserModes;
 
 BloomFilterPolicy::BloomFilterPolicy(double bits_per_key, Mode mode)
     : mode_(mode), warned_(false), aggregate_rounding_balance_(0) {

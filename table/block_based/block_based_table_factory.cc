@@ -441,19 +441,25 @@ BlockBasedTableFactory::BlockBasedTableFactory(
 }
 
 void BlockBasedTableFactory::InitializeOptions() {
+  table_options_.data_block_index_type =
+      BlockBasedTableOptions::kDataBlockBinaryAndHash;
+  if (table_options_.filter_policy == nullptr) {
+    table_options_.filter_policy.reset(NewBloomFilterPolicy(32));
+  }
   if (table_options_.flush_block_policy_factory == nullptr) {
     table_options_.flush_block_policy_factory.reset(
         new FlushBlockBySizePolicyFactory());
   }
   if (table_options_.no_block_cache) {
     table_options_.block_cache.reset();
-  } else if (table_options_.block_cache == nullptr) {
-    LRUCacheOptions co;
-    co.capacity = 8 << 20;
-    // It makes little sense to pay overhead for mid-point insertion while the
-    // block size is only 8MB.
-    co.high_pri_pool_ratio = 0.0;
-    table_options_.block_cache = NewLRUCache(co);
+    // } else if (table_options_.block_cache == nullptr) {
+    //   LRUCacheOptions co;
+    //   co.capacity = 8 << 20;
+    //   // It makes little sense to pay overhead for mid-point insertion while
+    //   the
+    //   // block size is only 8MB.
+    //   co.high_pri_pool_ratio = 0.0;
+    //   table_options_.block_cache = NewLRUCache(co);
   }
   if (table_options_.block_size_deviation < 0 ||
       table_options_.block_size_deviation > 100) {

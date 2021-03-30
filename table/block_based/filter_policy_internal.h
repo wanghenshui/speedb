@@ -8,10 +8,10 @@
 
 #pragma once
 
+#include <array>
 #include <atomic>
 #include <memory>
 #include <string>
-#include <vector>
 
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/table.h"
@@ -77,12 +77,21 @@ class BloomFilterPolicy : public FilterPolicy {
   // All the different underlying implementations that a BloomFilterPolicy
   // might use, as a mode that says "always use this implementation."
   // Only appropriate for unit tests.
-  static const std::vector<Mode> kAllFixedImpls;
+  static constexpr std::array<Mode, 4> kAllFixedImpls{
+      kLegacyBloom,
+      kDeprecatedBlock,
+      kFastLocalBloom,
+      kStandard128Ribbon,
+  };
 
   // All the different modes of BloomFilterPolicy that are exposed from
   // user APIs. Only appropriate for higher-level unit tests. Integration
   // tests should prefer using NewBloomFilterPolicy (user-exposed).
-  static const std::vector<Mode> kAllUserModes;
+  static constexpr std::array<Mode, 3> kAllUserModes{
+      kDeprecatedBlock,
+      kAutoBloom,
+      kStandard128Ribbon,
+  };
 
   explicit BloomFilterPolicy(double bits_per_key, Mode mode);
 
