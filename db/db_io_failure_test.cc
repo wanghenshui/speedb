@@ -440,6 +440,7 @@ TEST_F(DBIOFailureTest, CompactionSstCloseError) {
   options.error_if_exists = false;
   options.paranoid_checks = true;
   options.level0_file_num_compaction_trigger = 2;
+  options.level0_slowdown_writes_trigger = 3;
   options.disable_auto_compactions = true;
 
   DestroyAndReopen(options);
@@ -536,6 +537,7 @@ TEST_F(DBIOFailureTest, CompactionSstSyncError) {
   options.error_if_exists = false;
   options.paranoid_checks = true;
   options.level0_file_num_compaction_trigger = 2;
+  options.level0_slowdown_writes_trigger = 3;
   options.disable_auto_compactions = true;
   options.use_fsync = false;
 
