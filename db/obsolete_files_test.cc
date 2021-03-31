@@ -85,6 +85,7 @@ class ObsoleteFilesTest : public DBTestBase {
     // Trigger compaction when the number of level 0 files reaches 2.
     options.create_if_missing = true;
     options.level0_file_num_compaction_trigger = 2;
+    options.level0_slowdown_writes_trigger = 3;
     options.disable_auto_compactions = false;
     options.delete_obsolete_files_period_micros = 0;  // always do full purge
     options.enable_thread_tracking = true;
