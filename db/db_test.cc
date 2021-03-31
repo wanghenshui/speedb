@@ -457,7 +457,7 @@ TEST_F(DBTest, MixedSlowdownOptionsStop) {
 }
 #ifndef ROCKSDB_LITE
 
-TEST_F(DBTest, LevelLimitReopen) {
+TEST_F(DBTest, DISABLED_LevelLimitReopen) {
   Options options = CurrentOptions();
   CreateAndReopenWithCF({"pikachu"}, options);
 

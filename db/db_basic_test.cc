@@ -296,7 +296,7 @@ TEST_F(DBBasicTest, CompactedDB) {
             "Not implemented: Not supported operation in read only mode.");
 }
 
-TEST_F(DBBasicTest, LevelLimitReopen) {
+TEST_F(DBBasicTest, DISABLED_LevelLimitReopen) {
   Options options = CurrentOptions();
   CreateAndReopenWithCF({"pikachu"}, options);
 
