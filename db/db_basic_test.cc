@@ -247,7 +247,7 @@ TEST_F(DBBasicTest, CompactedDB) {
   ASSERT_OK(Put("iii", DummyString(kFileSize / 2, 'i')));
   ASSERT_OK(Put("jjj", DummyString(kFileSize / 2, 'j')));
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
-  ASSERT_LE(3, NumTableFilesAtLevel(1));
+  EXPECT_LE(3, NumTableFilesAtLevel(1));
   Close();
 
   // CompactedDB

@@ -152,7 +152,7 @@ TEST_F(DBRangeDelTest, CompactionOutputFilesExactlyFilled) {
   ASSERT_OK(dbfull()->TEST_CompactRange(0, nullptr, nullptr, nullptr,
                                         true /* disallow_trivial_move */));
   ASSERT_EQ(0, NumTableFilesAtLevel(0));
-  ASSERT_EQ(2, NumTableFilesAtLevel(1));
+  EXPECT_EQ(2, NumTableFilesAtLevel(1));
   db_->ReleaseSnapshot(snapshot);
 }
 
@@ -196,7 +196,7 @@ TEST_F(DBRangeDelTest, MaxCompactionBytesCutsOutputFiles) {
   ASSERT_OK(dbfull()->TEST_CompactRange(0, nullptr, nullptr, nullptr,
                                         true /* disallow_trivial_move */));
   ASSERT_EQ(0, NumTableFilesAtLevel(0));
-  ASSERT_GE(NumTableFilesAtLevel(1), 2);
+  EXPECT_GE(NumTableFilesAtLevel(1), 2);
 
   std::vector<std::vector<FileMetaData>> files;
   dbfull()->TEST_GetFilesMetaData(db_->DefaultColumnFamily(), &files);
@@ -403,7 +403,7 @@ TEST_F(DBRangeDelTest, ValidLevelSubcompactionBoundaries) {
       ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
       if (j < kNumFiles - 1) {
         // background compaction may happen early for kNumFiles'th file
-        ASSERT_EQ(NumTableFilesAtLevel(0), j + 1);
+        EXPECT_EQ(NumTableFilesAtLevel(0), j + 1);
       }
       if (j == options.level0_file_num_compaction_trigger - 1) {
         // When i == 1, compaction will output some files to L1, at which point
@@ -1115,7 +1115,7 @@ TEST_F(DBRangeDelTest, RangeTombstoneEndKeyAsSstableUpperBound) {
   //   L2:
   //     [key000000#1,1, key000000#1,1]
   MoveFilesToLevel(1);
-  ASSERT_EQ(2, NumTableFilesAtLevel(1));
+  EXPECT_EQ(2, NumTableFilesAtLevel(1));
 
   {
     // Compact the second sstable in L1:
@@ -1131,8 +1131,8 @@ TEST_F(DBRangeDelTest, RangeTombstoneEndKeyAsSstableUpperBound) {
     auto begin_str = Key(3);
     const ROCKSDB_NAMESPACE::Slice begin = begin_str;
     ASSERT_OK(dbfull()->TEST_CompactRange(1, &begin, nullptr));
-    ASSERT_EQ(1, NumTableFilesAtLevel(1));
-    ASSERT_EQ(2, NumTableFilesAtLevel(2));
+    EXPECT_EQ(1, NumTableFilesAtLevel(1));
+    EXPECT_EQ(2, NumTableFilesAtLevel(2));
     ASSERT_EQ(value, Get(Key(2)));
   }
 
@@ -1151,7 +1151,7 @@ TEST_F(DBRangeDelTest, RangeTombstoneEndKeyAsSstableUpperBound) {
     const ROCKSDB_NAMESPACE::Slice begin = begin_str;
     ASSERT_OK(dbfull()->TEST_CompactRange(1, &begin, &begin));
     ASSERT_EQ(0, NumTableFilesAtLevel(1));
-    ASSERT_EQ(3, NumTableFilesAtLevel(2));
+    EXPECT_EQ(3, NumTableFilesAtLevel(2));
   }
 
   db_->ReleaseSnapshot(snapshot);
@@ -1256,7 +1256,7 @@ TEST_F(DBRangeDelTest, KeyAtOverlappingEndpointReappears) {
   ASSERT_EQ(0, NumTableFilesAtLevel(0));
   // Now we have multiple files at L1 all containing a single user key, thus
   // guaranteeing overlap in the file endpoints.
-  ASSERT_GT(NumTableFilesAtLevel(1), 1);
+  EXPECT_GT(NumTableFilesAtLevel(1), 1);
 
   // Verify no merge operands reappeared after the compaction.
   ASSERT_TRUE(db_->Get(ReadOptions(), "key", &value).IsNotFound());
@@ -1266,7 +1266,7 @@ TEST_F(DBRangeDelTest, KeyAtOverlappingEndpointReappears) {
   ASSERT_OK(dbfull()->TEST_CompactRange(
       1 /* level */, nullptr /* begin */, nullptr /* end */,
       nullptr /* column_family */, true /* disallow_trivial_move */));
-  ASSERT_GT(NumTableFilesAtLevel(2), 1);
+  EXPECT_GT(NumTableFilesAtLevel(2), 1);
   ASSERT_TRUE(db_->Get(ReadOptions(), "key", &value).IsNotFound());
 
   db_->ReleaseSnapshot(snapshot);
@@ -1359,7 +1359,7 @@ TEST_F(DBRangeDelTest, UntruncatedTombstoneDoesNotDeleteNewerKey) {
   ASSERT_EQ(0, NumTableFilesAtLevel(0));
   // Roughly the left half of L1 files should have overlapping boundary keys,
   // while the right half should not.
-  ASSERT_GE(NumTableFilesAtLevel(1), kNumFiles);
+  EXPECT_GE(NumTableFilesAtLevel(1), kNumFiles);
 
   // Now overwrite a few keys that are in L1 files that definitely don't have
   // overlapping boundary keys.
@@ -1383,7 +1383,7 @@ TEST_F(DBRangeDelTest, UntruncatedTombstoneDoesNotDeleteNewerKey) {
   Slice end_key(end_key_storage);
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &begin_key, &end_key));
   ASSERT_EQ(0, NumTableFilesAtLevel(0));
-  ASSERT_GE(NumTableFilesAtLevel(1), kNumFiles);
+  EXPECT_GE(NumTableFilesAtLevel(1), kNumFiles);
 
   ASSERT_EQ(kKeysOverwritten, get_key_count());
 }
@@ -1441,7 +1441,7 @@ TEST_F(DBRangeDelTest, DeletedMergeOperandReappearsIterPrev) {
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr /* begin_key */,
                               nullptr /* end_key */));
   ASSERT_EQ(0, NumTableFilesAtLevel(0));
-  ASSERT_GT(NumTableFilesAtLevel(1), 1);
+  EXPECT_GT(NumTableFilesAtLevel(1), 1);
 
   auto* iter = db_->NewIterator(ReadOptions());
   ASSERT_OK(iter->status());
