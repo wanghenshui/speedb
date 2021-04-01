@@ -13,9 +13,6 @@ void BlockPrefetcher::PrefetchIfNeeded(const BlockBasedTable::Rep* rep,
                                        const BlockHandle& handle,
                                        size_t readahead_size,
                                        bool is_for_compaction) {
-  if (1) {
-    return;
-  }
   if (is_for_compaction) {
     rep->CreateFilePrefetchBufferIfNotExists(compaction_readahead_size_,
                                              compaction_readahead_size_,
