@@ -59,6 +59,29 @@ class DBIteratorTest : public DBTestBase,
     return dbfull()->NewIteratorImpl(read_options, cfd, seq, read_callback);
   }
 
+ protected:
+  Options CurrentOptions(anon::OptionsOverride overrides = {}) const {
+    auto options = DBTestBase::CurrentOptions(overrides);
+    if (!options.table_factory ||
+        options.table_factory->GetOptions<BlockBasedTableOptions>()) {
+      LRUCacheOptions co;
+      co.capacity = 8 << 20;
+      co.high_pri_pool_ratio = 0.0;
+      BlockBasedTableOptions table_options;
+      if (options.table_factory) {
+        auto* tbl_options =
+            options.table_factory->GetOptions<BlockBasedTableOptions>();
+        if (!tbl_options->no_block_cache) {
+          tbl_options->block_cache = NewLRUCache(co);
+        }
+      } else {
+        table_options.block_cache = NewLRUCache(co);
+        options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+      }
+    }
+    return options;
+  }
+
  private:
   InstrumentedMutex mutex_;
   std::vector<std::unique_ptr<DummyReadCallback>> read_callbacks_;
@@ -1367,7 +1390,8 @@ class DBIteratorTestForPinnedData : public DBIteratorTest {
     int merge_percentage = 20;   // 20% of keys will be added using Merge()
 
     Options options = CurrentOptions();
-    BlockBasedTableOptions table_options;
+    BlockBasedTableOptions table_options =
+        *options.table_factory->GetOptions<BlockBasedTableOptions>();
     table_options.use_delta_encoding = false;
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
     options.merge_operator = MergeOperators::CreatePutOperator();
@@ -1535,7 +1559,8 @@ INSTANTIATE_TEST_CASE_P(DBIteratorTestForPinnedDataInstance,
 #ifndef ROCKSDB_LITE
 TEST_P(DBIteratorTest, PinnedDataIteratorMultipleFiles) {
   Options options = CurrentOptions();
-  BlockBasedTableOptions table_options;
+  BlockBasedTableOptions table_options =
+      *options.table_factory->GetOptions<BlockBasedTableOptions>();
   table_options.use_delta_encoding = false;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   options.disable_auto_compactions = true;
@@ -1662,7 +1687,8 @@ TEST_P(DBIteratorTest, PinnedDataIteratorMergeOperator) {
 
 TEST_P(DBIteratorTest, PinnedDataIteratorReadAfterUpdate) {
   Options options = CurrentOptions();
-  BlockBasedTableOptions table_options;
+  BlockBasedTableOptions table_options =
+      *options.table_factory->GetOptions<BlockBasedTableOptions>();
   table_options.use_delta_encoding = false;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   options.write_buffer_size = 100000;
