@@ -320,6 +320,10 @@ TEST_F(DBBlockCacheTest, IndexAndFilterBlocksOfNewTableAddedToCache) {
   options.create_if_missing = true;
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   BlockBasedTableOptions table_options;
+  LRUCacheOptions co;
+  co.capacity = 8 << 20;
+  co.high_pri_pool_ratio = 0.0;
+  table_options.block_cache = NewLRUCache(co);
   table_options.cache_index_and_filter_blocks = true;
   table_options.filter_policy.reset(NewBloomFilterPolicy(20));
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
@@ -708,8 +712,13 @@ TEST_F(DBBlockCacheTest, ParanoidFileChecks) {
   options.create_if_missing = true;
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   options.level0_file_num_compaction_trigger = 2;
+  options.level0_slowdown_writes_trigger = 3;
   options.paranoid_file_checks = true;
   BlockBasedTableOptions table_options;
+  LRUCacheOptions co;
+  co.capacity = 8 << 20;
+  co.high_pri_pool_ratio = 0.0;
+  table_options.block_cache = NewLRUCache(co);
   table_options.cache_index_and_filter_blocks = false;
   table_options.filter_policy.reset(NewBloomFilterPolicy(20));
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
