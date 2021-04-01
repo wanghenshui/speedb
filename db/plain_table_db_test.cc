@@ -1274,6 +1274,7 @@ TEST_P(PlainTableDBTest, CompactionTrigger) {
   options.write_buffer_size = 120 << 10;  // 120KB
   options.num_levels = 3;
   options.level0_file_num_compaction_trigger = 3;
+  options.level0_slowdown_writes_trigger = 4;
   Reopen(&options);
 
   Random rnd(301);
@@ -1301,7 +1302,20 @@ TEST_P(PlainTableDBTest, CompactionTrigger) {
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   EXPECT_EQ(NumTableFilesAtLevel(0), 0);
-  EXPECT_EQ(NumTableFilesAtLevel(1), 1);
+
+  size_t i = 1;
+  const size_t max = dbfull()->NumberLevels();
+  for (; i < max; ++i) {
+    if (NumTableFilesAtLevel(i) > 0) {
+      break;
+    }
+  }
+
+  EXPECT_EQ(NumTableFilesAtLevel(i), 1);
+
+  for (++i; i < max; ++i) {
+    EXPECT_EQ(NumTableFilesAtLevel(i), 0);
+  }
 }
 
 TEST_P(PlainTableDBTest, AdaptiveTable) {
