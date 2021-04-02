@@ -1927,7 +1927,7 @@ class CompactionStallTestListener : public EventListener {
   std::atomic<size_t> compacted_files_cnt_;
 };
 
-TEST_F(DBTest2, CompactionStall) {
+TEST_F(DBTest2, DISABLED_CompactionStall) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"DBImpl::BGWorkCompaction", "DBTest2::CompactionStall:0"},
        {"DBImpl::BGWorkCompaction", "DBTest2::CompactionStall:1"},

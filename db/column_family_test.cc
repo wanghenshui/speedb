@@ -1874,7 +1874,7 @@ TEST_P(ColumnFamilyTest, SameCFManualAutomaticCompactions) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
-TEST_P(ColumnFamilyTest, SameCFManualAutomaticCompactionsLevel) {
+TEST_P(ColumnFamilyTest, DISABLED_SameCFManualAutomaticCompactionsLevel) {
   Open();
   CreateColumnFamilies({"one"});
   ColumnFamilyOptions default_cf, one;
@@ -1973,7 +1973,7 @@ TEST_P(ColumnFamilyTest, SameCFManualAutomaticCompactionsLevel) {
 // This will wait because the automatic compaction has files it needs.
 // Once the conflict is hit, the automatic compaction starts and ends
 // Then the manual will run and end.
-TEST_P(ColumnFamilyTest, SameCFAutomaticManualCompactions) {
+TEST_P(ColumnFamilyTest, DISABLED_SameCFAutomaticManualCompactions) {
   Open();
   CreateColumnFamilies({"one"});
   ColumnFamilyOptions default_cf, one;

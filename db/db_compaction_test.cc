@@ -3309,7 +3309,7 @@ TEST_P(DBCompactionTestWithParam, ForceBottommostLevelCompaction) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
-TEST_P(DBCompactionTestWithParam, IntraL0Compaction) {
+TEST_P(DBCompactionTestWithParam, DISABLED_IntraL0Compaction) {
   Options options = CurrentOptions();
   options.compression = kNoCompression;
   options.level0_file_num_compaction_trigger = 5;
@@ -3386,7 +3386,8 @@ TEST_P(DBCompactionTestWithParam, IntraL0Compaction) {
             TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS));
 }
 
-TEST_P(DBCompactionTestWithParam, IntraL0CompactionDoesNotObsoleteDeletions) {
+TEST_P(DBCompactionTestWithParam,
+       DISABLED_IntraL0CompactionDoesNotObsoleteDeletions) {
   // regression test for issue #2722: L0->L0 compaction can resurrect deleted
   // keys from older L0 files if L1+ files' key-ranges do not include the key.
   Options options = CurrentOptions();
@@ -3538,7 +3539,7 @@ TEST_F(DBCompactionTest, OptimizedDeletionObsoleting) {
             options.statistics->getTickerCount(COMPACTION_KEY_DROP_OBSOLETE));
 }
 
-TEST_F(DBCompactionTest, CompactFilesPendingL0Bug) {
+TEST_F(DBCompactionTest, DISABLED_CompactFilesPendingL0Bug) {
   // https://www.facebook.com/groups/rocksdb.dev/permalink/1389452781153232/
   // CompactFiles() had a bug where it failed to pick a compaction when an L0
   // compaction existed, but marked it as scheduled anyways. It'd never be
@@ -4697,7 +4698,7 @@ TEST_F(DBCompactionTest, CompactionStatsTest) {
   VerifyCompactionStats(*cfd, *collector);
 }
 
-TEST_F(DBCompactionTest, CompactFilesOutputRangeConflict) {
+TEST_F(DBCompactionTest, DISABLED_CompactFilesOutputRangeConflict) {
   // LSM setup:
   // L1:      [ba bz]
   // L2: [a b]       [c d]
