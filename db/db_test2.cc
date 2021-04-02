@@ -1396,11 +1396,11 @@ TEST_F(DBTest2, PresetCompressionDictLocality) {
   // Dictionary compression should not be so good as to compress four totally
   // random files into one. If it does then there's probably something wrong
   // with the test.
-  ASSERT_GT(NumTableFilesAtLevel(1), 1);
+  EXPECT_GT(NumTableFilesAtLevel(1), 1);
 
   // Furthermore, there should be one compression dictionary generated per file.
   // And they should all be different from each other.
-  ASSERT_EQ(NumTableFilesAtLevel(1),
+  EXPECT_EQ(NumTableFilesAtLevel(1),
             static_cast<int>(compression_dicts.size()));
   for (size_t i = 1; i < compression_dicts.size(); ++i) {
     std::string& a = compression_dicts[i - 1];
@@ -2311,7 +2311,7 @@ TEST_F(DBTest2, MaxCompactionBytesTest) {
   CompactRangeOptions cro;
   cro.bottommost_level_compaction = BottommostLevelCompaction::kForceOptimized;
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
-  ASSERT_EQ("0,0,8", FilesPerLevel(0));
+  EXPECT_EQ("0,0,8", FilesPerLevel(0));
 
   // When compact from Ln -> Ln+1, cut a file if the file overlaps with
   // more than three files in Ln+1.
@@ -2328,7 +2328,7 @@ TEST_F(DBTest2, MaxCompactionBytesTest) {
 
   // Output files to L1 are cut to three pieces, according to
   // options.max_compaction_bytes
-  ASSERT_EQ("0,3,8", FilesPerLevel(0));
+  EXPECT_EQ("0,3,8", FilesPerLevel(0));
 }
 
 static void UniqueIdCallback(void* arg) {
@@ -3738,7 +3738,7 @@ TEST_F(DBTest2, RateLimitedCompactionReads) {
       ASSERT_EQ(i + 1, NumTableFilesAtLevel(0));
     }
     dbfull()->TEST_WaitForCompact();
-    ASSERT_EQ(0, NumTableFilesAtLevel(0));
+    EXPECT_EQ(0, NumTableFilesAtLevel(0));
 
     ASSERT_EQ(0, options.rate_limiter->GetTotalBytesThrough(Env::IO_HIGH));
     // should be slightly above 512KB due to non-data blocks read. Arbitrarily

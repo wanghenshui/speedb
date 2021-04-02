@@ -4889,10 +4889,10 @@ TEST_F(DBTest, DynamicCompactionOptions) {
                                   {"target_file_size_base", ToString(k32KB)}}));
 
   gen_l0_kb(0, 64, 1);
-  ASSERT_EQ("1,1", FilesPerLevel());
+  EXPECT_EQ("1,1", FilesPerLevel());
   gen_l0_kb(0, 64, 1);
   dbfull()->TEST_WaitForCompact();
-  ASSERT_EQ("0,2", FilesPerLevel());
+  EXPECT_EQ("0,2", FilesPerLevel());
   metadata.clear();
   db_->GetLiveFilesMetaData(&metadata);
   ASSERT_EQ(2U, metadata.size());

@@ -253,7 +253,7 @@ TEST_F(DBSSTTest, DeleteObsoleteFilesPendingOutputs) {
 
   ASSERT_OK(dbfull()->TEST_CompactRange(2, nullptr, nullptr));
 
-  ASSERT_EQ("0,0,0,1", FilesPerLevel(0));
+  EXPECT_EQ("0,0,0,1", FilesPerLevel(0));
   std::vector<LiveFileMetaData> metadata;
   db_->GetLiveFilesMetaData(&metadata);
   ASSERT_EQ(metadata.size(), 1U);
@@ -262,7 +262,7 @@ TEST_F(DBSSTTest, DeleteObsoleteFilesPendingOutputs) {
 
   ASSERT_OK(dbfull()->TEST_CompactRange(3, nullptr, nullptr, nullptr,
                                         true /* disallow trivial move */));
-  ASSERT_EQ("0,0,0,0,1", FilesPerLevel(0));
+  EXPECT_EQ("0,0,0,0,1", FilesPerLevel(0));
 
   // finish the flush!
   blocking_thread.WakeUp();
@@ -270,7 +270,7 @@ TEST_F(DBSSTTest, DeleteObsoleteFilesPendingOutputs) {
   ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
   // File just flushed is too big for L0 and L1 so gets moved to L2.
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
-  ASSERT_EQ("0,0,1,0,1", FilesPerLevel(0));
+  EXPECT_EQ("0,0,1,0,1", FilesPerLevel(0));
 
   metadata.clear();
   db_->GetLiveFilesMetaData(&metadata);
