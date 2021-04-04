@@ -1197,7 +1197,7 @@ TEST_F(ExternalSSTFileTest, OverlappingRanges) {
   } while (ChangeOptions(kSkipPlainTable | kSkipFIFOCompaction));
 }
 
-TEST_P(ExternalSSTFileTest, PickedLevel) {
+TEST_P(ExternalSSTFileTest, DISABLED_PickedLevel) {
   env_->skip_fsync_ = true;
   Options options = CurrentOptions();
   options.disable_auto_compactions = false;
@@ -1923,7 +1923,7 @@ TEST_P(ExternalSSTFileTest, L0SortingIssue) {
   ASSERT_EQ(Get(Key(8)), "memtable");
 }
 
-TEST_F(ExternalSSTFileTest, CompactionDeadlock) {
+TEST_F(ExternalSSTFileTest, DISABLED_CompactionDeadlock) {
   Options options = CurrentOptions();
   options.num_levels = 2;
   options.level0_file_num_compaction_trigger = 4;

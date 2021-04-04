@@ -3146,7 +3146,7 @@ TEST_F(DBCompactionTest, SanitizeCompactionOptionsTest) {
 // TODO(aekmekji): Make sure that the reason this fails when run with
 // max_subcompactions > 1 is not a correctness issue but just inherent to
 // running parallel L0-L1 compactions
-TEST_F(DBCompactionTest, SuggestCompactRangeNoTwoLevel0Compactions) {
+TEST_F(DBCompactionTest, DISABLED_SuggestCompactRangeNoTwoLevel0Compactions) {
   Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleLevel;
   options.write_buffer_size = 110 << 10;
