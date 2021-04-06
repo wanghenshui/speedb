@@ -255,7 +255,7 @@ struct CompactionJob::SubcompactionState {
   bool ShouldStopBefore(const Slice& user_key, uint64_t curr_file_size) {
     auto ucmp = compaction->column_family_data()->user_comparator();
 
-    Slice prev_user_key(last_user_key.data(), last_user_key.size());
+    Slice prev_user_key(last_user_key);
     if (!prev_user_key.empty() && ucmp->Compare(user_key, prev_user_key) == 0) {
       return false;
     } else {

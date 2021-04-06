@@ -619,8 +619,7 @@ Compaction* HybridCompactionPicker::PickLevelCompaction(
     if (!prevSubCompaction_[hyperLevelNum].empty()) {
       auto k =
           vstorage->LevelFiles(lastLevelInHyper).back()->largest.user_key();
-      const Slice last_key(prevSubCompaction_[hyperLevelNum].lastKey.data(),
-                           prevSubCompaction_[hyperLevelNum].lastKey.size());
+      const Slice last_key(prevSubCompaction_[hyperLevelNum].lastKey);
       if (ucmp_->Compare(k, last_key) > 0) {
         outputLevel = prevSubCompaction_[hyperLevelNum].outputLevel;
       }
@@ -1039,8 +1038,7 @@ bool HybridCompactionPicker::SelectNBuffers(
                               vstorage->LevelFiles(LastLevel()), nBuffers,
                               inputs[count].files, smallestKey, largestKey,
                               lowerBound, upperBound, lastFileWasSelected);
-  const Slice prevPlace(prevSubCompaction_[hyperLevelNum].lastKey.data(),
-                        prevSubCompaction_[hyperLevelNum].lastKey.size());
+  const Slice prevPlace(prevSubCompaction_[hyperLevelNum].lastKey);
   if (!prevPlace.empty()) {
     if (ucmp_->Compare(prevPlace, smallestKey) < 0 &&
         (lowerBound.empty() || ucmp_->Compare(prevPlace, lowerBound) > 0)) {
