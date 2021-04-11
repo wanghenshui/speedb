@@ -199,17 +199,18 @@ struct CompactionJob::SubcompactionState {
     const std::vector<FileMetaData*>& grandparents = compaction->grandparents();
     auto maxFileSize = compaction->max_output_file_size();
     max_sizes.resize(grandparents.size() + 1);
+
     size_t gpIndex = 0;
     for (auto* f : grandparents) {
       // if almost reached the size than split to two files
       if (f->fd.file_size > maxFileSize / 2) {
-        max_sizes[gpIndex] = maxFileSize / 3;
+        max_sizes[gpIndex] = maxFileSize / 2;
       } else {
-        max_sizes[gpIndex] = -1ull;
+        max_sizes[gpIndex] = maxFileSize;
       }
       gpIndex++;
     }
-    max_sizes[gpIndex] = -1ull;
+    max_sizes[gpIndex] = maxFileSize;
   }
 
   SubcompactionState(SubcompactionState&& o) { *this = std::move(o); }
@@ -254,17 +255,12 @@ struct CompactionJob::SubcompactionState {
   // before processing "internal_key".
   bool ShouldStopBefore(const Slice& user_key, uint64_t curr_file_size) {
     auto ucmp = compaction->column_family_data()->user_comparator();
-
-    Slice prev_user_key(last_user_key);
-    if (!prev_user_key.empty() && ucmp->Compare(user_key, prev_user_key) == 0) {
-      return false;
-    } else {
-      last_user_key.assign(user_key.data(), user_key.size());
-    }
+    std::string prev_user_key(last_user_key);
+    last_user_key.assign(user_key.data(), user_key.size());
 
     const std::vector<FileMetaData*>& grandparents = compaction->grandparents();
     if (grandparent_index == 0) {
-      // first key never break hear...
+      // first key, never break here
       grandparent_index++;
       while (grandparent_index < grandparents.size() &&
              ucmp->Compare(
@@ -277,14 +273,19 @@ struct CompactionJob::SubcompactionState {
       }
       return false;
     }
+    if (!prev_user_key.empty() &&
+        ucmp->Compare(user_key, Slice(prev_user_key)) == 0) {
+      return false;
+    }
 
     bool ret = false;
     // first condition near the max size
     if (grandparent_index < max_sizes.size() &&
         curr_file_size > max_sizes[grandparent_index]) {
-      max_sizes[grandparent_index] = -1ull;
+      // max_sizes[grandparent_index] = -1ull;
       ret = true;
     }
+    // second
     if (prefix_table_size > 0 && prefix_table_size < user_key.size()) {
       std::string prefix(user_key.data(), prefix_table_size);
       if (prefix != first_key_prefix) {
@@ -293,7 +294,7 @@ struct CompactionJob::SubcompactionState {
       }
     }
 
-    // second confition to break at gp
+    // third condition to break at gp
     if (grandparent_index < grandparents.size()) {
       if (ucmp->Compare(user_key,
                         grandparents[grandparent_index]->smallest.user_key()) >=

@@ -104,7 +104,7 @@ bool HybridCompactionPicker::NeedsCompaction(
   }
   // reduce number of sorted run ....
   // need to more than 4 levels with data
-  if (enableLow_ && runningDesc[0].nCompactions == 0 &&
+  if (0 && enableLow_ && runningDesc[0].nCompactions == 0 &&
       compactions_in_progress()->empty()) {
     if (vstorage->LevelFiles(0).size() >= level0_compaction_trigger_ / 2) {
       return true;
@@ -271,7 +271,7 @@ Compaction* HybridCompactionPicker::PickCompaction(
   }
 
   // no compaction check for reduction
-  if (enableLow_ && runningDesc[0].nCompactions == 0 &&
+  if (0 && enableLow_ && runningDesc[0].nCompactions == 0 &&
       compactions_in_progress()->empty()) {
     const size_t l0_threshold = std::min(
         multiplier_[0] / 2,
@@ -892,6 +892,7 @@ void HybridCompactionPicker::selectNBufferFromFirstLevel(
     } else if (targetEnd == targetLevelFiles.end() ||
                ucmp_->Compare((*targetEnd)->smallest.user_key(),
                               (*levelIter)->largest.user_key()) > 0) {
+      // Todo fix and add comment
       // "free" file check the comapction size and the write amp
       if (outFiles.size() > maxNBuffers && currentLevelSize < (1 << 26) &&
           currentTargetSize / currentLevelSize > 2) {
