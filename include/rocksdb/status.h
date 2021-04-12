@@ -139,7 +139,7 @@ class Status {
   // Returns a C style string indicating the message of the Status
   const char* getState() const {
     MarkChecked();
-    return state_;
+    return state_ != nullptr ? state_ : "";
   }
 
   // Return a success status.

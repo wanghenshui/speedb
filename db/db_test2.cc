@@ -1813,11 +1813,9 @@ TEST_P(CompressionFailuresTest, CompressionFailures) {
     }
     ASSERT_EQ(0, key_value_written.size());
   } else if (compression_failure_type_ == kTestDecompressionFail) {
-    ASSERT_NE(s.getState(), nullptr);
     ASSERT_EQ(std::string(s.getState()),
               "Could not decompress: kTestDecompressionFail");
   } else if (compression_failure_type_ == kTestDecompressionCorruption) {
-    ASSERT_NE(s.getState(), nullptr);
     ASSERT_EQ(std::string(s.getState()),
               "Decompressed block did not match raw block");
   }
