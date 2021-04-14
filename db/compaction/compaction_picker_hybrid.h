@@ -21,8 +21,8 @@ namespace ROCKSDB_NAMESPACE {
 
 // short descriptors of the running compactions
 struct HybridCompactionDescriptor {
-  uint nCompactions;
-  uint startLevel;
+  size_t nCompactions;
+  size_t startLevel;
   bool hasRearange;
 };
 
@@ -87,7 +87,8 @@ class HybridCompactionPicker : public CompactionPicker {
       size_t requiredLevel =
           std::max(s_minNumHyperLevels,
                    std::min((size_t)options.num_levels, s_maxNumHyperLevels));
-      options.num_levels = (requiredLevel * s_levelsInHyperLevel) + 2;
+      options.num_levels =
+          static_cast<int>((requiredLevel * s_levelsInHyperLevel) + 2);
     }
     if (options.compaction_options_universal.min_merge_width < 4 ||
         options.compaction_options_universal.min_merge_width >

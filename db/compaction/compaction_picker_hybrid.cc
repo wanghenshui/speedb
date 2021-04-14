@@ -786,7 +786,8 @@ bool HybridCompactionPicker::NeedToRunLevelCompaction(
     return false;
   }
 
-  int forceCompactLevel = lastLevelInHyper - multiplier_[hyperLevelNum] - 6;
+  int forceCompactLevel =
+      int(lastLevelInHyper - multiplier_[hyperLevelNum]) - 6;
   size_t maxSize = sizeToCompact_[hyperLevelNum];
 
   if (hyperLevelNum == curNumOfHyperLevels_) {
@@ -1018,7 +1019,7 @@ bool HybridCompactionPicker::SelectNBuffers(
   }
 
   assert(lowest_level >= upper_level);
-  uint count = 0;
+  size_t count = 0;
   for (uint s = lowest_level; s >= upper_level; s--) {
     auto& levelFiles = vstorage->LevelFiles(s);
     if (!levelFiles.empty()) {

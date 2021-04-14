@@ -45,7 +45,7 @@ class ExternalDelay {
       if (delay > 100000) {
         delay = 100000;  // do not sleep more than 0.1 sec
       }
-      env->SleepForMicroseconds(size_t(delay));
+      env->SleepForMicroseconds(int(delay));
     }
     delayPerByte_ *= pow(increment_, numBytes);
   }

@@ -7,11 +7,11 @@ ROOT_DIR = $(abspath $(shell pwd)/../)
 
 include $(ROOT_DIR)/make_config.mk
 
-PROTOBUF_CFLAGS = `pkg-config --cflags protobuf`
-PROTOBUF_LDFLAGS = `pkg-config --libs protobuf`
+PROTOBUF_CFLAGS = $(shell pkg-config --cflags protobuf)
+PROTOBUF_LDFLAGS = $(shell pkg-config --libs protobuf)
 
-PROTOBUF_MUTATOR_CFLAGS = `pkg-config --cflags libprotobuf-mutator`
-PROTOBUF_MUTATOR_LDFLAGS = `pkg-config --libs libprotobuf-mutator`
+PROTOBUF_MUTATOR_CFLAGS = $(shell pkg-config --cflags libprotobuf-mutator)
+PROTOBUF_MUTATOR_LDFLAGS = $(shell pkg-config --libs libprotobuf-mutator)
 
 ROCKSDB_INCLUDE_DIR = $(ROOT_DIR)/include
 ROCKSDB_LIB_DIR = $(ROOT_DIR)
@@ -23,7 +23,7 @@ ifneq ($(FUZZ_ENV), ossfuzz)
 CC = clang++
 CCFLAGS += -Wall -fsanitize=address,fuzzer
 CFLAGS += $(PLATFORM_CXXFLAGS) $(PROTOBUF_CFLAGS) $(PROTOBUF_MUTATOR_CFLAGS) -I$(PROTO_OUT) -I$(ROCKSDB_INCLUDE_DIR) -I$(ROCKSDB_LIB_DIR)
-LDFLAGS += $(PLATFORM_LDFLAGS) $(PROTOBUF_LDFLAGS) $(PROTOBUF_MUTATOR_LDFLAGS) -L$(ROCKSDB_LIB_DIR) -lrocksdb
+LDFLAGS += $(PLATFORM_LDFLAGS) $(PROTOBUF_MUTATOR_LDFLAGS) $(PROTOBUF_LDFLAGS) -L$(ROCKSDB_LIB_DIR) -lrocksdb
 else
 # OSS-Fuzz sets various environment flags that are used for compilation.
 # These environment flags depend on which type of sanitizer build is being
