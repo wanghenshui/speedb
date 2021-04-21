@@ -259,6 +259,7 @@ struct CompactionJob::SubcompactionState {
     last_user_key.assign(user_key.data(), user_key.size());
 
     const std::vector<FileMetaData*>& grandparents = compaction->grandparents();
+
     if (grandparent_index == 0) {
       // first key, never break here
       grandparent_index++;
@@ -278,11 +279,13 @@ struct CompactionJob::SubcompactionState {
       return false;
     }
 
-    bool ret = false;
+    static const size_t maxFileSize = (1 << 30) + (128 << 20);
+
+    bool ret = curr_file_size >= maxFileSize;
     // first condition near the max size
     if (grandparent_index < max_sizes.size() &&
         curr_file_size > max_sizes[grandparent_index]) {
-      // max_sizes[grandparent_index] = -1ull;
+      max_sizes[grandparent_index] = maxFileSize;
       ret = true;
     }
     // second
@@ -300,20 +303,14 @@ struct CompactionJob::SubcompactionState {
                         grandparents[grandparent_index]->smallest.user_key()) >=
           0) {
         grandparent_index++;
-        if (grandparent_index < grandparents.size() &&
-            ucmp->Compare(
-                user_key,
-                grandparents[grandparent_index]->smallest.user_key()) == 0) {
-          grandparent_index++;
-        }
 
         while (grandparent_index < grandparents.size() &&
                ucmp->Compare(
                    user_key,
-                   grandparents[grandparent_index]->largest.user_key()) >= 0) {
+                   grandparents[grandparent_index]->smallest.user_key()) >= 0) {
           grandparent_index++;
         }
-        ret = curr_file_size > (1 << 22);  // 4M files as a minimum
+        ret = true;
       }
     }
 
@@ -1399,6 +1396,10 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
         // (2) this key belongs to the next file. For historical reasons, the
         // iterator status after advancing will be given to
         // FinishCompactionOutputFile().
+        ROCKS_LOG_INFO(db_options_.info_log,
+                       "should stop before return true at key %s size %lu",
+                       c_iter->user_key().ToString(true).c_str(),
+                       sub_compact->current_output_file_size);
         output_file_ended = true;
       }
     }

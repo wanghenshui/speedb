@@ -437,13 +437,19 @@ Compaction* HybridCompactionPicker::CheckDbSize(
                        cf_name.c_str(), actualDbSize / 1024 / 1024,
                        lastHyperLevelSize / 1024 / 1024, curNumOfHyperLevels_);
 
-      std::vector<CompactionInputFiles> inputs(1);
-      inputs[0].level = lastNonEmpty;
-      inputs[0].files = vstorage->LevelFiles(lastNonEmpty);
+      uint numLevelsToMove =
+          std::min<uint>(s_maxLevelsToMerge * 2, lastNonEmpty - 1);
+      std::vector<CompactionInputFiles> inputs(numLevelsToMove);
+      auto level = lastNonEmpty + 1 - numLevelsToMove;
+      for (uint i = 0; i < numLevelsToMove; i++) {
+        inputs[i].level = level;
+        inputs[i].files = vstorage->LevelFiles(level);
+        level++;
+      }
       auto outputLevel = LastLevel();
       prevSubCompaction_[curNumOfHyperLevels_ - 1].setEmpty();
 
-      return new Compaction(
+      auto ret = new Compaction(
           vstorage, ioptions_, mutable_cf_options, mutable_db_options,
           std::move(inputs), outputLevel, -1,
           /* max_grandparent_overlap_bytes */ LLONG_MAX, 0,
@@ -453,6 +459,8 @@ Compaction* HybridCompactionPicker::CheckDbSize(
           /* max_subcompactions */ 1, /* grandparents */ {},
           /* is manual */ false, 0, false /* deletion_compaction */,
           kRearangeCompaction);
+      ret->set_is_trivial_move(true);
+      return ret;
     }
   }
   return nullptr;
@@ -606,7 +614,7 @@ Compaction* HybridCompactionPicker::PickLevelCompaction(
 
   uint outputLevel = lastLevelInHyper + 1;
   uint nSubCompactions = 1;
-  size_t compactionOutputFileSize = 1 << 30;
+  size_t compactionOutputFileSize = 1ul << 30;
 
   std::vector<FileMetaData*> grandparents;
   if (hyperLevelNum != curNumOfHyperLevels_) {
@@ -628,8 +636,10 @@ Compaction* HybridCompactionPicker::PickLevelCompaction(
     grandparents = vstorage->LevelFiles(LastLevel());
     // rush the compaction to prevent stall
     const uint firstLevelInHyper = FirstLevelInHyper(hyperLevelNum);
-    if (!vstorage->LevelFiles(firstLevelInHyper + 4).empty()) {
-      nSubCompactions++;
+    for (uint i = 2; i < 6; i++) {
+      if (!vstorage->LevelFiles(firstLevelInHyper + i).empty()) {
+        nSubCompactions++;
+      }
     }
   } else {
     const size_t lastHyperLevelSize =
@@ -650,9 +660,12 @@ Compaction* HybridCompactionPicker::PickLevelCompaction(
   }
 
   std::vector<CompactionInputFiles> inputs;
+  size_t num_buffers = lowPriority ? 1 : nSubCompactions * 4;
+  if (grandparents.size() / 10 > num_buffers)
+    num_buffers = grandparents.size() / 10;
 
-  if (!SelectNBuffers(inputs, lowPriority ? 1 : nSubCompactions * 4,
-                      outputLevel, hyperLevelNum, vstorage)) {
+  if (!SelectNBuffers(inputs, num_buffers, outputLevel, hyperLevelNum,
+                      vstorage)) {
     return nullptr;
   }
 
@@ -706,7 +719,7 @@ Compaction* HybridCompactionPicker::PickReduceNumFiles(
           break;
         }
         totalSize += f->raw_value_size;
-        if (totalSize > (1 << 30)) {
+        if (totalSize > (1ul << 30)) {
           break;
         }
       }
@@ -789,11 +802,16 @@ bool HybridCompactionPicker::NeedToRunLevelCompaction(
   int forceCompactLevel =
       int(lastLevelInHyper - multiplier_[hyperLevelNum]) - 6;
   size_t maxSize = sizeToCompact_[hyperLevelNum];
+  size_t levelSize = vstorage->NumLevelBytes(LastLevel()) /
+                     (spaceAmpFactor_ * 1.1);  // take 10 % extra
 
-  if (hyperLevelNum == curNumOfHyperLevels_) {
-    maxSize = vstorage->NumLevelBytes(LastLevel()) /
-              (spaceAmpFactor_ * 1.1);  // take 10 % extra
+  for (uint hyperLevel = hyperLevelNum; hyperLevel < curNumOfHyperLevels_;
+       hyperLevel++) {
+    levelSize /= multiplier_[hyperLevel];
   }
+
+  if (maxSize > levelSize) maxSize = levelSize;
+
   return (!vstorage->LevelFiles(forceCompactLevel).empty() ||
           CalculateHyperlevelSize(hyperLevelNum, vstorage) > maxSize);
 }
@@ -895,15 +913,15 @@ void HybridCompactionPicker::selectNBufferFromFirstLevel(
                               (*levelIter)->largest.user_key()) > 0) {
       // Todo fix and add comment
       // "free" file check the comapction size and the write amp
-      if (outFiles.size() > maxNBuffers && currentLevelSize < (1 << 26) &&
-          currentTargetSize / currentLevelSize > 2) {
+      if (outFiles.size() > maxNBuffers && currentLevelSize < (1ul << 26) &&
+          currentTargetSize < currentLevelSize * 2) {
         expand = false;
       }
     } else {
       // target end starts after the current file expand only if too small
       // compaction && this file is not completely excluded
-      auto newSize = currentTargetSize + (*targetEnd)->fd.file_size;
-      if (outFiles.size() >= maxNBuffers || newSize > (1 << 30) ||
+      size_t newSize = currentTargetSize + (*targetEnd)->fd.file_size;
+      if (outFiles.size() >= maxNBuffers ||
           ucmp_->Compare((*targetEnd)->largest.user_key(),
                          (*levelIter)->smallest.user_key()) < 0) {
         expand = false;
