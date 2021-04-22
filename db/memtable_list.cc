@@ -356,6 +356,7 @@ void MemTableList::PickMemtablesToFlush(uint64_t max_memtable_id,
       }
       m->flush_in_progress_ = true;  // flushing will start very soon
       ret->push_back(m);
+      break;  // SPDB-89 : do not merge memtables in a single flush
     }
   }
   if (!atomic_flush || num_flush_not_started_ == 0) {
