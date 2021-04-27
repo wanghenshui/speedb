@@ -201,8 +201,8 @@ class HybridCompactionPicker : public CompactionPicker {
   bool NeedToRunLevelCompaction(uint hyperLevelNum,
                                 const VersionStorageInfo* vstorage) const;
 
-  bool SelectNBuffers(std::vector<CompactionInputFiles>& inputs, uint nBuffers,
-                      uint outputLevel, uint hyperLevelNum,
+  bool SelectNBuffers(std::vector<CompactionInputFiles>& inputs,
+                      size_t nBuffers, uint outputLevel, uint hyperLevelNum,
                       VersionStorageInfo* vstorage);
 
   void expandSelection(const std::vector<FileMetaData*>& levelFiles,
@@ -213,7 +213,7 @@ class HybridCompactionPicker : public CompactionPicker {
 
   void selectNBufferFromFirstLevel(
       const std::vector<FileMetaData*>& levelFiles,
-      const std::vector<FileMetaData*>& targetLevelFiles, uint maxNBuffers,
+      const std::vector<FileMetaData*>& targetLevelFiles, size_t maxNBuffers,
       std::vector<FileMetaData*>& outFiles, Slice& smallestKey,
       Slice& largestKey, Slice& smallestExcludedKey, Slice& largestExcludedKey,
       bool& lastFileWasSelected);

@@ -850,7 +850,7 @@ std::vector<FileMetaData*>::const_iterator HybridCompactionPicker::locateFile(
 
 void HybridCompactionPicker::selectNBufferFromFirstLevel(
     const std::vector<FileMetaData*>& levelFiles,
-    const std::vector<FileMetaData*>& targetLevelFiles, uint maxNBuffers,
+    const std::vector<FileMetaData*>& targetLevelFiles, size_t maxNBuffers,
     std::vector<FileMetaData*>& outFiles, Slice& smallestKey, Slice& largestKey,
     Slice& lowerBound, Slice& upperBound, bool& lastFileWasSelected) {
   if (levelFiles.empty()) {
@@ -1020,8 +1020,8 @@ void HybridCompactionPicker::expandSelection(
 }
 
 bool HybridCompactionPicker::SelectNBuffers(
-    std::vector<CompactionInputFiles>& inputs, uint nBuffers, uint outputLevel,
-    uint hyperLevelNum, VersionStorageInfo* vstorage) {
+    std::vector<CompactionInputFiles>& inputs, size_t nBuffers,
+    uint outputLevel, uint hyperLevelNum, VersionStorageInfo* vstorage) {
   const uint lowest_level = LastLevelInHyper(hyperLevelNum);
   if (vstorage->LevelFiles(lowest_level).empty()) {
     return false;
