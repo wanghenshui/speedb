@@ -900,6 +900,8 @@ TEST_F(DBBlockCacheTest, CacheCompressionDict) {
     options.bottommost_compression_opts.max_dict_bytes = 4096;
     options.bottommost_compression_opts.enabled = true;
     options.create_if_missing = true;
+    options.level0_file_num_compaction_trigger = 4;
+    options.level0_slowdown_writes_trigger = 4;
     options.num_levels = 2;
     options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
     options.target_file_size_base = kNumEntriesPerFile * kNumBytesPerEntry;
@@ -925,9 +927,9 @@ TEST_F(DBBlockCacheTest, CacheCompressionDict) {
 
     // Compression dictionary blocks are preloaded.
     CheckCacheCountersForCompressionDict(
-        options, kNumFiles /* expected_compression_dict_misses */,
+        options, kNumFiles - 3 /* expected_compression_dict_misses */,
         0 /* expected_compression_dict_hits */,
-        kNumFiles /* expected_compression_dict_inserts */);
+        kNumFiles - 3 /* expected_compression_dict_inserts */);
 
     // Seek to a key in a file. It should cause the SST's dictionary meta-block
     // to be read.
@@ -937,8 +939,9 @@ TEST_F(DBBlockCacheTest, CacheCompressionDict) {
     ASSERT_NE("NOT_FOUND", Get(Key(kNumFiles * kNumEntriesPerFile - 1)));
     // Two block hits: index and dictionary since they are prefetched
     // One block missed/added: data block
-    CheckCacheCounters(options, 1 /* expected_misses */, 2 /* expected_hits */,
-                       1 /* expected_inserts */, 0 /* expected_failures */);
+    CheckCacheCounters(options, 1 /* expected_misses */,
+                       2 + 1 /* expected_hits */, 1 /* expected_inserts */,
+                       0 /* expected_failures */);
     CheckCacheCountersForCompressionDict(
         options, 0 /* expected_compression_dict_misses */,
         1 /* expected_compression_dict_hits */,
