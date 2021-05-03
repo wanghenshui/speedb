@@ -1128,6 +1128,7 @@ TEST_F(DBTest, MetaDataTest) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
   options.disable_auto_compactions = true;
+  options.level0_slowdown_writes_trigger = 100;
 
   int64_t temp_time = 0;
   options.env->GetCurrentTime(&temp_time);
