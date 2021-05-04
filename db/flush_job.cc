@@ -171,7 +171,9 @@ void FlushJob::PickMemTable() {
   assert(!pick_memtable_called);
   pick_memtable_called = true;
   // Save the contents of the earliest memtable as a new Table
-  cfd_->imm()->PickMemtablesToFlush(max_memtable_id_, &mems_);
+  cfd_->imm()->PickMemtablesToFlush(
+      max_memtable_id_, &mems_,
+      mutable_cf_options_.max_write_buffer_number - 1);
   if (mems_.empty()) {
     return;
   }
