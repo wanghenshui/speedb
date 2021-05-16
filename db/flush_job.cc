@@ -265,13 +265,8 @@ Status FlushJob::Run(LogsWithPrepTracker* prep_tracker,
          << "flush_finished";
   stream << "output_compression"
          << CompressionTypeToString(output_compression_);
-  stream << "lsm_state";
-  stream.StartArray();
   auto vstorage = cfd_->current()->storage_info();
-  for (int level = 0; level < vstorage->num_levels(); ++level) {
-    stream << vstorage->NumLevelFiles(level);
-  }
-  stream.EndArray();
+  cfd_->compaction_picker()->PrintLsmState(stream, vstorage);
 
   const auto& blob_files = vstorage->GetBlobFiles();
   if (!blob_files.empty()) {

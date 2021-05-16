@@ -9,6 +9,9 @@
 #include "db/db_impl/db_impl.h"
 
 #include <stdint.h>
+
+#include <fstream>
+#include <sstream>
 #ifdef OS_SOLARIS
 #include <alloca.h>
 #endif
@@ -879,13 +882,48 @@ void DBImpl::PersistStats() {
 
 void DBImpl::OptionsLoad() {
   // for now the only work is to set io trace
-  std::string full_path_to_trace = (immutable_db_options_.db_log_dir.empty()
-                                        ? dbname_
-                                        : immutable_db_options_.db_log_dir) +
-                                   "/" + "trace";
-  auto status = env_->FileExists(full_path_to_trace);
-  mutable_db_options_.io_trace = status.ok();
-  RunLowPriorityCompaction();
+  std::string io_options_path = (immutable_db_options_.db_log_dir.empty()
+                                     ? dbname_
+                                     : immutable_db_options_.db_log_dir) +
+                                "/io_options";
+
+  std::stringstream ss;
+  std::ifstream f{io_options_path, std::ios::in | std::ios::binary};
+
+  if (f.is_open()) {
+    ss << f.rdbuf();
+    auto data = ss.str();
+
+    switch (data.size()) {
+      default:
+      case 2: {
+        // lg == 0x16
+        const bool log_enable = (static_cast<uint8_t>(data[1]) == 0x16);
+        if (log_enable != enable_spdb_log) {
+          enable_spdb_log = log_enable;
+          ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                         "[LOAD] %sing SPDB logging",
+                         log_enable ? "Enabl" : "Disabl");
+        }
+        FALLTHROUGH_INTENDED;
+      }
+      case 1: {
+        // io == 0x10
+        const bool io_trace_enable = (static_cast<uint8_t>(data[0]) == 0x10);
+        if (io_trace_enable != mutable_db_options_.io_trace) {
+          mutable_db_options_.io_trace = io_trace_enable;
+          ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                         "[LOAD] %sing IO tracing",
+                         io_trace_enable ? "Enabl" : "Disabl");
+        }
+        FALLTHROUGH_INTENDED;
+      }
+      case 0:
+        break;
+    }
+  }
+
+  // RunLowPriorityCompaction();
 }
 
 bool DBImpl::FindStatsByTime(uint64_t start_time, uint64_t end_time,

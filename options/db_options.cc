@@ -23,6 +23,9 @@
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+bool enable_spdb_log;
+
 #ifndef ROCKSDB_LITE
 static std::unordered_map<std::string, WALRecoveryMode>
     wal_recovery_mode_string_map = {

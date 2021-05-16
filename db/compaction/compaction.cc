@@ -425,6 +425,10 @@ void Compaction::MarkFilesBeingCompacted(bool mark_as_compacted) {
 // print: "3@0 + 2@3 + 1@4 files to L5"
 const char* Compaction::InputLevelSummary(
     InputLevelSummaryBuffer* scratch) const {
+  if (!enable_spdb_log) {
+    return "";
+  }
+
   int len = 0;
   bool is_first = true;
   for (auto& input_level : inputs_) {
@@ -493,6 +497,10 @@ int InputSummary(const std::vector<FileMetaData*>& files, char* output,
 }  // namespace
 
 void Compaction::Summary(char* output, int len) {
+  if (!enable_spdb_log) {
+    return;
+  }
+
   int write =
       snprintf(output, len, "Base version %" PRIu64 " Base level %d, inputs: [",
                input_version_->GetVersionNumber(), start_level_);

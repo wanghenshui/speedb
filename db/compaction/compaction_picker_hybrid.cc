@@ -130,9 +130,11 @@ Compaction* HybridCompactionPicker::PickCompaction(
   if (curNumOfHyperLevels_ == 0) {
     InitCf(mutable_cf_options, vstorage);
     size_t curDbSize = sizeToCompact_[curNumOfHyperLevels_] * spaceAmpFactor_;
-    ROCKS_LOG_BUFFER(log_buffer, "[%s] Hybrid: init %u %u %lu \n",
-                     cf_name.c_str(), curNumOfHyperLevels_, maxNumHyperLevels_,
-                     curDbSize);
+    if (enable_spdb_log) {
+      ROCKS_LOG_BUFFER(log_buffer, "[%s] Hybrid: init %u %u %lu \n",
+                       cf_name.c_str(), curNumOfHyperLevels_,
+                       maxNumHyperLevels_, curDbSize);
+    }
   }
 
   HybridComactionsDescribtors runningDesc(curNumOfHyperLevels_ + 2);
@@ -163,18 +165,22 @@ Compaction* HybridCompactionPicker::PickCompaction(
             RearangeLevel(hyperLevelNum, cf_name, mutable_cf_options,
                           mutable_db_options, vstorage);
         if (ret) {
-          ROCKS_LOG_BUFFER(
-              log_buffer,
-              "[%s] Hybrid: rearanging  hyper level %u Level %d to level %d\n",
-              cf_name.c_str(), hyperLevelNum, ret->start_level(),
-              ret->output_level());
+          if (enable_spdb_log) {
+            ROCKS_LOG_BUFFER(log_buffer,
+                             "[%s] Hybrid: rearanging  hyper level %u Level %d "
+                             "to level %d\n",
+                             cf_name.c_str(), hyperLevelNum, ret->start_level(),
+                             ret->output_level());
+          }
           RegisterCompaction(ret);
           return ret;
         } else {
-          ROCKS_LOG_BUFFER(
-              log_buffer,
-              "[%s] Hybrid:  hyper level %u build rearange failed \n",
-              cf_name.c_str(), hyperLevelNum);
+          if (enable_spdb_log) {
+            ROCKS_LOG_BUFFER(
+                log_buffer,
+                "[%s] Hybrid:  hyper level %u build rearange failed \n",
+                cf_name.c_str(), hyperLevelNum);
+          }
         }
       }
     }
@@ -186,9 +192,11 @@ Compaction* HybridCompactionPicker::PickCompaction(
     Compaction* ret = CheckDbSize(cf_name, mutable_cf_options,
                                   mutable_db_options, vstorage, log_buffer);
     if (ret) {
-      ROCKS_LOG_BUFFER(log_buffer,
-                       "[%s] Hybrid: compacting moving to level %d\n",
-                       cf_name.c_str(), ret->output_level());
+      if (enable_spdb_log) {
+        ROCKS_LOG_BUFFER(log_buffer,
+                         "[%s] Hybrid: compacting moving to level %d\n",
+                         cf_name.c_str(), ret->output_level());
+      }
       RegisterCompaction(ret);
       return ret;
     }
@@ -202,12 +210,14 @@ Compaction* HybridCompactionPicker::PickCompaction(
         ret = MoveSstToLastLevel(cf_name, mutable_cf_options,
                                  mutable_db_options, vstorage, log_buffer);
         if (ret) {
-          ROCKS_LOG_BUFFER(log_buffer,
-                           "[%s] Hybrid: moving large sst (%lu) db (%lu) from "
-                           "%d to level %d\n",
-                           cf_name.c_str(), levelSize / 1024 / 1024,
-                           dbSize / 1024 / 1024, lastLevelInPrevHyper,
-                           ret->output_level());
+          if (enable_spdb_log) {
+            ROCKS_LOG_BUFFER(
+                log_buffer,
+                "[%s] Hybrid: moving large sst (%lu) db (%lu) from "
+                "%d to level %d\n",
+                cf_name.c_str(), levelSize / 1024 / 1024, dbSize / 1024 / 1024,
+                lastLevelInPrevHyper, ret->output_level());
+          }
           RegisterCompaction(ret);
           return ret;
         }
@@ -224,8 +234,11 @@ Compaction* HybridCompactionPicker::PickCompaction(
       Compaction* ret = PickLevel0Compaction(
           mutable_cf_options, mutable_db_options, vstorage, l0_threshold);
       if (ret) {
-        ROCKS_LOG_BUFFER(log_buffer, "[%s] Hybrid: compacting L0 to level %d\n",
-                         cf_name.c_str(), ret->output_level());
+        if (enable_spdb_log) {
+          ROCKS_LOG_BUFFER(log_buffer,
+                           "[%s] Hybrid: compacting L0 to level %d\n",
+                           cf_name.c_str(), ret->output_level());
+        }
         RegisterCompaction(ret);
         return ret;
       }
@@ -239,17 +252,22 @@ Compaction* HybridCompactionPicker::PickCompaction(
       Compaction* ret = PickLevelCompaction(hyperLevelNum, mutable_cf_options,
                                             mutable_db_options, vstorage);
       if (ret) {
-        ROCKS_LOG_BUFFER(
-            log_buffer,
-            "[%s] Hybrid: compacting  hyper level %u Level %d to level %d\n",
-            cf_name.c_str(), hyperLevelNum, ret->start_level(),
-            ret->output_level());
+        if (enable_spdb_log) {
+          ROCKS_LOG_BUFFER(
+              log_buffer,
+              "[%s] Hybrid: compacting  hyper level %u Level %d to level %d\n",
+              cf_name.c_str(), hyperLevelNum, ret->start_level(),
+              ret->output_level());
+        }
         RegisterCompaction(ret);
         return ret;
       } else {
-        ROCKS_LOG_BUFFER(log_buffer,
-                         "[%s] Hybrid:  hyper level %u build compact failed \n",
-                         cf_name.c_str(), hyperLevelNum);
+        if (enable_spdb_log) {
+          ROCKS_LOG_BUFFER(
+              log_buffer,
+              "[%s] Hybrid:  hyper level %u build compact failed \n",
+              cf_name.c_str(), hyperLevelNum);
+        }
       }
     }
   }
@@ -260,10 +278,12 @@ Compaction* HybridCompactionPicker::PickCompaction(
           PickReduceNumFiles(mutable_cf_options, mutable_db_options, vstorage,
                              std::min(dbSize / 1024, 1ul << 28));
       if (ret) {
-        ROCKS_LOG_BUFFER(log_buffer,
-                         "[%s] Hybrid: compact level %u  "
-                         "to reduce num number of files\n",
-                         cf_name.c_str(), ret->output_level());
+        if (enable_spdb_log) {
+          ROCKS_LOG_BUFFER(log_buffer,
+                           "[%s] Hybrid: compact level %u  "
+                           "to reduce num number of files\n",
+                           cf_name.c_str(), ret->output_level());
+        }
         RegisterCompaction(ret);
         return ret;
       }
@@ -282,10 +302,12 @@ Compaction* HybridCompactionPicker::PickCompaction(
       auto ret = PickLevel0Compaction(mutable_cf_options, mutable_db_options,
                                       vstorage, 1);
       if (ret) {
-        ROCKS_LOG_BUFFER(log_buffer,
-                         "[%s] Hybrid: compact level 0 to level %d "
-                         "to reduce num levels\n",
-                         cf_name.c_str(), ret->output_level());
+        if (enable_spdb_log) {
+          ROCKS_LOG_BUFFER(log_buffer,
+                           "[%s] Hybrid: compact level 0 to level %d "
+                           "to reduce num levels\n",
+                           cf_name.c_str(), ret->output_level());
+        }
         RegisterCompaction(ret);
         return ret;
       }
@@ -298,11 +320,14 @@ Compaction* HybridCompactionPicker::PickCompaction(
             PickLevelCompaction(hyperLevelNum, mutable_cf_options,
                                 mutable_db_options, vstorage, true);
         if (ret) {
-          ROCKS_LOG_BUFFER(log_buffer,
-                           "[%s] Hybrid: compact level %u Level %d to level %d "
-                           "to reduce num levels\n",
-                           cf_name.c_str(), hyperLevelNum, ret->start_level(),
-                           ret->output_level());
+          if (enable_spdb_log) {
+            ROCKS_LOG_BUFFER(
+                log_buffer,
+                "[%s] Hybrid: compact level %u Level %d to level %d "
+                "to reduce num levels\n",
+                cf_name.c_str(), hyperLevelNum, ret->start_level(),
+                ret->output_level());
+          }
           RegisterCompaction(ret);
           return ret;
         }
@@ -310,7 +335,6 @@ Compaction* HybridCompactionPicker::PickCompaction(
     }
   }
 
-  ROCKS_LOG_BUFFER(log_buffer, "[%s] Hybrid: nothing to do\n", cf_name.c_str());
   return nullptr;
 }
 
@@ -431,11 +455,14 @@ Compaction* HybridCompactionPicker::CheckDbSize(
          !vstorage->LevelFiles(firstLevel + 3).empty()) ||
         !vstorage->LevelFiles(firstLevel + 1).empty()) {
       curNumOfHyperLevels_++;
-      ROCKS_LOG_BUFFER(log_buffer,
-                       "[%s] Hybrid: increasing supported db size to %lu "
-                       "requested %luM  (maxlevel is %lu):",
-                       cf_name.c_str(), actualDbSize / 1024 / 1024,
-                       lastHyperLevelSize / 1024 / 1024, curNumOfHyperLevels_);
+      if (enable_spdb_log) {
+        ROCKS_LOG_BUFFER(log_buffer,
+                         "[%s] Hybrid: increasing supported db size to %lu "
+                         "requested %luM  (maxlevel is %lu):",
+                         cf_name.c_str(), actualDbSize / 1024 / 1024,
+                         lastHyperLevelSize / 1024 / 1024,
+                         curNumOfHyperLevels_);
+      }
 
       uint numLevelsToMove =
           std::min<uint>(s_maxLevelsToMerge * 2, lastNonEmpty - 1);
@@ -1128,7 +1155,11 @@ bool HybridCompactionPicker::SelectNBuffers(
 
 void HybridCompactionPicker::PrintLsmState(EventLoggerStream& stream,
                                            const VersionStorageInfo* vstorage) {
-  stream << "lsm_state";
+  if (enable_spdb_log) {
+    CompactionPicker::PrintLsmState(stream, vstorage);
+  }
+
+  stream << "level_size";
   stream.StartArray();
   for (uint level = 0; level <= curNumOfHyperLevels_; ++level) {
     stream << CalculateHyperlevelSize(level, vstorage) / 1024 / 1024;

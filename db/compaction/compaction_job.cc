@@ -1396,10 +1396,12 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
         // (2) this key belongs to the next file. For historical reasons, the
         // iterator status after advancing will be given to
         // FinishCompactionOutputFile().
-        ROCKS_LOG_INFO(db_options_.info_log,
-                       "should stop before return true at key %s size %lu",
-                       c_iter->user_key().ToString(true).c_str(),
-                       sub_compact->current_output_file_size);
+        if (enable_spdb_log) {
+          ROCKS_LOG_INFO(db_options_.info_log,
+                         "should stop before return true at key %s size %lu",
+                         c_iter->user_key().ToString(true).c_str(),
+                         sub_compact->current_output_file_size);
+        }
         output_file_ended = true;
       }
     }

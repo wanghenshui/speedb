@@ -13,6 +13,8 @@
 namespace ROCKSDB_NAMESPACE {
 class SystemClock;
 
+extern bool enable_spdb_log;
+
 struct ImmutableDBOptions {
   static const char* kName() { return "ImmutableDBOptions"; }
   ImmutableDBOptions();

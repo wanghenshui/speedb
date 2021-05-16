@@ -238,18 +238,20 @@ Status DBImpl::FlushMemTableToOutputFile(
     const VersionStorageInfo* const storage_info = current->storage_info();
     assert(storage_info);
 
-    VersionStorageInfo::LevelSummaryStorage tmp;
-    ROCKS_LOG_BUFFER(log_buffer, "[%s] Level summary: %s\n",
-                     column_family_name.c_str(),
-                     storage_info->LevelSummary(&tmp));
+    if (enable_spdb_log) {
+      VersionStorageInfo::LevelSummaryStorage tmp;
+      ROCKS_LOG_BUFFER(log_buffer, "[%s] Level summary: %s\n",
+                       column_family_name.c_str(),
+                       storage_info->LevelSummary(&tmp));
 
-    const auto& blob_files = storage_info->GetBlobFiles();
-    if (!blob_files.empty()) {
-      ROCKS_LOG_BUFFER(log_buffer,
-                       "[%s] Blob file summary: head=%" PRIu64 ", tail=%" PRIu64
-                       "\n",
-                       column_family_name.c_str(), blob_files.begin()->first,
-                       blob_files.rbegin()->first);
+      const auto& blob_files = storage_info->GetBlobFiles();
+      if (!blob_files.empty()) {
+        ROCKS_LOG_BUFFER(log_buffer,
+                         "[%s] Blob file summary: head=%" PRIu64
+                         ", tail=%" PRIu64 "\n",
+                         column_family_name.c_str(), blob_files.begin()->first,
+                         blob_files.rbegin()->first);
+      }
     }
   }
 
@@ -631,18 +633,20 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       const VersionStorageInfo* const storage_info = current->storage_info();
       assert(storage_info);
 
-      VersionStorageInfo::LevelSummaryStorage tmp;
-      ROCKS_LOG_BUFFER(log_buffer, "[%s] Level summary: %s\n",
-                       column_family_name.c_str(),
-                       storage_info->LevelSummary(&tmp));
+      if (enable_spdb_log) {
+        VersionStorageInfo::LevelSummaryStorage tmp;
+        ROCKS_LOG_BUFFER(log_buffer, "[%s] Level summary: %s\n",
+                         column_family_name.c_str(),
+                         storage_info->LevelSummary(&tmp));
 
-      const auto& blob_files = storage_info->GetBlobFiles();
-      if (!blob_files.empty()) {
-        ROCKS_LOG_BUFFER(log_buffer,
-                         "[%s] Blob file summary: head=%" PRIu64
-                         ", tail=%" PRIu64 "\n",
-                         column_family_name.c_str(), blob_files.begin()->first,
-                         blob_files.rbegin()->first);
+        const auto& blob_files = storage_info->GetBlobFiles();
+        if (!blob_files.empty()) {
+          ROCKS_LOG_BUFFER(
+              log_buffer,
+              "[%s] Blob file summary: head=%" PRIu64 ", tail=%" PRIu64 "\n",
+              column_family_name.c_str(), blob_files.begin()->first,
+              blob_files.rbegin()->first);
+        }
       }
     }
     if (made_progress) {
@@ -3114,11 +3118,13 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
           ++moved_files;
           moved_bytes += f->fd.GetFileSize();
         }
-        ROCKS_LOG_BUFFER(log_buffer,
-                         "[%s] Moving #%d files from level %d" PRIu64
-                         " to level-%d %" PRIu64 " bytes\n",
-                         c->column_family_data()->GetName().c_str(),
-                         c->num_input_files(l), l, output_level, moved_bytes);
+        if (enable_spdb_log) {
+          ROCKS_LOG_BUFFER(log_buffer,
+                           "[%s] Moving #%d files from level %d" PRIu64
+                           " to level-%d %" PRIu64 " bytes\n",
+                           c->column_family_data()->GetName().c_str(),
+                           c->num_input_files(l), l, output_level, moved_bytes);
+        }
         output_level--;
       }
     }
@@ -3132,15 +3138,16 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     InstallSuperVersionAndScheduleWork(c->column_family_data(),
                                        &job_context->superversion_contexts[0],
                                        *c->mutable_cf_options());
-
-    VersionStorageInfo::LevelSummaryStorage tmp;
-    ROCKS_LOG_BUFFER(
-        log_buffer,
-        "[%s] Moved #%d files to level-%d %" PRIu64 " bytes %s: %s\n",
-        c->column_family_data()->GetName().c_str(), moved_files,
-        c->output_level(), moved_bytes, status.ToString().c_str(),
-        c->column_family_data()->current()->storage_info()->LevelSummary(&tmp));
-
+    if (enable_spdb_log) {
+      VersionStorageInfo::LevelSummaryStorage tmp;
+      ROCKS_LOG_BUFFER(
+          log_buffer,
+          "[%s] Moved #%d files to level-%d %" PRIu64 " bytes %s: %s\n",
+          c->column_family_data()->GetName().c_str(), moved_files,
+          c->output_level(), moved_bytes, status.ToString().c_str(),
+          c->column_family_data()->current()->storage_info()->LevelSummary(
+              &tmp));
+    }
     c->column_family_data()->internal_stats()->IncBytesMoved(c->output_level(),
                                                              moved_bytes);
     *made_progress = true;
