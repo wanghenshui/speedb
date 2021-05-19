@@ -6542,7 +6542,7 @@ INSTANTIATE_TEST_CASE_P(DBTestWithParam, DBTestWithParam,
                         ::testing::Combine(::testing::Values(1, 4),
                                            ::testing::Bool()));
 
-TEST_F(DBTest, PauseBackgroundWorkTest) {
+TEST_F(DBTest, DISABLED_PauseBackgroundWorkTest) {
   Options options = CurrentOptions();
   options.write_buffer_size = 100000;  // Small write buffer
   Reopen(options);
