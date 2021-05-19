@@ -2221,14 +2221,15 @@ void CompactionJob::LogCompaction() {
            << "compaction_started"
            << "compaction_reason"
            << GetCompactionReasonString(compaction->compaction_reason());
-
-    for (size_t i = 0; i < compaction->num_input_levels(); ++i) {
-      stream << ("files_L" + ToString(compaction->level(i)));
-      stream.StartArray();
-      for (auto f : *compaction->inputs(i)) {
-        stream << f->fd.GetNumber();
+    if (enable_spdb_log) {
+      for (size_t i = 0; i < compaction->num_input_levels(); ++i) {
+        stream << ("files_L" + ToString(compaction->level(i)));
+        stream.StartArray();
+        for (auto f : *compaction->inputs(i)) {
+          stream << f->fd.GetNumber();
+        }
+        stream.EndArray();
       }
-      stream.EndArray();
     }
     stream << "score" << compaction->score() << "input_data_size"
            << compaction->CalculateTotalInputSize();

@@ -498,6 +498,8 @@ int InputSummary(const std::vector<FileMetaData*>& files, char* output,
 
 void Compaction::Summary(char* output, int len) {
   if (!enable_spdb_log) {
+    snprintf(output, len, "Base version %" PRIu64,
+             input_version_->GetVersionNumber());
     return;
   }
 
