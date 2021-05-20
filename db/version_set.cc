@@ -911,6 +911,9 @@ class LevelIterator final : public InternalIterator {
         compaction_boundaries_(compaction_boundaries) {
     // Empty level is not supported.
     assert(flevel_ != nullptr && flevel_->num_files > 0);
+    InternalIterator::SetRange(
+        flevel->files[0].smallest_key,
+        flevel->files[flevel_->num_files - 1].largest_key);
   }
 
   ~LevelIterator() override { delete file_iter_.Set(nullptr); }
