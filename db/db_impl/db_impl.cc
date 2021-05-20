@@ -521,7 +521,6 @@ Status DBImpl::CloseHelper() {
   // continuing with the shutdown
   mutex_.Lock();
   shutdown_initiated_ = true;
-  last_snapshot_.reset();
   error_handler_.CancelErrorRecovery();
   while (error_handler_.IsRecoveryInProgress()) {
     bg_cv_.Wait();
@@ -556,6 +555,7 @@ Status DBImpl::CloseHelper() {
   EraseThreadStatusDbInfo();
   flush_scheduler_.Clear();
   trim_history_scheduler_.Clear();
+  last_snapshot_.reset();
 
   while (!flush_queue_.empty()) {
     const FlushRequest& flush_req = PopFirstFromFlushQueue();
