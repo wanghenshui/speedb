@@ -334,14 +334,11 @@ Status DBImpl::FlushMemTablesToOutputFiles(
   MutableCFOptions mutable_cf_options = *cfd->GetLatestMutableCFOptions();
   SuperVersionContext* superversion_context =
       bg_flush_arg.superversion_context_;
-  Status status;
-  do {
-    status = FlushMemTableToOutputFile(
-        cfd, mutable_cf_options, made_progress, job_context,
-        superversion_context, snapshot_seqs, earliest_write_conflict_snapshot,
-        snapshot_checker, log_buffer, thread_pri);
-  } while (status.ok() && cfd->imm()->IsFlushPending());
-  return status;
+  Status s = FlushMemTableToOutputFile(
+      cfd, mutable_cf_options, made_progress, job_context, superversion_context,
+      snapshot_seqs, earliest_write_conflict_snapshot, snapshot_checker,
+      log_buffer, thread_pri);
+  return s;
 }
 
 /*
@@ -405,29 +402,16 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     all_mutable_cf_options.emplace_back(*cfd->GetLatestMutableCFOptions());
     const MutableCFOptions& mutable_cf_options = all_mutable_cf_options.back();
     uint64_t max_memtable_id = bg_flush_args[i].max_memtable_id_;
-    for (;;) {
-      jobs.emplace_back(new FlushJob(
-          dbname_, cfd, immutable_db_options_, mutable_cf_options,
-          max_memtable_id, file_options_for_compaction_, versions_.get(),
-          &mutex_, &shutting_down_, snapshot_seqs,
-          earliest_write_conflict_snapshot, snapshot_checker, job_context,
-          log_buffer, directories_.GetDbDir(), data_dir,
-          GetCompressionFlush(*cfd->ioptions(), mutable_cf_options), stats_,
-          &event_logger_, mutable_cf_options.report_bg_io_stats,
-          false /* sync_output_directory */, false /* write_manifest */,
-          thread_pri, io_tracer_, db_id_, db_session_id_,
-          cfd->GetFullHistoryTsLow()));
-      jobs.back()->PickMemTable();
-      const auto& memtables = jobs.back()->GetMemTables();
-      if (memtables.empty()) {
-        // Don't create empty flush jobs
-        jobs.pop_back();
-        break;
-      }
-      if (memtables.back()->GetID() >= max_memtable_id) {
-        break;
-      }
-    }
+    jobs.emplace_back(new FlushJob(
+        dbname_, cfd, immutable_db_options_, mutable_cf_options,
+        max_memtable_id, file_options_for_compaction_, versions_.get(), &mutex_,
+        &shutting_down_, snapshot_seqs, earliest_write_conflict_snapshot,
+        snapshot_checker, job_context, log_buffer, directories_.GetDbDir(),
+        data_dir, GetCompressionFlush(*cfd->ioptions(), mutable_cf_options),
+        stats_, &event_logger_, mutable_cf_options.report_bg_io_stats,
+        false /* sync_output_directory */, false /* write_manifest */,
+        thread_pri, io_tracer_, db_id_, db_session_id_,
+        cfd->GetFullHistoryTsLow()));
   }
 
   std::vector<FileMetaData> file_meta(num_cfs);
@@ -464,10 +448,19 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
   // <bool /* executed */, Status /* status code */>
   autovector<std::pair<bool, Status>> exec_status;
   autovector<IOStatus> io_status;
+  std::vector<bool> pick_status;
   for (int i = 0; i != num_cfs; ++i) {
     // Initially all jobs are not executed, with status OK.
     exec_status.emplace_back(false, Status::OK());
     io_status.emplace_back(IOStatus::OK());
+    pick_status.push_back(false);
+  }
+
+  if (s.ok()) {
+    for (int i = 0; i != num_cfs; ++i) {
+      jobs[i]->PickMemTable();
+      pick_status[i] = true;
+    }
   }
 
   if (s.ok()) {
@@ -544,7 +537,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     // Have to cancel the flush jobs that have NOT executed because we need to
     // unref the versions.
     for (int i = 0; i != num_cfs; ++i) {
-      if (!exec_status[i].first) {
+      if (pick_status[i] && !exec_status[i].first) {
         jobs[i]->Cancel();
       }
     }
