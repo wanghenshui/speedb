@@ -189,17 +189,20 @@ class VersionBuilder::Rep {
   // Metadata delta for all blob files affected by the series of version edits.
   std::map<uint64_t, BlobFileMetaDataDelta> blob_file_meta_deltas_;
 
+  Logger* const logger_;
+
  public:
   Rep(const FileOptions& file_options, const ImmutableCFOptions* ioptions,
       TableCache* table_cache, VersionStorageInfo* base_vstorage,
-      VersionSet* version_set)
+      VersionSet* version_set, Logger* logger)
       : file_options_(file_options),
         ioptions_(ioptions),
         table_cache_(table_cache),
         base_vstorage_(base_vstorage),
         version_set_(version_set),
         num_levels_(base_vstorage->num_levels()),
-        has_invalid_levels_(false) {
+        has_invalid_levels_(false),
+        logger_(logger) {
     assert(ioptions_);
 
     levels_ = new LevelState[num_levels_];
@@ -1038,7 +1041,7 @@ class VersionBuilder::Rep {
       if (add_it != add_files.end() && add_it->second != f) {
         vstorage->RemoveCurrentStats(f);
       } else {
-        vstorage->AddFile(level, f);
+        vstorage->AddFile(level, f, logger_);
       }
     }
   }
@@ -1048,9 +1051,9 @@ VersionBuilder::VersionBuilder(const FileOptions& file_options,
                                const ImmutableCFOptions* ioptions,
                                TableCache* table_cache,
                                VersionStorageInfo* base_vstorage,
-                               VersionSet* version_set)
+                               VersionSet* version_set, Logger* logger)
     : rep_(new Rep(file_options, ioptions, table_cache, base_vstorage,
-                   version_set)) {}
+                   version_set, logger)) {}
 
 VersionBuilder::~VersionBuilder() = default;
 
@@ -1083,7 +1086,7 @@ BaseReferencedVersionBuilder::BaseReferencedVersionBuilder(
     : version_builder_(new VersionBuilder(
           cfd->current()->version_set()->file_options(), cfd->ioptions(),
           cfd->table_cache(), cfd->current()->storage_info(),
-          cfd->current()->version_set())),
+          cfd->current()->version_set(), cfd->ioptions()->logger)),
       version_(cfd->current()) {
   version_->Ref();
 }
@@ -1092,7 +1095,8 @@ BaseReferencedVersionBuilder::BaseReferencedVersionBuilder(
     ColumnFamilyData* cfd, Version* v)
     : version_builder_(new VersionBuilder(
           cfd->current()->version_set()->file_options(), cfd->ioptions(),
-          cfd->table_cache(), v->storage_info(), v->version_set())),
+          cfd->table_cache(), v->storage_info(), v->version_set(),
+          cfd->ioptions()->logger)),
       version_(v) {
   assert(version_ != cfd->current());
 }

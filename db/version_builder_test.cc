@@ -73,7 +73,7 @@ class VersionBuilderTest : public testing::Test {
     f->compensated_file_size = file_size;
     f->num_entries = num_entries;
     f->num_deletions = num_deletions;
-    vstorage_.AddFile(level, f);
+    vstorage_.AddFile(level, f, ioptions_.logger);
     if (sampled) {
       f->init_stats_from_file = true;
       vstorage_.UpdateAccumulatedStats(f);
@@ -198,7 +198,7 @@ TEST_F(VersionBuilderTest, ApplyAndSaveTo) {
   constexpr VersionSet* version_set = nullptr;
 
   VersionBuilder version_builder(env_options, &ioptions_, table_cache,
-                                 &vstorage_, version_set);
+                                 &vstorage_, version_set, ioptions_.logger);
 
   VersionStorageInfo new_vstorage(&icmp_, ucmp_, options_.num_levels,
                                   kCompactionStyleLevel, nullptr, false);
@@ -239,7 +239,7 @@ TEST_F(VersionBuilderTest, ApplyAndSaveToDynamic) {
   constexpr VersionSet* version_set = nullptr;
 
   VersionBuilder version_builder(env_options, &ioptions_, table_cache,
-                                 &vstorage_, version_set);
+                                 &vstorage_, version_set, ioptions_.logger);
 
   VersionStorageInfo new_vstorage(&icmp_, ucmp_, options_.num_levels,
                                   kCompactionStyleLevel, nullptr, false);
@@ -285,7 +285,7 @@ TEST_F(VersionBuilderTest, ApplyAndSaveToDynamic2) {
   constexpr VersionSet* version_set = nullptr;
 
   VersionBuilder version_builder(env_options, &ioptions_, table_cache,
-                                 &vstorage_, version_set);
+                                 &vstorage_, version_set, ioptions_.logger);
 
   VersionStorageInfo new_vstorage(&icmp_, ucmp_, options_.num_levels,
                                   kCompactionStyleLevel, nullptr, false);
@@ -334,7 +334,7 @@ TEST_F(VersionBuilderTest, ApplyMultipleAndSaveTo) {
   constexpr VersionSet* version_set = nullptr;
 
   VersionBuilder version_builder(env_options, &ioptions_, table_cache,
-                                 &vstorage_, version_set);
+                                 &vstorage_, version_set, ioptions_.logger);
 
   VersionStorageInfo new_vstorage(&icmp_, ucmp_, options_.num_levels,
                                   kCompactionStyleLevel, nullptr, false);
@@ -354,7 +354,7 @@ TEST_F(VersionBuilderTest, ApplyDeleteAndSaveTo) {
   constexpr VersionSet* version_set = nullptr;
 
   VersionBuilder version_builder(env_options, &ioptions_, table_cache,
-                                 &vstorage_, version_set);
+                                 &vstorage_, version_set, ioptions_.logger);
 
   VersionStorageInfo new_vstorage(&icmp_, ucmp_, options_.num_levels,
                                   kCompactionStyleLevel, nullptr, false);
@@ -422,7 +422,7 @@ TEST_F(VersionBuilderTest, ApplyFileDeletionIncorrectLevel) {
   constexpr VersionSet* version_set = nullptr;
 
   VersionBuilder builder(env_options, &ioptions_, table_cache, &vstorage_,
-                         version_set);
+                         version_set, ioptions_.logger);
 
   VersionEdit edit;
 
@@ -443,7 +443,7 @@ TEST_F(VersionBuilderTest, ApplyFileDeletionNotInLSMTree) {
   constexpr VersionSet* version_set = nullptr;
 
   VersionBuilder builder(env_options, &ioptions_, table_cache, &vstorage_,
-                         version_set);
+                         version_set, ioptions_.logger);
 
   VersionEdit edit;
 
@@ -483,7 +483,7 @@ TEST_F(VersionBuilderTest, ApplyFileDeletionAndAddition) {
   constexpr VersionSet* version_set = nullptr;
 
   VersionBuilder builder(env_options, &ioptions_, table_cache, &vstorage_,
-                         version_set);
+                         version_set, ioptions_.logger);
 
   VersionEdit deletion;
 
@@ -528,7 +528,7 @@ TEST_F(VersionBuilderTest, ApplyFileAdditionAlreadyInBase) {
   constexpr VersionSet* version_set = nullptr;
 
   VersionBuilder builder(env_options, &ioptions_, table_cache, &vstorage_,
-                         version_set);
+                         version_set, ioptions_.logger);
 
   VersionEdit edit;
 
@@ -559,7 +559,7 @@ TEST_F(VersionBuilderTest, ApplyFileAdditionAlreadyApplied) {
   constexpr VersionSet* version_set = nullptr;
 
   VersionBuilder builder(env_options, &ioptions_, table_cache, &vstorage_,
-                         version_set);
+                         version_set, ioptions_.logger);
 
   VersionEdit edit;
 
@@ -615,7 +615,7 @@ TEST_F(VersionBuilderTest, ApplyFileAdditionAndDeletion) {
   constexpr VersionSet* version_set = nullptr;
 
   VersionBuilder builder(env_options, &ioptions_, table_cache, &vstorage_,
-                         version_set);
+                         version_set, ioptions_.logger);
 
   VersionEdit addition;
 
@@ -651,7 +651,7 @@ TEST_F(VersionBuilderTest, ApplyBlobFileAddition) {
   constexpr VersionSet* version_set = nullptr;
 
   VersionBuilder builder(env_options, &ioptions_, table_cache, &vstorage_,
-                         version_set);
+                         version_set, ioptions_.logger);
 
   VersionEdit edit;
 
@@ -716,7 +716,7 @@ TEST_F(VersionBuilderTest, ApplyBlobFileAdditionAlreadyInBase) {
   constexpr VersionSet* version_set = nullptr;
 
   VersionBuilder builder(env_options, &ioptions_, table_cache, &vstorage_,
-                         version_set);
+                         version_set, ioptions_.logger);
 
   VersionEdit edit;
 
@@ -736,7 +736,7 @@ TEST_F(VersionBuilderTest, ApplyBlobFileAdditionAlreadyApplied) {
   constexpr VersionSet* version_set = nullptr;
 
   VersionBuilder builder(env_options, &ioptions_, table_cache, &vstorage_,
-                         version_set);
+                         version_set, ioptions_.logger);
 
   VersionEdit edit;
 
@@ -784,7 +784,7 @@ TEST_F(VersionBuilderTest, ApplyBlobFileGarbageFileInBase) {
   constexpr VersionSet* version_set = nullptr;
 
   VersionBuilder builder(env_options, &ioptions_, table_cache, &vstorage_,
-                         version_set);
+                         version_set, ioptions_.logger);
 
   VersionEdit edit;
 
@@ -833,7 +833,7 @@ TEST_F(VersionBuilderTest, ApplyBlobFileGarbageFileAdditionApplied) {
   constexpr VersionSet* version_set = nullptr;
 
   VersionBuilder builder(env_options, &ioptions_, table_cache, &vstorage_,
-                         version_set);
+                         version_set, ioptions_.logger);
 
   VersionEdit addition;
 
@@ -897,7 +897,7 @@ TEST_F(VersionBuilderTest, ApplyBlobFileGarbageFileNotFound) {
   constexpr VersionSet* version_set = nullptr;
 
   VersionBuilder builder(env_options, &ioptions_, table_cache, &vstorage_,
-                         version_set);
+                         version_set, ioptions_.logger);
 
   VersionEdit edit;
 
@@ -938,7 +938,7 @@ TEST_F(VersionBuilderTest, SaveBlobFilesTo) {
   constexpr VersionSet* version_set = nullptr;
 
   VersionBuilder builder(env_options, &ioptions_, table_cache, &vstorage_,
-                         version_set);
+                         version_set, ioptions_.logger);
 
   VersionEdit edit;
 
@@ -1003,7 +1003,7 @@ TEST_F(VersionBuilderTest, SaveBlobFilesTo) {
   // Delete the first table file, which makes the first blob file obsolete
   // since it's at the head and unreferenced.
   VersionBuilder second_builder(env_options, &ioptions_, table_cache,
-                                &new_vstorage, version_set);
+                                &new_vstorage, version_set, ioptions_.logger);
 
   VersionEdit second_edit;
   second_edit.DeleteFile(/* level */ 0, /* file_number */ 1);
@@ -1055,7 +1055,7 @@ TEST_F(VersionBuilderTest, SaveBlobFilesToConcurrentJobs) {
   constexpr VersionSet* version_set = nullptr;
 
   VersionBuilder builder(env_options, &ioptions_, table_cache, &vstorage_,
-                         version_set);
+                         version_set, ioptions_.logger);
 
   VersionEdit edit;
 
@@ -1155,7 +1155,7 @@ TEST_F(VersionBuilderTest, CheckConsistencyForBlobFiles) {
   constexpr VersionSet* version_set = nullptr;
 
   VersionBuilder builder(env_options, &ioptions_, table_cache, &vstorage_,
-                         version_set);
+                         version_set, ioptions_.logger);
 
   VersionEdit edit;
 
@@ -1216,7 +1216,7 @@ TEST_F(VersionBuilderTest, CheckConsistencyForBlobFilesInconsistentLinks) {
   constexpr VersionSet* version_set = nullptr;
 
   VersionBuilder builder(env_options, &ioptions_, table_cache, &vstorage_,
-                         version_set);
+                         version_set, ioptions_.logger);
 
   // Save to a new version in order to trigger consistency checks.
   constexpr bool force_consistency_checks = true;
@@ -1257,7 +1257,7 @@ TEST_F(VersionBuilderTest, CheckConsistencyForBlobFilesAllGarbage) {
   constexpr VersionSet* version_set = nullptr;
 
   VersionBuilder builder(env_options, &ioptions_, table_cache, &vstorage_,
-                         version_set);
+                         version_set, ioptions_.logger);
 
   // Save to a new version in order to trigger consistency checks.
   constexpr bool force_consistency_checks = true;
@@ -1298,7 +1298,7 @@ TEST_F(VersionBuilderTest, CheckConsistencyForBlobFilesAllGarbageLinkedSsts) {
   constexpr VersionSet* version_set = nullptr;
 
   VersionBuilder builder(env_options, &ioptions_, table_cache, &vstorage_,
-                         version_set);
+                         version_set, ioptions_.logger);
 
   VersionEdit edit;
 
@@ -1457,7 +1457,7 @@ TEST_F(VersionBuilderTest, MaintainLinkedSstsForBlobFiles) {
   constexpr VersionSet* version_set = nullptr;
 
   VersionBuilder builder(env_options, &ioptions_, table_cache, &vstorage_,
-                         version_set);
+                         version_set, ioptions_.logger);
 
   ASSERT_OK(builder.Apply(&edit));
   ASSERT_OK(builder.Apply(&edit2));
@@ -1503,7 +1503,7 @@ TEST_F(VersionBuilderTest, CheckConsistencyForFileDeletedTwice) {
   constexpr VersionSet* version_set = nullptr;
 
   VersionBuilder version_builder(env_options, &ioptions_, table_cache,
-                                 &vstorage_, version_set);
+                                 &vstorage_, version_set, ioptions_.logger);
   VersionStorageInfo new_vstorage(&icmp_, ucmp_, options_.num_levels,
                                   kCompactionStyleLevel, nullptr,
                                   true /* force_consistency_checks */);
@@ -1511,7 +1511,7 @@ TEST_F(VersionBuilderTest, CheckConsistencyForFileDeletedTwice) {
   ASSERT_OK(version_builder.SaveTo(&new_vstorage));
 
   VersionBuilder version_builder2(env_options, &ioptions_, table_cache,
-                                 &new_vstorage, version_set);
+                                  &new_vstorage, version_set, ioptions_.logger);
   VersionStorageInfo new_vstorage2(&icmp_, ucmp_, options_.num_levels,
                                   kCompactionStyleLevel, nullptr,
                                   true /* force_consistency_checks */);

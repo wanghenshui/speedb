@@ -2797,11 +2797,28 @@ bool CompareCompensatedSizeDescending(const Fsize& first, const Fsize& second) {
 }
 } // anonymous namespace
 
-void VersionStorageInfo::AddFile(int level, FileMetaData* f) {
+void VersionStorageInfo::AddFile(int level, FileMetaData* f, Logger* logger) {
   auto& level_files = files_[level];
-  level_files.push_back(f);
-
+  // Must not overlap
+  if (level > 0 && !level_files.empty() &&
+      internal_comparator_->Compare(
+          level_files[level_files.size() - 1]->largest, f->smallest) >= 0) {
+    auto* f2 = level_files[level_files.size() - 1];
+    if (logger != nullptr) {
+      Error(logger,
+            "Adding new file %" PRIu64
+            " range (%s, %s) to level %d but overlapping "
+            "with existing file %" PRIu64 " %s %s",
+            f->fd.GetNumber(), f->smallest.DebugString(true).c_str(),
+            f->largest.DebugString(true).c_str(), level, f2->fd.GetNumber(),
+            f2->smallest.DebugString(true).c_str(),
+            f2->largest.DebugString(true).c_str());
+      LogFlush(logger);
+    }
+    assert(false);
+  }
   f->refs++;
+  level_files.push_back(f);
 
   const uint64_t file_number = f->fd.GetNumber();
 

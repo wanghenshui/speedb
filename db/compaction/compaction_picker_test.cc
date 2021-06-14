@@ -115,7 +115,7 @@ class CompactionPickerTest : public testing::Test {
         kUnknownFileChecksum, kUnknownFileChecksumFuncName);
     f->compensated_file_size =
         (compensated_file_size != 0) ? compensated_file_size : file_size;
-    vstorage->AddFile(level, f);
+    vstorage->AddFile(level, f, ioptions_.logger);
     files_.emplace_back(f);
     file_map_.insert({file_number, {f, level}});
   }
@@ -140,7 +140,7 @@ class CompactionPickerTest : public testing::Test {
   void UpdateVersionStorageInfo() {
     if (temp_vstorage_) {
       VersionBuilder builder(FileOptions(), &ioptions_, nullptr,
-                             vstorage_.get(), nullptr);
+                             vstorage_.get(), nullptr, ioptions_.logger);
       ASSERT_OK(builder.SaveTo(temp_vstorage_.get()));
       vstorage_ = std::move(temp_vstorage_);
     }
@@ -169,7 +169,7 @@ class CompactionPickerTest : public testing::Test {
         largest_seq, compensated_file_size, marked_for_compact);
 
     VersionBuilder builder(FileOptions(), &ioptions_, nullptr, base_vstorage,
-                           nullptr);
+                           nullptr, ioptions_.logger);
     builder.SaveTo(vstorage_.get());
     UpdateVersionStorageInfo();
   }

@@ -144,7 +144,7 @@ class VersionStorageInfoTestBase : public testing::Test {
         kUnknownOldestAncesterTime, kUnknownFileCreationTime,
         kUnknownFileChecksum, kUnknownFileChecksumFuncName);
     f->compensated_file_size = file_size;
-    vstorage_.AddFile(level, f);
+    vstorage_.AddFile(level, f, ioptions_.logger);
   }
 
   void Add(int level, uint32_t file_number, const InternalKey& smallest,
@@ -157,7 +157,7 @@ class VersionStorageInfoTestBase : public testing::Test {
         kUnknownFileCreationTime, kUnknownFileChecksum,
         kUnknownFileChecksumFuncName);
     f->compensated_file_size = file_size;
-    vstorage_.AddFile(level, f);
+    vstorage_.AddFile(level, f, ioptions_.logger);
   }
 
   std::string GetOverlappingFiles(int level, const InternalKey& begin,

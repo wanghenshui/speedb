@@ -33,7 +33,8 @@ class VersionBuilder {
  public:
   VersionBuilder(const FileOptions& file_options,
                  const ImmutableCFOptions* ioptions, TableCache* table_cache,
-                 VersionStorageInfo* base_vstorage, VersionSet* version_set);
+                 VersionStorageInfo* base_vstorage, VersionSet* version_set,
+                 Logger* logger);
   ~VersionBuilder();
 
   bool CheckConsistencyForNumLevels();
