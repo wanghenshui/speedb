@@ -23,10 +23,6 @@
 
 #include <string>
 
-#ifdef ROCKSDB_ASSERT_STATUS_CHECKED
-#include "port/stack_trace.h"
-#endif
-
 #include "rocksdb/slice.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -38,8 +34,7 @@ class Status {
   ~Status() {
 #ifdef ROCKSDB_ASSERT_STATUS_CHECKED
     if (!checked_) {
-      fprintf(stderr, "Failed to check Status %p\n", this);
-      port::PrintStack();
+      PrintFailure();
       abort();
     }
 #endif  // ROCKSDB_ASSERT_STATUS_CHECKED
@@ -449,6 +444,9 @@ class Status {
   // Return a string representation of this status suitable for printing.
   // Returns the string "OK" for success.
   std::string ToString() const;
+
+ private:
+  void PrintFailure();
 
  protected:
   // A nullptr state_ (which is always the case for OK) means the message
