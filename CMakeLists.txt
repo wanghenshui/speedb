@@ -358,7 +358,7 @@ int main() {
 " HAS_LIBURING)
   if (HAS_LIBURING)
     add_definitions(-DROCKSDB_IOURING_PRESENT)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -luring")
+    set(SYSTEM_LIBS ${SYSTEM_LIBS} uring)
   endif()
 endif()
 
@@ -982,7 +982,7 @@ endif()
 if(WIN32)
   set(SYSTEM_LIBS ${SYSTEM_LIBS} shlwapi.lib rpcrt4.lib)
 else()
-  set(SYSTEM_LIBS ${CMAKE_THREAD_LIBS_INIT})
+  set(SYSTEM_LIBS ${SYSTEM_LIBS} ${CMAKE_THREAD_LIBS_INIT})
 endif()
 
 add_library(${ROCKSDB_STATIC_LIB} STATIC ${SOURCES} ${BUILD_VERSION_CC})
@@ -1345,6 +1345,9 @@ if(WITH_TESTS)
       if("${exename}" MATCHES "env_librados_test")
         # env_librados_test.cc uses librados directly
         target_link_libraries(${exename}${ARTIFACT_SUFFIX} rados)
+      endif()
+      if(HAS_LIBURING)
+        target_link_libraries(${exename}${ARTIFACT_SUFFIX} uring)
       endif()
   endforeach(sourcefile ${TESTS})
 
