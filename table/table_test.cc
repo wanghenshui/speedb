@@ -1611,7 +1611,7 @@ TEST_P(BlockBasedTableTest, FilterPolicyNameProperties) {
   c.Finish(options, ioptions, moptions, table_options,
            GetPlainInternalComparator(options.comparator), &keys, &kvmap);
   auto& props = *c.GetTableReader()->GetTableProperties();
-  ASSERT_EQ("rocksdb.BuiltinBloomFilter", props.filter_policy_name);
+  ASSERT_EQ("speedb.HybridFilter", props.filter_policy_name);
   c.ResetTableReader();
 }
 

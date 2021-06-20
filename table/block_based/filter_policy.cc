@@ -1379,7 +1379,8 @@ Status FilterPolicy::CreateFromString(
   const std::string kBloomName = "bloomfilter:";
   const std::string kExpRibbonName = "experimental_ribbon:";
   const std::string kRibbonName = "ribbonfilter:";
-  if (value == kNullptrString || value == "rocksdb.BuiltinBloomFilter") {
+  if (value == kNullptrString || value == "rocksdb.BuiltinBloomFilter" ||
+      value == "speedb.HybridFilter") {
     policy->reset();
 #ifndef ROCKSDB_LITE
   } else if (value.compare(0, kBloomName.size(), kBloomName) == 0) {
