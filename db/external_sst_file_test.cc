@@ -1461,6 +1461,7 @@ TEST_F(ExternalSSTFileTest, PickedLevelDynamic) {
   Options options = CurrentOptions();
   options.disable_auto_compactions = false;
   options.level0_file_num_compaction_trigger = 4;
+  options.level0_slowdown_writes_trigger = 5;
   options.level_compaction_dynamic_level_bytes = true;
   options.num_levels = 4;
   DestroyAndReopen(options);
