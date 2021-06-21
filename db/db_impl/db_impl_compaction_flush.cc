@@ -24,7 +24,6 @@
 #include "util/concurrent_task_limiter_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
-int64_t s_LastCompactionTime;
 
 bool DBImpl::EnoughRoomForCompaction(
     ColumnFamilyData* cfd, const std::vector<CompactionInputFiles>& inputs,
@@ -894,14 +893,6 @@ Status DBImpl::IncreaseFullHistoryTsLow(ColumnFamilyData* cfd,
 Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
                                     ColumnFamilyHandle* column_family,
                                     const Slice* begin, const Slice* end) {
-  int64_t curTime;
-  env_->GetCurrentTime(&curTime);
-  if (1 || bg_bottom_compaction_scheduled_ > 0 ||
-      bg_compaction_scheduled_ > 0 || curTime - s_LastCompactionTime < 5) {
-    env_->SleepForMicroseconds(10000000);
-    return Status();
-  }
-
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
   auto cfd = cfh->cfd();
 
@@ -939,7 +930,9 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
     CleanupSuperVersion(super_version);
   }
 
-  if (s.ok() && flush_needed) {
+  const bool unbounded_range = begin == nullptr && end == nullptr;
+
+  if (s.ok() && flush_needed && unbounded_range) {
     FlushOptions fo;
     fo.allow_write_stall = options.allow_write_stall;
     if (immutable_db_options_.atomic_flush) {
@@ -963,7 +956,7 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
   int final_output_level = kInvalidLevel;
   bool exclusive = options.exclusive_manual_compaction;
   if (cfd->ioptions()->compaction_style == kCompactionStyleUniversal &&
-      cfd->NumberLevels() > 1) {
+      cfd->NumberLevels() > 1 && unbounded_range) {
     // Always compact all files together.
     final_output_level = cfd->NumberLevels() - 1;
     // if bottom most level is reserved
@@ -1058,19 +1051,21 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
             disallow_trivial_move = true;
           }
         }
-        s = RunManualCompaction(cfd, level, output_level, options, begin, end,
-                                exclusive, disallow_trivial_move,
-                                max_file_num_to_ignore);
-        if (!s.ok()) {
-          break;
+        if (unbounded_range) {
+          s = RunManualCompaction(cfd, level, output_level, options, begin, end,
+                                  exclusive, disallow_trivial_move,
+                                  max_file_num_to_ignore);
+          if (!s.ok()) {
+            break;
+          }
+          if (output_level == ColumnFamilyData::kCompactToBaseLevel) {
+            final_output_level = cfd->NumberLevels() - 1;
+          } else if (output_level > final_output_level) {
+            final_output_level = output_level;
+          }
+          TEST_SYNC_POINT("DBImpl::RunManualCompaction()::1");
+          TEST_SYNC_POINT("DBImpl::RunManualCompaction()::2");
         }
-        if (output_level == ColumnFamilyData::kCompactToBaseLevel) {
-          final_output_level = cfd->NumberLevels() - 1;
-        } else if (output_level > final_output_level) {
-          final_output_level = output_level;
-        }
-        TEST_SYNC_POINT("DBImpl::RunManualCompaction()::1");
-        TEST_SYNC_POINT("DBImpl::RunManualCompaction()::2");
       }
     }
   }
@@ -1079,7 +1074,7 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
     return s;
   }
 
-  if (options.change_level) {
+  if (options.change_level && unbounded_range) {
     TEST_SYNC_POINT("DBImpl::CompactRange:BeforeRefit:1");
     TEST_SYNC_POINT("DBImpl::CompactRange:BeforeRefit:2");
 
@@ -1680,18 +1675,6 @@ Status DBImpl::RunManualCompaction(
     const CompactRangeOptions& compact_range_options, const Slice* begin,
     const Slice* end, bool exclusive, bool disallow_trivial_move,
     uint64_t max_file_num_to_ignore) {
-  // dont allow manual compcation unless we are very unbusy
-#if 0
-  int64_t curTime;
-  env_->GetCurrentTime(&curTime);
-  if (bg_bottom_compaction_scheduled_ > 0 || bg_compaction_scheduled_ > 0 ||
-      curTime - s_LastCompactionTime < 5) {
-    env_->SleepForMicroseconds(10000000);
-    return Status();
-  }
-
-#endif
-
   assert(input_level == ColumnFamilyData::kCompactAllLevels ||
          input_level >= 0);
 
@@ -2997,7 +2980,6 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       TEST_SYNC_POINT("DBImpl::BackgroundCompaction():AfterPickCompaction");
 
       if (c != nullptr) {
-        env_->GetCurrentTime(&s_LastCompactionTime);
         bool enough_room = EnoughRoomForCompaction(
             cfd, *(c->inputs()), &sfm_reserved_compact_space, log_buffer);
 
