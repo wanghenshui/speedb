@@ -4361,8 +4361,12 @@ void DumpRocksDBBuildVersion(Logger* log) {
                    GetRocksVersionAsString().c_str());
   const auto& props = GetRocksBuildProperties();
   const auto& sha = props.find("speedb_build_git_sha");
+  const auto spdb_key = props.find("speedb_build_spdb_key");
   if (sha != props.end()) {
-    ROCKS_LOG_HEADER(log, "Git sha %s", sha->second.c_str());
+    ROCKS_LOG_HEADER(
+        log, "Git sha %s:%s",
+        spdb_key == props.end() ? "UNKNOWN" : spdb_key->second.c_str(),
+        sha->second.c_str());
   }
   const auto date = props.find("speedb_build_date");
   if (date != props.end()) {
