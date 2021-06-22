@@ -3627,7 +3627,31 @@ TEST_F(DBBasicTest, VerifyFileChecksums) {
 // delays. Used for testing the deadline/timeout feature
 class DBBasicTestDeadline
     : public DBBasicTest,
-      public testing::WithParamInterface<std::tuple<bool, bool>> {};
+      public testing::WithParamInterface<std::tuple<bool, bool>> {
+public:
+  Options CurrentOptions(const anon::OptionsOverride& options_override =
+                         anon::OptionsOverride()) const {
+    auto options = DBBasicTest::CurrentOptions(options_override);
+    if (!options.table_factory ||
+        options.table_factory->GetOptions<BlockBasedTableOptions>()) {
+      LRUCacheOptions co;
+      co.capacity = 8 << 20;
+      co.high_pri_pool_ratio = 0.0;
+      BlockBasedTableOptions table_options;
+      if (options.table_factory) {
+        auto* tbl_options =
+            options.table_factory->GetOptions<BlockBasedTableOptions>();
+        if (!tbl_options->no_block_cache) {
+          tbl_options->block_cache = NewLRUCache(co);
+        }
+      } else {
+        table_options.block_cache = NewLRUCache(co);
+        options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+      }
+    }
+    return options;
+  }
+};
 
 TEST_P(DBBasicTestDeadline, PointLookupDeadline) {
   std::shared_ptr<DeadlineFS> fs = std::make_shared<DeadlineFS>(env_, true);
