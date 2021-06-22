@@ -6026,7 +6026,7 @@ TEST_F(DBTest, FlushesInParallelWithCompactRange) {
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
     std::vector<port::Thread> threads;
-    threads.emplace_back([&]() { Compact("a", "z"); });
+    threads.emplace_back([&]() { db_->CompactRange(CompactRangeOptions(), nullptr, nullptr); });
 
     TEST_SYNC_POINT("DBTest::FlushesInParallelWithCompactRange:1");
 
