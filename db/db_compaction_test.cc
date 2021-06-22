@@ -175,6 +175,7 @@ Options DeletionTriggerOptions(Options options) {
   options.max_write_buffer_size_to_maintain = 0;
   options.num_levels = kCDTNumLevels;
   options.level0_file_num_compaction_trigger = 1;
+  options.level0_slowdown_writes_trigger = 2;
   options.target_file_size_base = options.write_buffer_size * 2;
   options.target_file_size_multiplier = 2;
   options.max_bytes_for_level_base =
@@ -804,6 +805,7 @@ TEST_P(DBCompactionTestWithParam, CompactionTrigger) {
   options.arena_block_size = 4 << 10;
   options.num_levels = 3;
   options.level0_file_num_compaction_trigger = 3;
+  options.level0_slowdown_writes_trigger = 4;
   options.max_subcompactions = max_subcompactions_;
   options.memtable_factory.reset(new SpecialSkipListFactory(kNumKeysPerFile));
   CreateAndReopenWithCF({"pikachu"}, options);
@@ -996,6 +998,7 @@ TEST_F(DBCompactionTest, UserKeyCrossFile1) {
   Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleLevel;
   options.level0_file_num_compaction_trigger = 3;
+  options.level0_slowdown_writes_trigger = 4;
 
   DestroyAndReopen(options);
 
@@ -1029,6 +1032,7 @@ TEST_F(DBCompactionTest, UserKeyCrossFile2) {
   Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleLevel;
   options.level0_file_num_compaction_trigger = 3;
+  options.level0_slowdown_writes_trigger = 4;
 
   DestroyAndReopen(options);
 
@@ -1062,6 +1066,7 @@ TEST_F(DBCompactionTest, CompactionSstPartitioner) {
   Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleLevel;
   options.level0_file_num_compaction_trigger = 3;
+  options.level0_slowdown_writes_trigger = 4;
   std::shared_ptr<SstPartitionerFactory> factory(
       NewSstPartitionerFixedPrefixFactory(4));
   options.sst_partitioner_factory = factory;
@@ -1092,6 +1097,7 @@ TEST_F(DBCompactionTest, CompactionSstPartitionerNonTrivial) {
   Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleLevel;
   options.level0_file_num_compaction_trigger = 1;
+  options.level0_slowdown_writes_trigger = 2;
   std::shared_ptr<SstPartitionerFactory> factory(
       NewSstPartitionerFixedPrefixFactory(4));
   options.sst_partitioner_factory = factory;
@@ -1116,6 +1122,7 @@ TEST_F(DBCompactionTest, ZeroSeqIdCompaction) {
   Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleLevel;
   options.level0_file_num_compaction_trigger = 3;
+  options.level0_slowdown_writes_trigger = 4;
 
   FlushedFileCollector* collector = new FlushedFileCollector();
   options.listeners.emplace_back(collector);
@@ -1172,6 +1179,7 @@ TEST_F(DBCompactionTest, ManualCompactionUnknownOutputSize) {
   Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleLevel;
   options.level0_file_num_compaction_trigger = 3;
+  options.level0_slowdown_writes_trigger = 4;
   DestroyAndReopen(options);
 
   // create two files in l1 that we can compact
@@ -1474,6 +1482,7 @@ TEST_P(DBCompactionTestWithParam, ManualCompactionPartial) {
   options.num_levels = 7;
   options.max_subcompactions = max_subcompactions_;
   options.level0_file_num_compaction_trigger = 3;
+  options.level0_slowdown_writes_trigger = 4;
   options.max_background_compactions = 3;
   options.target_file_size_base = 1 << 23;  // 8 MB
 
@@ -1746,6 +1755,7 @@ TEST_F(DBCompactionTest, DeleteFileRange) {
   options.max_bytes_for_level_multiplier = 2;
   options.num_levels = 4;
   options.level0_file_num_compaction_trigger = 3;
+  options.level0_slowdown_writes_trigger = 4;
   options.max_background_compactions = 3;
 
   DestroyAndReopen(options);
@@ -1987,6 +1997,7 @@ TEST_F(DBCompactionTest, DeleteFileRangeFileEndpointsOverlapBug) {
   const int kValSize = 8 << 10;  // 8KB
   Options options = CurrentOptions();
   options.level0_file_num_compaction_trigger = kNumL0Files;
+  options.level0_slowdown_writes_trigger = kNumL0Files + 1;
   options.target_file_size_base = 1 << 10;  // 1KB
   DestroyAndReopen(options);
 
@@ -2102,6 +2113,7 @@ TEST_P(DBCompactionTestWithParam, LevelCompactionThirdPath) {
   options.write_buffer_size = 110 << 10;  // 110KB
   options.arena_block_size = 4 << 10;
   options.level0_file_num_compaction_trigger = 2;
+  options.level0_slowdown_writes_trigger = 3;
   options.num_levels = 4;
   options.max_bytes_for_level_base = 400 * 1024;
   options.max_subcompactions = max_subcompactions_;
@@ -2211,6 +2223,7 @@ TEST_P(DBCompactionTestWithParam, LevelCompactionPathUse) {
   options.write_buffer_size = 110 << 10;  // 110KB
   options.arena_block_size = 4 << 10;
   options.level0_file_num_compaction_trigger = 2;
+  options.level0_slowdown_writes_trigger = 3;
   options.num_levels = 4;
   options.max_bytes_for_level_base = 400 * 1024;
   options.max_subcompactions = max_subcompactions_;
@@ -2321,6 +2334,7 @@ TEST_P(DBCompactionTestWithParam, LevelCompactionCFPathUse) {
   options.write_buffer_size = 110 << 10;  // 110KB
   options.arena_block_size = 4 << 10;
   options.level0_file_num_compaction_trigger = 2;
+  options.level0_slowdown_writes_trigger = 3;
   options.num_levels = 4;
   options.max_bytes_for_level_base = 400 * 1024;
   options.max_subcompactions = max_subcompactions_;
@@ -2440,6 +2454,7 @@ TEST_P(DBCompactionTestWithParam, ConvertCompactionStyle) {
   options.arena_block_size = 4 << 10;
   options.num_levels = 4;
   options.level0_file_num_compaction_trigger = 3;
+  options.level0_slowdown_writes_trigger = 4;
   options.max_bytes_for_level_base = 500 << 10;  // 500KB
   options.max_bytes_for_level_multiplier = 1;
   options.target_file_size_base = 200 << 10;  // 200KB
@@ -2586,7 +2601,10 @@ TEST_F(DBCompactionTest, L0_CompactionBug_Issue44_b) {
 }
 
 TEST_F(DBCompactionTest, ManualAutoRace) {
-  CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
+  Options options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = 4;
+  options.level0_slowdown_writes_trigger = 5;
+  CreateAndReopenWithCF({"pikachu"}, options);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"DBImpl::BGWorkCompaction", "DBCompactionTest::ManualAutoRace:1"},
        {"DBImpl::RunManualCompaction:WaitScheduled",
@@ -2855,6 +2873,7 @@ TEST_P(DBCompactionTestWithParam, PartialCompactionFailure) {
       options.write_buffer_size *
       (options.max_write_buffer_number - 1);
   options.level0_file_num_compaction_trigger = kNumL1Files;
+  options.level0_slowdown_writes_trigger = kNumL1Files + 1;
   options.max_bytes_for_level_base =
       options.level0_file_num_compaction_trigger *
       options.target_file_size_base;
@@ -2942,6 +2961,7 @@ TEST_P(DBCompactionTestWithParam, DeleteMovedFileAfterCompaction) {
     options.create_if_missing = true;
     options.level0_file_num_compaction_trigger =
         2;  // trigger compaction when we have 2 files
+    options.level0_slowdown_writes_trigger = 3;
     OnFileDeletionListener* listener = new OnFileDeletionListener();
     options.listeners.emplace_back(listener);
     options.max_subcompactions = max_subcompactions_;
@@ -3472,6 +3492,7 @@ TEST_P(DBCompactionTestWithParam, FullCompactionInBottomPriThreadPool) {
     options.write_buffer_size = 100 << 10;     // 100KB
     options.target_file_size_base = 32 << 10;  // 32KB
     options.level0_file_num_compaction_trigger = kNumFilesTrigger;
+    options.level0_slowdown_writes_trigger = kNumFilesTrigger + 1;
     // Trigger compaction if size amplification exceeds 110%
     options.compaction_options_universal.max_size_amplification_percent = 110;
     DestroyAndReopen(options);
@@ -3505,6 +3526,7 @@ TEST_F(DBCompactionTest, OptimizedDeletionObsoleting) {
   const int kNumL0Files = 4;
   Options options = CurrentOptions();
   options.level0_file_num_compaction_trigger = kNumL0Files;
+  options.level0_slowdown_writes_trigger = kNumL0Files + 1;
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   DestroyAndReopen(options);
 
@@ -4679,6 +4701,7 @@ TEST_F(DBCompactionTest, CompactRangeFlushOverlappingMemtable) {
 TEST_F(DBCompactionTest, CompactionStatsTest) {
   Options options = CurrentOptions();
   options.level0_file_num_compaction_trigger = 2;
+  options.level0_slowdown_writes_trigger = 3;
   CompactionStatsCollector* collector = new CompactionStatsCollector();
   options.listeners.emplace_back(collector);
   DestroyAndReopen(options);
@@ -4764,6 +4787,7 @@ TEST_F(DBCompactionTest, CompactionHasEmptyOutput) {
   Options options = CurrentOptions();
   SstStatsCollector* collector = new SstStatsCollector();
   options.level0_file_num_compaction_trigger = 2;
+  options.level0_slowdown_writes_trigger = 3;
   options.listeners.emplace_back(collector);
   Reopen(options);
 
@@ -5143,8 +5167,8 @@ TEST_F(DBCompactionTest, ManualCompactionFailsInReadOnlyMode) {
   cro.exclusive_manual_compaction = false;
   Slice begin_key("key1");
   Slice end_key("key2");
-  ASSERT_NOK(dbfull()->CompactRange(cro, &begin_key, &end_key));
-  ASSERT_NOK(dbfull()->CompactRange(cro, &begin_key, &end_key));
+  EXPECT_NOK(dbfull()->CompactRange(cro, &begin_key, &end_key));
+  EXPECT_NOK(dbfull()->CompactRange(cro, &begin_key, &end_key));
 
   // Close before mock_env destruct.
   Close();
@@ -5157,6 +5181,7 @@ TEST_F(DBCompactionTest, ManualCompactionBottomLevelOptimized) {
   Options opts = CurrentOptions();
   opts.num_levels = 3;
   opts.level0_file_num_compaction_trigger = 5;
+  opts.level0_slowdown_writes_trigger = 6;
   opts.compression = kNoCompression;
   opts.merge_operator.reset(new NoopMergeOperator());
   opts.target_file_size_base = 1024;
@@ -5246,6 +5271,7 @@ TEST_F(DBCompactionTest, ManualCompactionMax) {
 
   Options opts = CurrentOptions();
   opts.disable_auto_compactions = true;
+  opts.level0_slowdown_writes_trigger = 100;
 
   // with default setting (1.6G by default), it should cover all files in 1
   // compaction
@@ -5434,6 +5460,7 @@ TEST_F(DBCompactionTest, ConsistencyFailTest2) {
   options.force_consistency_checks = true;
   options.target_file_size_base = 1000;
   options.level0_file_num_compaction_trigger = 2;
+  options.level0_slowdown_writes_trigger = 3;
   BlockBasedTableOptions bbto;
   bbto.block_size = 400;  // small block size
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
@@ -5805,6 +5832,7 @@ TEST_P(ChangeLevelConflictsWithAuto, TestConflict) {
   // to make sure it doesn't corrupte the data.
   Options options = CurrentOptions();
   options.level0_file_num_compaction_trigger = 2;
+  options.level0_slowdown_writes_trigger = 3;
   Reopen(options);
 
   ASSERT_OK(Put("foo", "v1"));
@@ -5854,7 +5882,7 @@ TEST_P(ChangeLevelConflictsWithAuto, TestConflict) {
     cro.target_level = GetParam() ? 1 : 0;
     // This should return non-OK, but it's more important for the test to
     // make sure that the DB is not corrupted.
-    ASSERT_NOK(dbfull()->CompactRange(cro, nullptr, nullptr));
+    EXPECT_NOK(dbfull()->CompactRange(cro, nullptr, nullptr));
   }
   auto_comp.join();
   // Refitting didn't happen.
@@ -5880,6 +5908,7 @@ TEST_F(DBCompactionTest, ChangeLevelCompactRangeConflictsWithManual) {
   options.memtable_factory.reset(
       new SpecialSkipListFactory(KNumKeysByGenerateNewFile - 1));
   options.level0_file_num_compaction_trigger = 2;
+  options.level0_slowdown_writes_trigger = 3;
   options.num_levels = 3;
   Reopen(options);
 
@@ -6482,6 +6511,7 @@ TEST_F(DBCompactionTest, CompactionWithChecksumHandoff1) {
   std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
   Options options = CurrentOptions();
   options.level0_file_num_compaction_trigger = 2;
+  options.level0_slowdown_writes_trigger = 3;
   options.num_levels = 3;
   options.env = fault_fs_env.get();
   options.create_if_missing = true;
@@ -6577,6 +6607,7 @@ TEST_F(DBCompactionTest, CompactionWithChecksumHandoff2) {
   std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
   Options options = CurrentOptions();
   options.level0_file_num_compaction_trigger = 2;
+  options.level0_slowdown_writes_trigger = 3;
   options.num_levels = 3;
   options.env = fault_fs_env.get();
   options.create_if_missing = true;
@@ -6663,6 +6694,7 @@ TEST_F(DBCompactionTest, CompactionWithChecksumHandoffManifest1) {
   std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
   Options options = CurrentOptions();
   options.level0_file_num_compaction_trigger = 2;
+  options.level0_slowdown_writes_trigger = 3;
   options.num_levels = 3;
   options.env = fault_fs_env.get();
   options.create_if_missing = true;
@@ -6718,6 +6750,7 @@ TEST_F(DBCompactionTest, CompactionWithChecksumHandoffManifest2) {
   std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
   Options options = CurrentOptions();
   options.level0_file_num_compaction_trigger = 2;
+  options.level0_slowdown_writes_trigger = 3;
   options.num_levels = 3;
   options.env = fault_fs_env.get();
   options.create_if_missing = true;
