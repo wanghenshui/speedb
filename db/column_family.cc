@@ -234,7 +234,8 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
     result.min_write_buffer_number_to_merge = 1;
   }
 
-  if (result.compaction_style != kCompactionStyleFIFO) {
+  if (result.compaction_style != kCompactionStyleFIFO &&
+      result.compaction_style != kCompactionStyleNone) {
     result.compaction_style = kCompactionStyleHybrid;
   }
 
