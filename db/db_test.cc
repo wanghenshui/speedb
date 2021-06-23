@@ -2063,7 +2063,7 @@ TEST_F(DBTest, CustomComparator) {
       ASSERT_EQ("twenty", Get(1, "[0x14]"));
       ASSERT_EQ("NOT_FOUND", Get(1, "[15]"));
       ASSERT_EQ("NOT_FOUND", Get(1, "[0xf]"));
-      Compact(1, "[0]", "[9999]");
+      dbfull()->CompactRange(CompactRangeOptions(), handles_[1], nullptr, nullptr);
     }
 
     for (int run = 0; run < 2; run++) {
@@ -2072,7 +2072,7 @@ TEST_F(DBTest, CustomComparator) {
         snprintf(buf, sizeof(buf), "[%d]", i * 10);
         ASSERT_OK(Put(1, buf, buf));
       }
-      Compact(1, "[0]", "[1000000]");
+      dbfull()->CompactRange(CompactRangeOptions(), handles_[1], nullptr, nullptr);
     }
   } while (ChangeCompactOptions());
 }
