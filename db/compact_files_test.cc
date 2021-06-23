@@ -121,6 +121,7 @@ TEST_F(CompactFilesTest, L0ConflictsFiles) {
 TEST_F(CompactFilesTest, MultipleLevel) {
   Options options;
   options.create_if_missing = true;
+  options.disable_auto_compactions = true;
   options.level_compaction_dynamic_level_bytes = true;
   options.num_levels = 6;
   // Add listener
