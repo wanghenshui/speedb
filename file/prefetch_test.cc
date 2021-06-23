@@ -157,7 +157,7 @@ TEST_P(PrefetchTest, Basic) {
     // enabled, make sure prefetch() is not called and FilePrefetchBuffer is
     // used.
     ASSERT_FALSE(fs->IsPrefetchCalled());
-    ASSERT_GT(buff_prefetch_count, 0);
+    EXPECT_GT(buff_prefetch_count, 0);
     buff_prefetch_count = 0;
   }
 
@@ -177,7 +177,7 @@ TEST_P(PrefetchTest, Basic) {
     ASSERT_EQ(0, buff_prefetch_count);
   } else {
     ASSERT_FALSE(fs->IsPrefetchCalled());
-    ASSERT_GT(buff_prefetch_count, 0);
+    EXPECT_GT(buff_prefetch_count, 0);
     buff_prefetch_count = 0;
   }
   Close();
@@ -404,10 +404,10 @@ TEST_P(PrefetchTest, PrefetchWhenReseek) {
     iter->Seek(BuildKey(103));   // Already in buffer.
     iter->Seek(BuildKey(1033));  // Prefetch Data
     if (support_prefetch && !use_direct_io) {
-      ASSERT_EQ(fs->GetPrefetchCount(), 3);
+      EXPECT_EQ(fs->GetPrefetchCount(), 3);
       fs->ClearPrefetchCount();
     } else {
-      ASSERT_EQ(buff_prefetch_count, 3);
+      EXPECT_EQ(buff_prefetch_count, 3);
       buff_prefetch_count = 0;
     }
   }
@@ -465,10 +465,10 @@ TEST_P(PrefetchTest, PrefetchWhenReseek) {
     iter->Seek(BuildKey(992));
     iter->Seek(BuildKey(989));
     if (support_prefetch && !use_direct_io) {
-      ASSERT_EQ(fs->GetPrefetchCount(), 1);
+      EXPECT_EQ(fs->GetPrefetchCount(), 1);
       fs->ClearPrefetchCount();
     } else {
-      ASSERT_EQ(buff_prefetch_count, 1);
+      EXPECT_EQ(buff_prefetch_count, 1);
       buff_prefetch_count = 0;
     }
 
@@ -481,10 +481,10 @@ TEST_P(PrefetchTest, PrefetchWhenReseek) {
     iter->Seek(BuildKey(1026));
     iter->Seek(BuildKey(103));  // Prefetch Data
     if (support_prefetch && !use_direct_io) {
-      ASSERT_EQ(fs->GetPrefetchCount(), 2);
+      EXPECT_EQ(fs->GetPrefetchCount(), 2);
       fs->ClearPrefetchCount();
     } else {
-      ASSERT_EQ(buff_prefetch_count, 2);
+      EXPECT_EQ(buff_prefetch_count, 2);
       buff_prefetch_count = 0;
     }
   }
@@ -501,10 +501,10 @@ TEST_P(PrefetchTest, PrefetchWhenReseek) {
     iter->Seek(BuildKey(1847));
     iter->Seek(BuildKey(1999));
     if (support_prefetch && !use_direct_io) {
-      ASSERT_EQ(fs->GetPrefetchCount(), 1);
+      EXPECT_EQ(fs->GetPrefetchCount(), 1);
       fs->ClearPrefetchCount();
     } else {
-      ASSERT_EQ(buff_prefetch_count, 1);
+      EXPECT_EQ(buff_prefetch_count, 1);
       buff_prefetch_count = 0;
     }
   }
@@ -539,10 +539,10 @@ TEST_P(PrefetchTest, PrefetchWhenReseek) {
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     }
     if (support_prefetch && !use_direct_io) {
-      ASSERT_EQ(fs->GetPrefetchCount(), 13);
+      EXPECT_EQ(fs->GetPrefetchCount(), 13);
       fs->ClearPrefetchCount();
     } else {
-      ASSERT_EQ(buff_prefetch_count, 13);
+      EXPECT_EQ(buff_prefetch_count, 13);
       buff_prefetch_count = 0;
     }
   }
@@ -629,10 +629,10 @@ TEST_P(PrefetchTest, PrefetchWhenReseekwithCache) {
     iter->Seek(BuildKey(1015));
     iter->Seek(BuildKey(1019));
     if (support_prefetch && !use_direct_io) {
-      ASSERT_EQ(fs->GetPrefetchCount(), 1);
+      EXPECT_EQ(fs->GetPrefetchCount(), 1);
       fs->ClearPrefetchCount();
     } else {
-      ASSERT_EQ(buff_prefetch_count, 1);
+      EXPECT_EQ(buff_prefetch_count, 1);
       buff_prefetch_count = 0;
     }
   }
@@ -656,10 +656,10 @@ TEST_P(PrefetchTest, PrefetchWhenReseekwithCache) {
     iter->Seek(BuildKey(1037));
 
     if (support_prefetch && !use_direct_io) {
-      ASSERT_EQ(fs->GetPrefetchCount(), 3);
+      EXPECT_EQ(fs->GetPrefetchCount(), 3);
       fs->ClearPrefetchCount();
     } else {
-      ASSERT_EQ(buff_prefetch_count, 2);
+      EXPECT_EQ(buff_prefetch_count, 2);
       buff_prefetch_count = 0;
     }
   }
