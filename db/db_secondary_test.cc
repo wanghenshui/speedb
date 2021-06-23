@@ -274,6 +274,7 @@ TEST_F(DBSecondaryTest, InternalCompactionCompactedFiles) {
   Options options;
   options.env = env_;
   options.level0_file_num_compaction_trigger = 4;
+  options.level0_slowdown_writes_trigger = 5;
   Reopen(options);
   for (int i = 0; i < 3; ++i) {
     ASSERT_OK(Put("foo", "foo_value" + std::to_string(i)));
