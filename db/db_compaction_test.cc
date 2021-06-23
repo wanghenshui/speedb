@@ -3043,6 +3043,7 @@ TEST_P(DBCompactionTestWithParam, CompressLevelCompaction) {
   options.write_buffer_size = 110 << 10;  // 110KB
   options.arena_block_size = 4 << 10;
   options.level0_file_num_compaction_trigger = 2;
+  options.level0_slowdown_writes_trigger = 3;
   options.num_levels = 4;
   options.max_bytes_for_level_base = 400 * 1024;
   options.max_subcompactions = max_subcompactions_;
