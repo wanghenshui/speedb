@@ -1783,6 +1783,7 @@ TEST_F(DBPropertiesTest, MinObsoleteSstNumberToKeep) {
   Options options = CurrentOptions();
   options.listeners.push_back(listener);
   options.level0_file_num_compaction_trigger = kNumL0Files;
+  options.level0_slowdown_writes_trigger = kNumL0Files + 1;
   DestroyAndReopen(options);
   listener->SetDB(db_);
 
