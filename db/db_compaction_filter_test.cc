@@ -731,6 +731,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilterContextCfId) {
   options.compaction_filter_factory.reset(filter);
   options.compression = kNoCompression;
   options.level0_file_num_compaction_trigger = 2;
+  options.level0_slowdown_writes_trigger = 3;
   CreateAndReopenWithCF({"pikachu"}, options);
 
   int num_keys_per_file = 400;
