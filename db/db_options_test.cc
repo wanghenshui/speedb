@@ -974,6 +974,7 @@ TEST_F(DBOptionsTest, ChangeCompression) {
   Options options;
   options.write_buffer_size = 10 << 10;  // 10KB
   options.level0_file_num_compaction_trigger = 2;
+  options.level0_slowdown_writes_trigger = 3;
   options.create_if_missing = true;
   options.compression = CompressionType::kLZ4Compression;
   options.bottommost_compression = CompressionType::kNoCompression;
@@ -1044,6 +1045,7 @@ TEST_F(DBOptionsTest, BottommostCompressionOptsWithFallbackType) {
 
   Options options = CurrentOptions();
   options.level0_file_num_compaction_trigger = kNumL0Files;
+  options.level0_slowdown_writes_trigger = kNumL0Files + 1;
   options.compression = CompressionType::kLZ4Compression;
   options.compression_opts.level = kUpperCompressionLevel;
   options.bottommost_compression_opts.level = kBottommostCompressionLevel;
