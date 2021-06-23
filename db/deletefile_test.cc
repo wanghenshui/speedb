@@ -197,12 +197,10 @@ TEST_F(DeleteFileTest, PurgeObsoleteFilesTest) {
   CheckFileTypeCounts(wal_dir_, 1, 0, 0);
   // 2 ssts, 1 manifest
   CheckFileTypeCounts(dbname_, 0, 2, 1);
-  std::string first("0"), last("999999");
   CompactRangeOptions compact_options;
   compact_options.change_level = true;
   compact_options.target_level = 2;
-  Slice first_slice(first), last_slice(last);
-  ASSERT_OK(db_->CompactRange(compact_options, &first_slice, &last_slice));
+  ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
   // 1 sst after compaction
   CheckFileTypeCounts(dbname_, 0, 1, 1);
 
@@ -212,7 +210,7 @@ TEST_F(DeleteFileTest, PurgeObsoleteFilesTest) {
   CreateTwoLevels();
   itr = db_->NewIterator(ReadOptions());
   ASSERT_OK(itr->status());
-  ASSERT_OK(db_->CompactRange(compact_options, &first_slice, &last_slice));
+  ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
   ASSERT_OK(itr->status());
   // 3 sst after compaction with live iterator
   CheckFileTypeCounts(dbname_, 0, 3, 1);
@@ -228,11 +226,9 @@ TEST_F(DeleteFileTest, BackgroundPurgeIteratorTest) {
   options.create_if_missing = true;
   Reopen(options);
 
-  std::string first("0"), last("999999");
   CompactRangeOptions compact_options;
   compact_options.change_level = true;
   compact_options.target_level = 2;
-  Slice first_slice(first), last_slice(last);
 
   // We keep an iterator alive
   Iterator* itr = nullptr;
@@ -241,7 +237,7 @@ TEST_F(DeleteFileTest, BackgroundPurgeIteratorTest) {
   read_options.background_purge_on_iterator_cleanup = true;
   itr = db_->NewIterator(read_options);
   ASSERT_OK(itr->status());
-  ASSERT_OK(db_->CompactRange(compact_options, &first_slice, &last_slice));
+  ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
   // 3 sst after compaction with live iterator
   CheckFileTypeCounts(dbname_, 0, 3, 1);
   test::SleepingBackgroundTask sleeping_task_before;
@@ -347,11 +343,9 @@ TEST_F(DeleteFileTest, BackgroundPurgeCopyOptions) {
   options.create_if_missing = true;
   Reopen(options);
 
-  std::string first("0"), last("999999");
   CompactRangeOptions compact_options;
   compact_options.change_level = true;
   compact_options.target_level = 2;
-  Slice first_slice(first), last_slice(last);
 
   // We keep an iterator alive
   Iterator* itr = nullptr;
@@ -365,7 +359,7 @@ TEST_F(DeleteFileTest, BackgroundPurgeCopyOptions) {
     // affected
   }
 
-  ASSERT_OK(db_->CompactRange(compact_options, &first_slice, &last_slice));
+  ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
   // 3 sst after compaction with live iterator
   CheckFileTypeCounts(dbname_, 0, 3, 1);
   delete itr;
@@ -392,11 +386,9 @@ TEST_F(DeleteFileTest, BackgroundPurgeTestMultipleJobs) {
   options.create_if_missing = true;
   Reopen(options);
 
-  std::string first("0"), last("999999");
   CompactRangeOptions compact_options;
   compact_options.change_level = true;
   compact_options.target_level = 2;
-  Slice first_slice(first), last_slice(last);
 
   // We keep an iterator alive
   CreateTwoLevels();
@@ -407,7 +399,7 @@ TEST_F(DeleteFileTest, BackgroundPurgeTestMultipleJobs) {
   CreateTwoLevels();
   Iterator* itr2 = db_->NewIterator(read_options);
   ASSERT_OK(itr2->status());
-  ASSERT_OK(db_->CompactRange(compact_options, &first_slice, &last_slice));
+  ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
   // 5 sst files after 2 compactions with 2 live iterators
   CheckFileTypeCounts(dbname_, 0, 5, 1);
 
