@@ -168,6 +168,7 @@ TEST_F(EventListenerTest, OnSingleDBCompactionTest) {
   options.enable_thread_tracking = true;
 #endif  // ROCKSDB_USING_THREAD_STATUS
   options.level0_file_num_compaction_trigger = kNumL0Files;
+  options.level0_slowdown_writes_trigger = kNumL0Files + 1;
   options.table_properties_collector_factories.push_back(
       std::make_shared<TestPropertiesCollectorFactory>());
 
@@ -530,6 +531,7 @@ TEST_F(EventListenerTest, CompactionReasonLevel) {
   options.listeners.emplace_back(listener);
 
   options.level0_file_num_compaction_trigger = 4;
+  options.level0_slowdown_writes_trigger = 5;
   options.compaction_style = kCompactionStyleLevel;
 
   DestroyAndReopen(options);
@@ -804,10 +806,8 @@ TEST_F(EventListenerTest, TableFileCreationListenersTest) {
   ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
   listener->CheckAndResetCounters(1, 1, 0, 0, 0, 0);
 
-  const Slice kRangeStart = "a";
-  const Slice kRangeEnd = "z";
   ASSERT_OK(
-      dbfull()->CompactRange(CompactRangeOptions(), &kRangeStart, &kRangeEnd));
+      dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   listener->CheckAndResetCounters(0, 0, 0, 1, 1, 0);
 
@@ -816,7 +816,7 @@ TEST_F(EventListenerTest, TableFileCreationListenersTest) {
   ASSERT_OK(Flush());
   test_env->SetStatus(Status::NotSupported("not supported"));
   ASSERT_NOK(
-      dbfull()->CompactRange(CompactRangeOptions(), &kRangeStart, &kRangeEnd));
+      dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_NOK(dbfull()->TEST_WaitForCompact());
   listener->CheckAndResetCounters(1, 1, 0, 1, 1, 1);
   Close();
@@ -949,6 +949,7 @@ TEST_F(EventListenerTest, BackgroundErrorListenerFailedCompactionTest) {
   options.disable_auto_compactions = true;
   options.env = env_;
   options.level0_file_num_compaction_trigger = 2;
+  options.level0_slowdown_writes_trigger = 3;
   options.listeners.push_back(listener);
   options.memtable_factory.reset(new SpecialSkipListFactory(2));
   options.paranoid_checks = true;
