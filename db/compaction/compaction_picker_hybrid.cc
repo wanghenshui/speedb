@@ -746,11 +746,21 @@ Compaction* HybridCompactionPicker::PickReduceNumFiles(
       auto i = firstFile + 1;
       for (; i < fl.size(); i++) {
         auto const* nf = fl[i];
-        if (nf->raw_value_size > minFileSize ||
-            bcmp(nf->smallest.user_key().data(), f->largest.user_key().data(),
-                 mutable_cf_options.table_prefix_size) != 0) {
+        if (nf->raw_value_size > minFileSize) {
           break;
         }
+
+        if (mutable_cf_options.table_prefix_size > 0) {
+          const Slice smallest_prefix(nf->smallest.user_key().data(),
+                                      mutable_cf_options.table_prefix_size);
+          const Slice largest_prefix(nf->largest.user_key().data(),
+                                     mutable_cf_options.table_prefix_size);
+
+          if (ucmp_->Compare(smallest_prefix, largest_prefix) != 0) {
+            break;
+          }
+        }
+
         totalSize += f->raw_value_size;
         if (totalSize > (1ul << 30)) {
           break;
