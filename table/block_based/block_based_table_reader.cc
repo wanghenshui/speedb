@@ -2342,14 +2342,13 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
           &lookup_data_block_context,
           /*s=*/Status(), /*prefetch_buffer*/ nullptr);
 
-      if (no_io && biter.status().IsIncomplete()) {
-        // couldn't get block from block_cache
-        // Update Saver.state to Found because we are only looking for
-        // whether we can guarantee the key is not there when "no_io" is set
-        get_context->MarkKeyMayExist();
-        break;
-      }
       if (!biter.status().ok()) {
+        if (no_io && biter.status().IsIncomplete()) {
+          // couldn't get block from block_cache
+          // Update Saver.state to Found because we are only looking for
+          // whether we can guarantee the key is not there when "no_io" is set
+          get_context->MarkKeyMayExist();
+        }
         s = biter.status();
         break;
       }
