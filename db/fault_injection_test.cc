@@ -539,7 +539,7 @@ TEST_P(FaultInjectionTest, WriteBatchWalTerminationTest) {
   std::string val;
   ASSERT_OK(db_->Get(ro, "cats", &val));
   ASSERT_EQ("dogs", val);
-  ASSERT_EQ(db_->Get(ro, "boys", &val), Status::NotFound());
+  ASSERT_TRUE(db_->Get(ro, "boys", &val).IsNotFound());
 }
 
 INSTANTIATE_TEST_CASE_P(

@@ -1308,7 +1308,7 @@ TEST_F(DBErrorHandlingFSTest, WALWriteError) {
     WriteOptions wopts;
     wopts.sync = true;
     s = dbfull()->Write(wopts, &batch);
-    ASSERT_EQ(s, s.NoSpace());
+    ASSERT_TRUE(s.IsNoSpace());
   }
   SyncPoint::GetInstance()->DisableProcessing();
   fault_fs_->SetFilesystemActive(true);

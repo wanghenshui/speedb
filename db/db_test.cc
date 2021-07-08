@@ -2182,7 +2182,8 @@ TEST_F(DBTest, DBOpen_Options) {
   DB* db = nullptr;
   options.create_if_missing = false;
   Status s = DB::Open(options, dbname, &db);
-  ASSERT_TRUE(strstr(s.ToString().c_str(), "does not exist") != nullptr);
+  ASSERT_TRUE(s.IsInvalidArgument());
+  ASSERT_NE(s.ToString().find("does not exist"), std::string::npos);
   ASSERT_TRUE(db == nullptr);
 
   // Does not exist, and create_if_missing == true: OK
@@ -2198,7 +2199,8 @@ TEST_F(DBTest, DBOpen_Options) {
   options.create_if_missing = false;
   options.error_if_exists = true;
   s = DB::Open(options, dbname, &db);
-  ASSERT_TRUE(strstr(s.ToString().c_str(), "exists") != nullptr);
+  ASSERT_TRUE(s.IsInvalidArgument());
+  ASSERT_NE(s.ToString().find("exists"), std::string::npos);
   ASSERT_TRUE(db == nullptr);
 
   // Does exist, and error_if_exists == false: OK
@@ -2228,7 +2230,7 @@ TEST_F(DBTest, DBOpen_Change_NumLevels) {
   options.create_if_missing = false;
   options.num_levels = 2;
   Status s = TryReopenWithColumnFamilies({"default", "pikachu"}, options);
-  ASSERT_TRUE(strstr(s.ToString().c_str(), "Invalid argument") != nullptr);
+  ASSERT_TRUE(s.IsInvalidArgument());
   ASSERT_TRUE(db_ == nullptr);
 }
 
@@ -6578,7 +6580,7 @@ TEST_F(DBTest, PinnableSliceAndRowCache) {
 
   {
     PinnableSlice pin_slice;
-    ASSERT_EQ(Get("foo", &pin_slice), Status::OK());
+    ASSERT_OK(Get("foo", &pin_slice));
     ASSERT_EQ(pin_slice.ToString(), "bar");
     // Entry is already in cache, lookup will remove the element from lru
     ASSERT_EQ(
@@ -6790,7 +6792,7 @@ TEST_F(DBTest, CreationTimeOfOldestFile) {
   uint64_t creation_time;
   Status s1 = dbfull()->GetCreationTimeOfOldestFile(&creation_time);
   ASSERT_EQ(0, creation_time);
-  ASSERT_EQ(s1, Status::OK());
+  ASSERT_OK(s1);
 
   // Testing with non-zero file creation time.
   set_file_creation_time_to_zero = false;
@@ -6815,14 +6817,14 @@ TEST_F(DBTest, CreationTimeOfOldestFile) {
   uint64_t ctime;
   Status s2 = dbfull()->GetCreationTimeOfOldestFile(&ctime);
   ASSERT_EQ(uint_time_1, ctime);
-  ASSERT_EQ(s2, Status::OK());
+  ASSERT_OK(s2);
 
   // Testing with max_open_files != -1
   options = CurrentOptions();
   options.max_open_files = 10;
   DestroyAndReopen(options);
   Status s3 = dbfull()->GetCreationTimeOfOldestFile(&ctime);
-  ASSERT_EQ(s3, Status::NotSupported());
+  ASSERT_TRUE(s3.IsNotSupported());
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }

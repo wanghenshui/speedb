@@ -225,7 +225,8 @@ class TransactionTestBase : public ::testing::Test {
     // Test DB's internal txn. It involves no prepare phase nor a commit marker.
     WriteOptions wopts;
     auto s = db->Put(wopts, "key" + std::to_string(index), "value");
-    ASSERT_EQ(exp_s, s);
+    ASSERT_EQ(exp_s.code(), s.code());
+    ASSERT_EQ(exp_s.subcode(), s.subcode());
     if (txn_db_options.write_policy == TxnDBWritePolicy::WRITE_COMMITTED) {
       // Consume one seq per key
       exp_seq++;
