@@ -327,7 +327,7 @@ const Status& ErrorHandler::SetBGError(const Status& bg_err,
   }
 
   // Allow some error specific overrides
-  if (new_bg_err == Status::NoSpace()) {
+  if (new_bg_err.IsNoSpace()) {
     new_bg_err = OverrideNoSpaceError(new_bg_err, &auto_recovery);
   }
 
@@ -349,7 +349,7 @@ const Status& ErrorHandler::SetBGError(const Status& bg_err,
     recovery_in_prog_ = true;
 
     // Kick-off error specific recovery
-    if (bg_error_ == Status::NoSpace()) {
+    if (bg_error_.IsNoSpace()) {
       RecoverFromNoSpace();
     }
   }
@@ -518,8 +518,8 @@ Status ErrorHandler::OverrideNoSpaceError(const Status& bg_error,
 
   {
     uint64_t free_space;
-    if (db_options_.env->GetFreeSpace(db_options_.db_paths[0].path,
-                                      &free_space) == Status::NotSupported()) {
+    if (db_options_.env->GetFreeSpace(db_options_.db_paths[0].path, &free_space)
+            .IsNotSupported()) {
       *auto_recovery = false;
     }
   }
