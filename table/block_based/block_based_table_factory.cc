@@ -324,7 +324,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
             const auto* policy =
                 static_cast<const std::shared_ptr<const FilterPolicy>*>(addr);
             if (policy->get()) {
-              *value = (*policy)->Name();
+              *value = (*policy)->FilterConfigSpec();
             } else {
               *value = kNullptrString;
             }
@@ -341,7 +341,8 @@ static std::unordered_map<std::string, OptionTypeInfo>
             if (policy1 == policy2) {
               return true;
             } else if (policy1 != nullptr && policy2 != nullptr) {
-              return (strcmp(policy1->Name(), policy2->Name()) == 0);
+              return (strcmp(policy1->FilterConfigSpec(),
+                             policy2->FilterConfigSpec()) == 0);
             } else {
               return false;
             }
@@ -444,7 +445,7 @@ void BlockBasedTableFactory::InitializeOptions() {
   table_options_.data_block_index_type =
       BlockBasedTableOptions::kDataBlockBinaryAndHash;
   if (table_options_.filter_policy == nullptr) {
-    table_options_.filter_policy.reset(NewBloomFilterPolicy(32));
+    table_options_.filter_policy.reset(NewSpdbHybridFilterPolicy());
   }
   if (table_options_.flush_block_policy_factory == nullptr) {
     table_options_.flush_block_policy_factory.reset(

@@ -1024,8 +1024,31 @@ constexpr decltype(BloomFilterPolicy::kAllFixedImpls)
 constexpr decltype(BloomFilterPolicy::kAllUserModes)
     BloomFilterPolicy::kAllUserModes;
 
+static std::string get_filter_config_spec(double bits_per_key,
+                                          BloomFilterPolicy::Mode mode) {
+  switch (mode) {
+    case BloomFilterPolicy::kSpdbBloom:
+      return "spdb:" + ToString(bits_per_key);
+    case BloomFilterPolicy::kAutoBloom:
+    case BloomFilterPolicy::kLegacyBloom:
+    case BloomFilterPolicy::kFastLocalBloom:
+      return "bloomfilter:" + ToString(bits_per_key) + ":false";
+    case BloomFilterPolicy::kDeprecatedBlock:
+      return "bloomfilter:" + ToString(bits_per_key) + ":true";
+    case BloomFilterPolicy::kStandard128Ribbon:
+      return "ribbonfilter:" + ToString(bits_per_key);
+  }
+
+  // Shouldn't be reached
+  assert(false);
+  return "";
+}
+
 BloomFilterPolicy::BloomFilterPolicy(double bits_per_key, Mode mode)
-    : mode_(mode), warned_(false), aggregate_rounding_balance_(0) {
+    : mode_(mode),
+      warned_(false),
+      aggregate_rounding_balance_(0),
+      config_spec_(get_filter_config_spec(bits_per_key, mode)) {
   // Sanitize bits_per_key
   if (bits_per_key < 1.0) {
     bits_per_key = 1.0;
@@ -1056,6 +1079,10 @@ BloomFilterPolicy::BloomFilterPolicy(double bits_per_key, Mode mode)
 BloomFilterPolicy::~BloomFilterPolicy() {}
 
 const char* BloomFilterPolicy::Name() const { return "speedb.HybridFilter"; }
+
+const char* BloomFilterPolicy::FilterConfigSpec() const {
+  return config_spec_.c_str();
+}
 
 void BloomFilterPolicy::CreateFilter(const Slice* keys, int n,
                                      std::string* dst) const {
@@ -1130,6 +1157,7 @@ FilterBitsBuilder* BloomFilterPolicy::GetBuilderWithContext(
   for (int i = 0; i < 2; ++i) {
     switch (cur) {
       case kAutoBloom:
+      case kSpdbBloom:
         if (context.table_options.format_version < 5) {
           cur = kLegacyBloom;
         } else {
@@ -1367,6 +1395,10 @@ extern const FilterPolicy* NewRibbonFilterPolicy(
                                BloomFilterPolicy::kStandard128Ribbon);
 }
 
+extern const FilterPolicy* NewSpdbHybridFilterPolicy() {
+  return new BloomFilterPolicy(32, BloomFilterPolicy::kSpdbBloom);
+}
+
 FilterBuildingContext::FilterBuildingContext(
     const BlockBasedTableOptions& _table_options)
     : table_options(_table_options) {}
@@ -1379,6 +1411,7 @@ Status FilterPolicy::CreateFromString(
   const std::string kBloomName = "bloomfilter:";
   const std::string kExpRibbonName = "experimental_ribbon:";
   const std::string kRibbonName = "ribbonfilter:";
+  const std::string kSpdbBloomName = "spdb:";
   if (value == kNullptrString || value == "rocksdb.BuiltinBloomFilter" ||
       value == "speedb.HybridFilter") {
     policy->reset();
@@ -1405,6 +1438,11 @@ Status FilterPolicy::CreateFromString(
     double bloom_equivalent_bits_per_key =
         ParseDouble(trim(value.substr(kRibbonName.size())));
     policy->reset(NewRibbonFilterPolicy(bloom_equivalent_bits_per_key));
+  } else if (value.compare(0, kSpdbBloomName.size(), kSpdbBloomName) == 0) {
+    double bits_per_key =
+        ParseDouble(trim(value.substr(kSpdbBloomName.size())));
+    policy->reset(
+        new BloomFilterPolicy(bits_per_key, BloomFilterPolicy::kSpdbBloom));
   } else {
     return Status::NotFound("Invalid filter policy name ", value);
 #else
@@ -1415,4 +1453,7 @@ Status FilterPolicy::CreateFromString(
   }
   return Status::OK();
 }
+
+const char* FilterPolicy::FilterConfigSpec() const { return Name(); }
+
 }  // namespace ROCKSDB_NAMESPACE

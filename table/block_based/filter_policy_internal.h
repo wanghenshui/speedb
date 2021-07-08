@@ -73,6 +73,7 @@ class BloomFilterPolicy : public FilterPolicy {
     // Automatically choose between kLegacyBloom and kFastLocalBloom based on
     // context at build time, including compatibility with format_version.
     kAutoBloom = 100,
+    kSpdbBloom = 101,
   };
   // All the different underlying implementations that a BloomFilterPolicy
   // might use, as a mode that says "always use this implementation."
@@ -98,6 +99,8 @@ class BloomFilterPolicy : public FilterPolicy {
   ~BloomFilterPolicy() override;
 
   const char* Name() const override;
+
+  const char* FilterConfigSpec() const override;
 
   // Deprecated block-based filter only
   void CreateFilter(const Slice* keys, int n, std::string* dst) const override;
@@ -166,6 +169,8 @@ class BloomFilterPolicy : public FilterPolicy {
   //  Sum over all generated filters f:
   //   (predicted_fp_rate(f) - predicted_fp_rate(f|o_f_f_m=false)) * 2^32
   mutable std::atomic<int64_t> aggregate_rounding_balance_;
+
+  const std::string config_spec_;
 
   // For newer Bloom filter implementation(s)
   FilterBitsReader* GetBloomBitsReader(const Slice& contents) const;

@@ -177,6 +177,8 @@ class FilterPolicy {
   // passed to methods of this type.
   virtual const char* Name() const = 0;
 
+  virtual const char* FilterConfigSpec() const;
+
   // keys[0,n-1] contains a list of keys (potentially with duplicates)
   // that are ordered according to the user supplied comparator.
   // Append a filter that summarizes keys[0,n-1] to *dst.
@@ -273,5 +275,7 @@ inline const FilterPolicy* NewExperimentalRibbonFilterPolicy(
     double bloom_equivalent_bits_per_key) {
   return NewRibbonFilterPolicy(bloom_equivalent_bits_per_key);
 }
+
+extern const FilterPolicy* NewSpdbHybridFilterPolicy();
 
 }  // namespace ROCKSDB_NAMESPACE

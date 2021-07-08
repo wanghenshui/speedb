@@ -24,6 +24,7 @@
 
 #include "rocksdb/customizable.h"
 #include "rocksdb/env.h"
+#include "rocksdb/filter_policy.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 
@@ -332,7 +333,8 @@ struct BlockBasedTableOptions {
   // If non-nullptr, use the specified filter policy to reduce disk reads.
   // Many applications will benefit from passing the result of
   // NewBloomFilterPolicy() here.
-  std::shared_ptr<const FilterPolicy> filter_policy = nullptr;
+  std::shared_ptr<const FilterPolicy> filter_policy{
+      NewSpdbHybridFilterPolicy()};
 
   // If true, place whole keys in the filter (not just prefixes).
   // This must generally be true for gets to be efficient.
