@@ -3633,7 +3633,7 @@ TEST_F(DBCompactionTest, CompactFilesOverlapInL0Bug) {
   ASSERT_EQ("new_val", Get(Key(0)));
 }
 
-TEST_F(DBCompactionTest, DeleteFilesInRangeConflictWithCompaction) {
+TEST_F(DBCompactionTest, DISABLED_DeleteFilesInRangeConflictWithCompaction) {
   Options options = CurrentOptions();
   DestroyAndReopen(options);
   const Snapshot* snapshot = nullptr;
