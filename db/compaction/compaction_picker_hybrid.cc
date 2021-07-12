@@ -106,7 +106,7 @@ bool HybridCompactionPicker::NeedsCompaction(
     }
   }
 
-  if (vstorage->LevelFiles(LastLevel()).size() > max_open_files_ / 2) {
+  if (vstorage->LevelFiles(int(LastLevel())).size() > max_open_files_ / 2) {
     return true;
   }
   // reduce number of sorted run ....
@@ -210,8 +210,8 @@ Compaction* HybridCompactionPicker::PickCompaction(
     if (curNumOfHyperLevels_ > 1 &&
         MayRunCompaction(curNumOfHyperLevels_ - 1, runningDesc)) {
       auto lastLevelInPrevHyper = LastLevelInHyper(curNumOfHyperLevels_ - 1);
-      auto dbSize = vstorage->NumLevelBytes(LastLevel());
-      auto levelSize = vstorage->NumLevelBytes(lastLevelInPrevHyper);
+      auto dbSize = vstorage->NumLevelBytes(int(LastLevel()));
+      auto levelSize = vstorage->NumLevelBytes(int(lastLevelInPrevHyper));
       if (levelSize * multiplier_[curNumOfHyperLevels_] * spaceAmpFactor_ >
           dbSize) {
         ret = MoveSstToLastLevel(cf_name, mutable_cf_options,
@@ -279,8 +279,8 @@ Compaction* HybridCompactionPicker::PickCompaction(
     }
   }
   if (MayStartLevelCompaction(curNumOfHyperLevels_, runningDesc, vstorage)) {
-    if (vstorage->LevelFiles(LastLevel()).size() > max_open_files_ / 2) {
-      auto dbSize = vstorage->NumLevelBytes(LastLevel());
+    if (vstorage->LevelFiles(int(LastLevel())).size() > max_open_files_ / 2) {
+      auto dbSize = vstorage->NumLevelBytes(int(LastLevel()));
       auto ret =
           PickReduceNumFiles(mutable_cf_options, mutable_db_options, vstorage,
                              std::min(dbSize / 1024, 1ul << 28));
@@ -360,18 +360,19 @@ Compaction* HybridCompactionPicker::RearangeLevel(
     }
   }
 
-  for (size_t outputLevel = lastLevelInHyper; outputLevel >= firstLevelInHyper;
-       outputLevel--) {
+  for (int outputLevel = int(lastLevelInHyper);
+       outputLevel >= int(firstLevelInHyper); outputLevel--) {
     if (vstorage->LevelFiles(outputLevel).empty()) {
       std::vector<CompactionInputFiles> inputs;
 
       // if the level is empty move levels above to it...
-      for (size_t inputLevel = firstLevelInHyper; inputLevel < outputLevel;
-           inputLevel++) {
-        if (!vstorage->LevelFiles(inputLevel).empty()) {
-          inputs.push_back(CompactionInputFiles());
-          inputs.back().level = inputLevel;
-          inputs.back().files = vstorage->LevelFiles(inputLevel);
+      for (size_t inputLevel = firstLevelInHyper;
+           inputLevel < size_t(outputLevel); inputLevel++) {
+        if (!vstorage->LevelFiles(int(inputLevel)).empty()) {
+          CompactionInputFiles input;
+          input.level = int(inputLevel);
+          input.files = vstorage->LevelFiles(int(inputLevel));
+          inputs.push_back(std::move(input));
         }
       }
       if (inputs.empty()) {
@@ -407,7 +408,7 @@ void HybridCompactionPicker::InitCf(const MutableCFOptions& mutable_cf_options,
   maxNumHyperLevels_ = std::max(kHyperLevelsNumMin,
                                 GetHyperLevelNum(vstorage->num_levels() - 2));
   for (size_t level = 0; level < size_t(vstorage->num_levels()); level++) {
-    if (!vstorage->LevelFiles(level).empty()) {
+    if (!vstorage->LevelFiles(int(level)).empty()) {
       lastNonEmpty = level;
     }
   }
@@ -445,7 +446,7 @@ Compaction* HybridCompactionPicker::CheckDbSize(
   // find the last level that has data
   size_t lastNonEmpty = LastLevel();
 
-  size_t actualDbSize = vstorage->NumLevelBytes(lastNonEmpty);
+  size_t actualDbSize = vstorage->NumLevelBytes(int(lastNonEmpty));
   if (actualDbSize == 0) {
     return nullptr;
   }
@@ -458,8 +459,8 @@ Compaction* HybridCompactionPicker::CheckDbSize(
 
     if (actualDbSize > sizeToCompact_[curNumOfHyperLevels_] * spaceAmp * 1.2 ||
         (lastHyperLevelSize * spaceAmp < actualDbSize &&
-         !vstorage->LevelFiles(firstLevel + 3).empty()) ||
-        !vstorage->LevelFiles(firstLevel + 1).empty()) {
+         !vstorage->LevelFiles(int(firstLevel + 3)).empty()) ||
+        !vstorage->LevelFiles(int(firstLevel + 1)).empty()) {
       curNumOfHyperLevels_++;
       if (enable_spdb_log) {
         ROCKS_LOG_BUFFER(log_buffer,
@@ -472,11 +473,14 @@ Compaction* HybridCompactionPicker::CheckDbSize(
 
       const size_t numLevelsToMove =
           std::min(kLevelsToMergeMax * 2, lastNonEmpty - 1);
-      std::vector<CompactionInputFiles> inputs(numLevelsToMove);
+      std::vector<CompactionInputFiles> inputs;
+      inputs.reserve(numLevelsToMove);
       auto level = lastNonEmpty + 1 - numLevelsToMove;
       for (size_t i = 0; i < numLevelsToMove; i++) {
-        inputs[i].level = level;
-        inputs[i].files = vstorage->LevelFiles(level);
+        CompactionInputFiles input;
+        input.level = int(level);
+        input.files = vstorage->LevelFiles(int(level));
+        inputs.push_back(std::move(input));
         level++;
       }
       const size_t outputLevel = LastLevel();
@@ -484,11 +488,11 @@ Compaction* HybridCompactionPicker::CheckDbSize(
 
       auto* ret = new Compaction(
           vstorage, ioptions_, mutable_cf_options, mutable_db_options,
-          std::move(inputs), outputLevel, -1,
+          std::move(inputs), int(outputLevel), -1,
           /* max_grandparent_overlap_bytes */ LLONG_MAX, 0,
           GetCompressionType(ioptions_, vstorage, mutable_cf_options,
-                             outputLevel, 1),
-          GetCompressionOptions(mutable_cf_options, vstorage, outputLevel),
+                             int(outputLevel), 1),
+          GetCompressionOptions(mutable_cf_options, vstorage, int(outputLevel)),
           /* max_subcompactions */ 1, /* grandparents */ {},
           /* is manual */ false, 0, false /* deletion_compaction */,
           kRearangeCompaction);
@@ -506,19 +510,20 @@ Compaction* HybridCompactionPicker::MoveSstToLastLevel(
   auto lastLevelInPrevHyper = LastLevelInHyper(curNumOfHyperLevels_ - 1);
   auto level = LastLevelInHyper(curNumOfHyperLevels_ - 1);
   for (; level > lastLevelInPrevHyper; level--) {
-    if (vstorage->LevelFiles(level).empty()) {
-      std::vector<CompactionInputFiles> inputs(1);
-      inputs[0].level = lastLevelInPrevHyper;
-      inputs[0].files = vstorage->LevelFiles(lastLevelInPrevHyper);
+    if (vstorage->LevelFiles(int(level)).empty()) {
+      CompactionInputFiles input;
+      input.level = int(lastLevelInPrevHyper);
+      input.files = vstorage->LevelFiles(int(lastLevelInPrevHyper));
+      std::vector<CompactionInputFiles> inputs{std::move(input)};
       auto outputLevel = level;
 
       return new Compaction(
           vstorage, ioptions_, mutable_cf_options, mutable_db_options,
-          std::move(inputs), outputLevel, LLONG_MAX,
+          std::move(inputs), int(outputLevel), LLONG_MAX,
           /* max_grandparent_overlap_bytes */ LLONG_MAX, 0,
           GetCompressionType(ioptions_, vstorage, mutable_cf_options,
-                             outputLevel, 1),
-          GetCompressionOptions(mutable_cf_options, vstorage, outputLevel),
+                             int(outputLevel), 1),
+          GetCompressionOptions(mutable_cf_options, vstorage, int(outputLevel)),
           /* max_subcompactions */ 1, /* grandparents */ {},
           /* is manual */ false, 0, false /* deletion_compaction */,
           kRearangeCompaction);
@@ -539,7 +544,7 @@ bool HybridCompactionPicker::LevelNeedsRearange(
   const size_t lastLevel = LastLevelInHyper(hyperLevelNum);
   bool foundNonEmpty = false;
   for (size_t level = firstLevel; level <= lastLevel; level++) {
-    bool isEmpty = vstorage->LevelFiles(level).empty();
+    bool isEmpty = vstorage->LevelFiles(int(level)).empty();
     if (!foundNonEmpty) {
       foundNonEmpty = !isEmpty;
     } else if (isEmpty) {
@@ -557,7 +562,7 @@ size_t HybridCompactionPicker::CalculateHyperlevelSize(
   const size_t lastLevelInHyper = LastLevelInHyper(hyperLevelNum);
   size_t ret = 0;
   for (size_t level = firstLevelInHyper; level <= lastLevelInHyper; level++) {
-    ret += vstorage->NumLevelBytes(level);
+    ret += vstorage->NumLevelBytes(int(level));
   }
   return ret;
 }
@@ -566,15 +571,16 @@ Compaction* HybridCompactionPicker::PickLevel0Compaction(
     const MutableCFOptions& mutable_cf_options,
     const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
     size_t mergeWidth) {
+  const auto& level0_files = vstorage->LevelFiles(0);
+
   // check that l0 has enough files
-  size_t numFilesInL0 = vstorage->LevelFiles(0).size();
-  if (numFilesInL0 < mergeWidth) {
+  if (level0_files.size() < mergeWidth) {
     return nullptr;
   }
 
   // check that l1 has place
   const size_t firstLevelInHyper = FirstLevelInHyper(1);
-  if (!vstorage->LevelFiles(firstLevelInHyper).empty()) {
+  if (!vstorage->LevelFiles(int(firstLevelInHyper)).empty()) {
     return nullptr;
   }
   const size_t lastLevelInHyper = LastLevelInHyper(1);
@@ -583,43 +589,41 @@ Compaction* HybridCompactionPicker::PickLevel0Compaction(
   // find the last level  that all the levels belows are empty in the hyper
   // level
   for (size_t i = firstLevelInHyper + 1; i <= lastLevelInHyper; i++) {
-    if (!vstorage->LevelFiles(i).empty()) {
+    if (!vstorage->LevelFiles(int(i)).empty()) {
       break;
     } else {
       outputLevel = i;
     }
   }
 
-  std::vector<CompactionInputFiles> inputs(1);
-  inputs[0].level = 0;
   // normal compact of l0
   const size_t maxWidth = multiplier_[0] * 1.5;
 
-  if (numFilesInL0 < maxWidth) {
-    inputs[0].files = vstorage->LevelFiles(0);
-  } else {
-    inputs[0].files.resize(maxWidth);
-    auto iter = vstorage->LevelFiles(0).rbegin();
-    for (size_t n = maxWidth; n > 0; n--, iter++) {
-      inputs[0].files[n - 1] = *iter;
-    }
-  }
+  CompactionInputFiles input;
+  input.level = 0;
+  const auto input_file_count = std::min(level0_files.size(), maxWidth);
+  input.files.reserve(input_file_count);
+  input.files.insert(input.files.end(), level0_files.end() - input_file_count,
+                     level0_files.end());
+
+  std::vector<CompactionInputFiles> inputs{std::move(input)};
 
   size_t compactionOutputFileSize = LLONG_MAX;
   std::vector<FileMetaData*> grandparents;
   if (curNumOfHyperLevels_ <= 2) {
-    grandparents = vstorage->LevelFiles(LastLevel());
+    grandparents = vstorage->LevelFiles(int(LastLevel()));
   }
 
   prevSubCompaction_[0].outputLevel = outputLevel;
   return new Compaction(
       vstorage, ioptions_, mutable_cf_options, mutable_db_options,
-      std::move(inputs), outputLevel, compactionOutputFileSize, LLONG_MAX,
+      std::move(inputs), int(outputLevel), compactionOutputFileSize, LLONG_MAX,
       0 /* max_grandparent_overlap_bytes */,
-      GetCompressionType(ioptions_, vstorage, mutable_cf_options, outputLevel,
-                         1),
-      GetCompressionOptions(mutable_cf_options, vstorage, outputLevel),
-      numFilesInL0 > maxWidth ? 2 : 1 /* max_subcompactions */, grandparents,
+      GetCompressionType(ioptions_, vstorage, mutable_cf_options,
+                         int(outputLevel), 1),
+      GetCompressionOptions(mutable_cf_options, vstorage, int(outputLevel)),
+      level0_files.size() > maxWidth ? 2 : 1 /* max_subcompactions */,
+      grandparents,
       /* is manual */ false, 0, false /* deletion_compaction */,
       CompactionReason::kLevelL0FilesNum);
 }
@@ -643,7 +647,7 @@ Compaction* HybridCompactionPicker::PickLevelCompaction(
     const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
     bool lowPriority) {
   const size_t lastLevelInHyper = LastLevelInHyper(hyperLevelNum);
-  assert(!vstorage->LevelFiles(lastLevelInHyper).empty());
+  assert(!vstorage->LevelFiles(int(lastLevelInHyper)).empty());
 
   size_t outputLevel = lastLevelInHyper + 1;
   size_t nSubCompactions = 1;
@@ -654,30 +658,31 @@ Compaction* HybridCompactionPicker::PickLevelCompaction(
     // find output level
     size_t nextLevelEnd = LastLevelInHyper(hyperLevelNum + 1);
     while (outputLevel < nextLevelEnd &&
-           vstorage->LevelFiles(outputLevel + 1).empty()) {
+           vstorage->LevelFiles(int(outputLevel + 1)).empty()) {
       outputLevel++;
     }
     if (!prevSubCompaction_[hyperLevelNum].empty()) {
-      auto k =
-          vstorage->LevelFiles(lastLevelInHyper).back()->largest.user_key();
+      auto k = vstorage->LevelFiles(int(lastLevelInHyper))
+                   .back()
+                   ->largest.user_key();
       const Slice last_key(prevSubCompaction_[hyperLevelNum].lastKey);
       if (ucmp_->Compare(k, last_key) > 0) {
         outputLevel = prevSubCompaction_[hyperLevelNum].outputLevel;
       }
     }
 
-    grandparents = vstorage->LevelFiles(LastLevel());
+    grandparents = vstorage->LevelFiles(int(LastLevel()));
     // rush the compaction to prevent stall
     const size_t firstLevelInHyper = FirstLevelInHyper(hyperLevelNum);
     for (size_t i = 2; i < 6; i++) {
-      if (!vstorage->LevelFiles(firstLevelInHyper + i).empty()) {
+      if (!vstorage->LevelFiles(int(firstLevelInHyper + i)).empty()) {
         nSubCompactions++;
       }
     }
   } else {
     const size_t lastHyperLevelSize =
         spaceAmpFactor_ * CalculateHyperlevelSize(hyperLevelNum, vstorage);
-    size_t dbSize = std::max<size_t>(vstorage->NumLevelBytes(LastLevel()),
+    size_t dbSize = std::max<size_t>(vstorage->NumLevelBytes(int(LastLevel())),
                                      mutable_cf_options.write_buffer_size * 8);
     compactionOutputFileSize = std::min(compactionOutputFileSize, dbSize / 8);
     if (lastHyperLevelSize > dbSize) {
@@ -687,7 +692,7 @@ Compaction* HybridCompactionPicker::PickLevelCompaction(
       }
     }
     const size_t firstLevelInHyper = FirstLevelInHyper(hyperLevelNum);
-    if (!vstorage->LevelFiles(firstLevelInHyper + 4).empty()) {
+    if (!vstorage->LevelFiles(int(firstLevelInHyper + 4)).empty()) {
       nSubCompactions++;
     }
   }
@@ -715,12 +720,12 @@ Compaction* HybridCompactionPicker::PickLevelCompaction(
 
   auto ret = new Compaction(
       vstorage, ioptions_, mutable_cf_options, mutable_db_options,
-      std::move(inputs), outputLevel, compactionOutputFileSize, LLONG_MAX,
+      std::move(inputs), int(outputLevel), compactionOutputFileSize, LLONG_MAX,
       /* max_grandparent_overlap_bytes */ 0,
-      GetCompressionType(ioptions_, vstorage, mutable_cf_options, outputLevel,
-                         1),
-      GetCompressionOptions(mutable_cf_options, vstorage, outputLevel),
-      /* max_subcompactions */ nSubCompactions, grandparents,
+      GetCompressionType(ioptions_, vstorage, mutable_cf_options,
+                         int(outputLevel), 1),
+      GetCompressionOptions(mutable_cf_options, vstorage, int(outputLevel)),
+      /* max_subcompactions */ uint32_t(nSubCompactions), grandparents,
       /* is manual */ false, 0, false /* deletion_compaction */,
       CompactionReason::kLevelMaxLevelSize);
   if (trivial_compaction) {
@@ -734,7 +739,7 @@ Compaction* HybridCompactionPicker::PickReduceNumFiles(
     const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
     size_t minFileSize) {
   auto lastLevel = LastLevel();
-  auto& fl = vstorage->LevelFiles(lastLevel);
+  auto& fl = vstorage->LevelFiles(int(lastLevel));
   // find sequence of small files
   size_t maxSeq = 0;
   size_t maxSeqPlace = 0;
@@ -781,19 +786,19 @@ Compaction* HybridCompactionPicker::PickReduceNumFiles(
   if (maxSeq > 200) {
     maxSeq = 200;
   }
-  std::vector<CompactionInputFiles> inputs(1);
-  inputs[0].level = lastLevel;
-  inputs[0].files.resize(maxSeq);
-  auto fid = maxSeqPlace;
-  for (size_t c = 0; c < maxSeq; c++, fid++) {
-    inputs[0].files[c] = fl[fid];
-  }
+  CompactionInputFiles input;
+  input.level = int(lastLevel);
+  input.files.reserve(maxSeq);
+  input.files.insert(input.files.end(), fl.begin() + maxSeqPlace,
+                     fl.begin() + maxSeqPlace + maxSeq);
+  std::vector<CompactionInputFiles> inputs{std::move(input)};
   auto c = new Compaction(
       vstorage, ioptions_, mutable_cf_options, mutable_db_options,
-      std::move(inputs), lastLevel, -1LL,
+      std::move(inputs), int(lastLevel), -1LL,
       /* max_grandparent_overlap_bytes */ LLONG_MAX, 0,
-      GetCompressionType(ioptions_, vstorage, mutable_cf_options, lastLevel, 1),
-      GetCompressionOptions(mutable_cf_options, vstorage, lastLevel),
+      GetCompressionType(ioptions_, vstorage, mutable_cf_options,
+                         int(lastLevel), 1),
+      GetCompressionOptions(mutable_cf_options, vstorage, int(lastLevel)),
       /* max_subcompactions */ 1, /* grandparents */ {},
       /* is manual */ false, 0, false /* deletion_compaction */,
       CompactionReason::kFIFOReduceNumFiles);
@@ -825,7 +830,7 @@ bool HybridCompactionPicker::MayStartLevelCompaction(
   // check that there is a free target
   if (hyperLevelNum != curNumOfHyperLevels_ &&
       prevSubCompaction_[hyperLevelNum].empty() &&
-      !vstorage->LevelFiles(LastLevelInHyper(hyperLevelNum) + 1).empty()) {
+      !vstorage->LevelFiles(int(LastLevelInHyper(hyperLevelNum) + 1)).empty()) {
     return false;
   }
   return true;
@@ -838,14 +843,14 @@ bool HybridCompactionPicker::NeedToRunLevelCompaction(
   }
 
   auto lastLevelInHyper = LastLevelInHyper(hyperLevelNum);
-  if (vstorage->LevelFiles(lastLevelInHyper).empty()) {
+  if (vstorage->LevelFiles(int(lastLevelInHyper)).empty()) {
     return false;
   }
 
   int forceCompactLevel =
       int(lastLevelInHyper - multiplier_[hyperLevelNum]) - 6;
   size_t maxSize = sizeToCompact_[hyperLevelNum];
-  size_t levelSize = vstorage->NumLevelBytes(LastLevel()) /
+  size_t levelSize = vstorage->NumLevelBytes(int(LastLevel())) /
                      (spaceAmpFactor_ * 1.1);  // take 10 % extra
 
   for (size_t hyperLevel = hyperLevelNum; hyperLevel < curNumOfHyperLevels_;
@@ -855,7 +860,7 @@ bool HybridCompactionPicker::NeedToRunLevelCompaction(
 
   if (maxSize > levelSize) maxSize = levelSize;
 
-  return (!vstorage->LevelFiles(forceCompactLevel).empty() ||
+  return (!vstorage->LevelFiles(int(forceCompactLevel)).empty() ||
           CalculateHyperlevelSize(hyperLevelNum, vstorage) > maxSize);
 }
 
@@ -1066,7 +1071,7 @@ bool HybridCompactionPicker::SelectNBuffers(
     std::vector<CompactionInputFiles>& inputs, size_t nBuffers,
     size_t outputLevel, size_t hyperLevelNum, VersionStorageInfo* vstorage) {
   const size_t lowest_level = LastLevelInHyper(hyperLevelNum);
-  if (vstorage->LevelFiles(lowest_level).empty()) {
+  if (vstorage->LevelFiles(int(lowest_level)).empty()) {
     return false;
   }
 
@@ -1082,7 +1087,7 @@ bool HybridCompactionPicker::SelectNBuffers(
   assert(lowest_level >= upper_level);
   size_t count = 0;
   for (size_t s = lowest_level; s >= upper_level; s--) {
-    auto& levelFiles = vstorage->LevelFiles(s);
+    auto& levelFiles = vstorage->LevelFiles(int(s));
     if (!levelFiles.empty()) {
       count++;
     }
@@ -1096,9 +1101,9 @@ bool HybridCompactionPicker::SelectNBuffers(
   Slice smallestKey, largestKey;
 
   bool lastFileWasSelected = true;
-  inputs[count].level = lowest_level;
-  selectNBufferFromFirstLevel(vstorage->LevelFiles(lowest_level),
-                              vstorage->LevelFiles(LastLevel()), nBuffers,
+  inputs[count].level = int(lowest_level);
+  selectNBufferFromFirstLevel(vstorage->LevelFiles(int(lowest_level)),
+                              vstorage->LevelFiles(int(LastLevel())), nBuffers,
                               inputs[count].files, smallestKey, largestKey,
                               lowerBound, upperBound, lastFileWasSelected);
   const Slice prevPlace(prevSubCompaction_[hyperLevelNum].lastKey);
@@ -1110,10 +1115,10 @@ bool HybridCompactionPicker::SelectNBuffers(
   }
 
   for (size_t level = lowest_level - 1; level >= upper_level; level--) {
-    if (!vstorage->LevelFiles(level).empty()) {
+    if (!vstorage->LevelFiles(int(level)).empty()) {
       count--;
-      inputs[count].level = level;
-      expandSelection(vstorage->LevelFiles(level), inputs[count].files,
+      inputs[count].level = int(level);
+      expandSelection(vstorage->LevelFiles(int(level)), inputs[count].files,
                       lowerBound, upperBound, smallestKey, largestKey,
                       lastFileWasSelected);
       auto& fl = inputs[count].files;
@@ -1131,8 +1136,8 @@ bool HybridCompactionPicker::SelectNBuffers(
   }
   assert(count == 0);
   count = inputs.size() - 1;
-  inputs[count].level = outputLevel;
-  auto& fl = vstorage->LevelFiles(outputLevel);
+  inputs[count].level = int(outputLevel);
+  auto& fl = vstorage->LevelFiles(int(outputLevel));
   auto iter = locateFile(fl, smallestKey, fl.begin());
   for (; iter != fl.end(); iter++) {
     if (ucmp_->Compare((*iter)->smallest.user_key(), largestKey) > 0) {
@@ -1180,7 +1185,7 @@ void HybridCompactionPicker::PrintLsmState(EventLoggerStream& stream,
   for (size_t level = 0; level <= curNumOfHyperLevels_; ++level) {
     stream << CalculateHyperlevelSize(level, vstorage) / 1024 / 1024;
   }
-  stream << vstorage->NumLevelBytes(LastLevel()) / 1024 / 1024;
+  stream << vstorage->NumLevelBytes(int(LastLevel())) / 1024 / 1024;
 
   stream.EndArray();
 }
