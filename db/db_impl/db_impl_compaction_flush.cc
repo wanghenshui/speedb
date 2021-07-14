@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include <time.h>
 
+#include <algorithm>
 #include <cinttypes>
 
 #include "db/builder.h"
@@ -154,166 +155,170 @@ Status DBImpl::FlushMemTableToOutputFile(
   assert(cfd->imm()->NumNotFlushed() != 0);
   assert(cfd->imm()->IsFlushPending());
 
-  FlushJob flush_job(
-      dbname_, cfd, immutable_db_options_, mutable_cf_options,
-      port::kMaxUint64 /* memtable_id */, file_options_for_compaction_,
-      versions_.get(), &mutex_, &shutting_down_, snapshot_seqs,
-      earliest_write_conflict_snapshot, snapshot_checker, job_context,
-      log_buffer, directories_.GetDbDir(), GetDataDir(cfd, 0U),
-      GetCompressionFlush(*cfd->ioptions(), mutable_cf_options), stats_,
-      &event_logger_, mutable_cf_options.report_bg_io_stats,
-      true /* sync_output_directory */, true /* write_manifest */, thread_pri,
-      io_tracer_, db_id_, db_session_id_, cfd->GetFullHistoryTsLow(),
-      &blob_callback_);
-  FileMetaData file_meta;
-
-#ifndef ROCKSDB_LITE
-  // may temporarily unlock and lock the mutex.
-  NotifyOnFlushBegin(cfd, &file_meta, mutable_cf_options, job_context->job_id);
-#endif  // ROCKSDB_LITE
-
   Status s;
-  bool need_cancel = false;
-  IOStatus log_io_s = IOStatus::OK();
-  if (logfile_number_ > 0 &&
-      versions_->GetColumnFamilySet()->NumberOfColumnFamilies() > 1) {
-    // If there are more than one column families, we need to make sure that
-    // all the log files except the most recent one are synced. Otherwise if
-    // the host crashes after flushing and before WAL is persistent, the
-    // flushed SST may contain data from write batches whose updates to
-    // other column families are missing.
-    // SyncClosedLogs() may unlock and re-lock the db_mutex.
-    log_io_s = SyncClosedLogs(job_context);
-    if (!log_io_s.ok() && !log_io_s.IsShutdownInProgress() &&
-        !log_io_s.IsColumnFamilyDropped()) {
-      error_handler_.SetBGError(log_io_s, BackgroundErrorReason::kFlush);
-    }
-  } else {
-    TEST_SYNC_POINT("DBImpl::SyncClosedLogs:Skip");
-  }
-  s = log_io_s;
+  while (s.ok() && cfd->imm()->IsFlushPending()) {
+    FlushJob flush_job(
+        dbname_, cfd, immutable_db_options_, mutable_cf_options,
+        file_options_for_compaction_, versions_.get(), &mutex_, &shutting_down_,
+        snapshot_seqs, earliest_write_conflict_snapshot, snapshot_checker,
+        job_context, log_buffer, directories_.GetDbDir(), GetDataDir(cfd, 0U),
+        GetCompressionFlush(*cfd->ioptions(), mutable_cf_options), stats_,
+        &event_logger_, mutable_cf_options.report_bg_io_stats,
+        true /* sync_output_directory */, true /* write_manifest */, thread_pri,
+        io_tracer_, db_id_, db_session_id_, cfd->GetFullHistoryTsLow(),
+        &blob_callback_);
+    FileMetaData file_meta;
 
-  // If the log sync failed, we do not need to pick memtable. Otherwise,
-  // num_flush_not_started_ needs to be rollback.
-  TEST_SYNC_POINT("DBImpl::FlushMemTableToOutputFile:BeforePickMemtables");
-  if (s.ok()) {
-    flush_job.PickMemTable();
-    need_cancel = true;
-  }
-  TEST_SYNC_POINT("DBImpl::FlushMemTableToOutputFile:AfterPickMemtables");
-
-  // Within flush_job.Run, rocksdb may call event listener to notify
-  // file creation and deletion.
-  //
-  // Note that flush_job.Run will unlock and lock the db_mutex,
-  // and EventListener callback will be called when the db_mutex
-  // is unlocked by the current thread.
-  if (s.ok()) {
-    s = flush_job.Run(&logs_with_prep_tracker_, &file_meta);
-    need_cancel = false;
-  }
-
-  if (!s.ok() && need_cancel) {
-    flush_job.Cancel();
-  }
-  IOStatus io_s = IOStatus::OK();
-  io_s = flush_job.io_status();
-  if (s.ok()) {
-    s = io_s;
-  }
-
-  if (s.ok()) {
-    InstallSuperVersionAndScheduleWork(cfd, superversion_context,
-                                       mutable_cf_options);
-    if (made_progress) {
-      *made_progress = true;
-    }
-
-    const std::string& column_family_name = cfd->GetName();
-
-    Version* const current = cfd->current();
-    assert(current);
-
-    const VersionStorageInfo* const storage_info = current->storage_info();
-    assert(storage_info);
-
-    if (enable_spdb_log) {
-      VersionStorageInfo::LevelSummaryStorage tmp;
-      ROCKS_LOG_BUFFER(log_buffer, "[%s] Level summary: %s\n",
-                       column_family_name.c_str(),
-                       storage_info->LevelSummary(&tmp));
-
-      const auto& blob_files = storage_info->GetBlobFiles();
-      if (!blob_files.empty()) {
-        ROCKS_LOG_BUFFER(log_buffer,
-                         "[%s] Blob file summary: head=%" PRIu64
-                         ", tail=%" PRIu64 "\n",
-                         column_family_name.c_str(), blob_files.begin()->first,
-                         blob_files.rbegin()->first);
-      }
-    }
-  }
-
-  if (!s.ok() && !s.IsShutdownInProgress() && !s.IsColumnFamilyDropped()) {
-    if (!io_s.ok() && !io_s.IsShutdownInProgress() &&
-        !io_s.IsColumnFamilyDropped()) {
-      assert(log_io_s.ok());
-      // Error while writing to MANIFEST.
-      // In fact, versions_->io_status() can also be the result of renaming
-      // CURRENT file. With current code, it's just difficult to tell. So just
-      // be pessimistic and try write to a new MANIFEST.
-      // TODO: distinguish between MANIFEST write and CURRENT renaming
-      if (!versions_->io_status().ok()) {
-        // If WAL sync is successful (either WAL size is 0 or there is no IO
-        // error), all the Manifest write will be map to soft error.
-        // TODO: kManifestWriteNoWAL and kFlushNoWAL are misleading. Refactor is
-        // needed.
-        error_handler_.SetBGError(io_s,
-                                  BackgroundErrorReason::kManifestWriteNoWAL);
-      } else {
-        // If WAL sync is successful (either WAL size is 0 or there is no IO
-        // error), all the other SST file write errors will be set as
-        // kFlushNoWAL.
-        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlushNoWAL);
-      }
-    } else {
-      if (log_io_s.ok()) {
-        Status new_bg_error = s;
-        error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
-      }
-    }
-  } else {
-    // If we got here, then we decided not to care about the i_os status (either
-    // from never needing it or ignoring the flush job status
-    io_s.PermitUncheckedError();
-  }
-  if (s.ok()) {
 #ifndef ROCKSDB_LITE
     // may temporarily unlock and lock the mutex.
-    NotifyOnFlushCompleted(cfd, mutable_cf_options,
-                           flush_job.GetCommittedFlushJobsInfo());
-    auto sfm = static_cast<SstFileManagerImpl*>(
-        immutable_db_options_.sst_file_manager.get());
-    if (sfm) {
-      // Notify sst_file_manager that a new file was added
-      std::string file_path = MakeTableFileName(
-          cfd->ioptions()->cf_paths[0].path, file_meta.fd.GetNumber());
-      // TODO (PR7798).  We should only add the file to the FileManager if it
-      // exists. Otherwise, some tests may fail.  Ignore the error in the
-      // interim.
-      sfm->OnAddFile(file_path).PermitUncheckedError();
-      if (sfm->IsMaxAllowedSpaceReached()) {
-        Status new_bg_error =
-            Status::SpaceLimit("Max allowed space was reached");
-        TEST_SYNC_POINT_CALLBACK(
-            "DBImpl::FlushMemTableToOutputFile:MaxAllowedSpaceReached",
-            &new_bg_error);
-        error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
+    NotifyOnFlushBegin(cfd, &file_meta, mutable_cf_options,
+                       job_context->job_id);
+#endif  // ROCKSDB_LITE
+
+    bool need_cancel = false;
+    IOStatus log_io_s = IOStatus::OK();
+    if (logfile_number_ > 0 &&
+        versions_->GetColumnFamilySet()->NumberOfColumnFamilies() > 1) {
+      // If there are more than one column families, we need to make sure that
+      // all the log files except the most recent one are synced. Otherwise if
+      // the host crashes after flushing and before WAL is persistent, the
+      // flushed SST may contain data from write batches whose updates to
+      // other column families are missing.
+      // SyncClosedLogs() may unlock and re-lock the db_mutex.
+      log_io_s = SyncClosedLogs(job_context);
+      if (!log_io_s.ok() && !log_io_s.IsShutdownInProgress() &&
+          !log_io_s.IsColumnFamilyDropped()) {
+        error_handler_.SetBGError(log_io_s, BackgroundErrorReason::kFlush);
+      }
+    } else {
+      TEST_SYNC_POINT("DBImpl::SyncClosedLogs:Skip");
+    }
+    s = log_io_s;
+
+    // If the log sync failed, we do not need to pick memtable. Otherwise,
+    // num_flush_not_started_ needs to be rollback.
+    TEST_SYNC_POINT("DBImpl::FlushMemTableToOutputFile:BeforePickMemtables");
+    if (s.ok()) {
+      flush_job.PickMemTable(port::kMaxUint64);
+      need_cancel = true;
+    }
+    TEST_SYNC_POINT("DBImpl::FlushMemTableToOutputFile:AfterPickMemtables");
+
+    // Within flush_job.Run, rocksdb may call event listener to notify
+    // file creation and deletion.
+    //
+    // Note that flush_job.Run will unlock and lock the db_mutex,
+    // and EventListener callback will be called when the db_mutex
+    // is unlocked by the current thread.
+    if (s.ok()) {
+      s = flush_job.Run(&logs_with_prep_tracker_, &file_meta);
+      need_cancel = false;
+    }
+
+    if (!s.ok() && need_cancel) {
+      flush_job.Cancel();
+    }
+    IOStatus io_s = IOStatus::OK();
+    io_s = flush_job.io_status();
+    if (s.ok()) {
+      s = io_s;
+    }
+
+    if (s.ok()) {
+      InstallSuperVersionAndScheduleWork(cfd, superversion_context,
+                                         mutable_cf_options);
+      if (made_progress) {
+        *made_progress = true;
+      }
+
+      const std::string& column_family_name = cfd->GetName();
+
+      Version* const current = cfd->current();
+      assert(current);
+
+      const VersionStorageInfo* const storage_info = current->storage_info();
+      assert(storage_info);
+
+      if (enable_spdb_log) {
+        VersionStorageInfo::LevelSummaryStorage tmp;
+        ROCKS_LOG_BUFFER(log_buffer, "[%s] Level summary: %s\n",
+                         column_family_name.c_str(),
+                         storage_info->LevelSummary(&tmp));
+
+        const auto& blob_files = storage_info->GetBlobFiles();
+        if (!blob_files.empty()) {
+          ROCKS_LOG_BUFFER(
+              log_buffer,
+              "[%s] Blob file summary: head=%" PRIu64 ", tail=%" PRIu64 "\n",
+              column_family_name.c_str(), blob_files.begin()->first,
+              blob_files.rbegin()->first);
+        }
       }
     }
+
+    if (!s.ok() && !s.IsShutdownInProgress() && !s.IsColumnFamilyDropped()) {
+      if (!io_s.ok() && !io_s.IsShutdownInProgress() &&
+          !io_s.IsColumnFamilyDropped()) {
+        assert(log_io_s.ok());
+        // Error while writing to MANIFEST.
+        // In fact, versions_->io_status() can also be the result of renaming
+        // CURRENT file. With current code, it's just difficult to tell. So just
+        // be pessimistic and try write to a new MANIFEST.
+        // TODO: distinguish between MANIFEST write and CURRENT renaming
+        if (!versions_->io_status().ok()) {
+          // If WAL sync is successful (either WAL size is 0 or there is no IO
+          // error), all the Manifest write will be map to soft error.
+          // TODO: kManifestWriteNoWAL and kFlushNoWAL are misleading. Refactor
+          // is needed.
+          error_handler_.SetBGError(io_s,
+                                    BackgroundErrorReason::kManifestWriteNoWAL);
+        } else {
+          // If WAL sync is successful (either WAL size is 0 or there is no IO
+          // error), all the other SST file write errors will be set as
+          // kFlushNoWAL.
+          error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlushNoWAL);
+        }
+      } else {
+        if (log_io_s.ok()) {
+          Status new_bg_error = s;
+          error_handler_.SetBGError(new_bg_error,
+                                    BackgroundErrorReason::kFlush);
+        }
+      }
+    } else {
+      // If we got here, then we decided not to care about the i_os status
+      // (either from never needing it or ignoring the flush job status
+      io_s.PermitUncheckedError();
+    }
+    if (s.ok()) {
+#ifndef ROCKSDB_LITE
+      // may temporarily unlock and lock the mutex.
+      NotifyOnFlushCompleted(cfd, mutable_cf_options,
+                             flush_job.GetCommittedFlushJobsInfo());
+      auto sfm = static_cast<SstFileManagerImpl*>(
+          immutable_db_options_.sst_file_manager.get());
+      if (sfm) {
+        // Notify sst_file_manager that a new file was added
+        std::string file_path = MakeTableFileName(
+            cfd->ioptions()->cf_paths[0].path, file_meta.fd.GetNumber());
+        // TODO (PR7798).  We should only add the file to the FileManager if it
+        // exists. Otherwise, some tests may fail.  Ignore the error in the
+        // interim.
+        sfm->OnAddFile(file_path).PermitUncheckedError();
+        if (sfm->IsMaxAllowedSpaceReached()) {
+          Status new_bg_error =
+              Status::SpaceLimit("Max allowed space was reached");
+          TEST_SYNC_POINT_CALLBACK(
+              "DBImpl::FlushMemTableToOutputFile:MaxAllowedSpaceReached",
+              &new_bg_error);
+          error_handler_.SetBGError(new_bg_error,
+                                    BackgroundErrorReason::kFlush);
+        }
+      }
 #endif  // ROCKSDB_LITE
+    }
+    TEST_SYNC_POINT("DBImpl::FlushMemTableToOutputFile:Finish");
   }
-  TEST_SYNC_POINT("DBImpl::FlushMemTableToOutputFile:Finish");
   return s;
 }
 
@@ -356,15 +361,10 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     JobContext* job_context, LogBuffer* log_buffer, Env::Priority thread_pri) {
   mutex_.AssertHeld();
 
-  autovector<ColumnFamilyData*> cfds;
-  for (const auto& arg : bg_flush_args) {
-    cfds.emplace_back(arg.cfd_);
-  }
-
 #ifndef NDEBUG
-  for (const auto cfd : cfds) {
-    assert(cfd->imm()->NumNotFlushed() != 0);
-    assert(cfd->imm()->IsFlushPending());
+  for (const auto& arg : bg_flush_args) {
+    assert(arg.cfd_->imm()->NumNotFlushed() != 0);
+    assert(arg.cfd_->imm()->IsFlushPending());
   }
 #endif /* !NDEBUG */
 
@@ -377,54 +377,70 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
   autovector<FSDirectory*> distinct_output_dirs;
   autovector<std::string> distinct_output_dir_paths;
   std::vector<std::unique_ptr<FlushJob>> jobs;
-  std::vector<MutableCFOptions> all_mutable_cf_options;
-  int num_cfs = static_cast<int>(cfds.size());
-  all_mutable_cf_options.reserve(num_cfs);
-  for (int i = 0; i < num_cfs; ++i) {
-    auto cfd = cfds[i];
+  autovector<std::pair<ColumnFamilyData*, std::pair<uint64_t, uint64_t>>>
+      cfd_ranges;
+
+  for (const auto& arg : bg_flush_args) {
+    auto* cfd = arg.cfd_;
     FSDirectory* data_dir = GetDataDir(cfd, 0U);
     const std::string& curr_path = cfd->ioptions()->cf_paths[0].path;
 
     // Add to distinct output directories if eligible. Use linear search. Since
     // the number of elements in the vector is not large, performance should be
     // tolerable.
-    bool found = false;
-    for (const auto& path : distinct_output_dir_paths) {
-      if (path == curr_path) {
-        found = true;
-        break;
-      }
-    }
-    if (!found) {
+    if (std::find(distinct_output_dir_paths.begin(),
+                  distinct_output_dir_paths.end(),
+                  curr_path) == distinct_output_dir_paths.end()) {
       distinct_output_dir_paths.emplace_back(curr_path);
       distinct_output_dirs.emplace_back(data_dir);
     }
 
-    all_mutable_cf_options.emplace_back(*cfd->GetLatestMutableCFOptions());
-    const MutableCFOptions& mutable_cf_options = all_mutable_cf_options.back();
-    uint64_t max_memtable_id = bg_flush_args[i].max_memtable_id_;
-    jobs.emplace_back(new FlushJob(
-        dbname_, cfd, immutable_db_options_, mutable_cf_options,
-        max_memtable_id, file_options_for_compaction_, versions_.get(), &mutex_,
-        &shutting_down_, snapshot_seqs, earliest_write_conflict_snapshot,
-        snapshot_checker, job_context, log_buffer, directories_.GetDbDir(),
-        data_dir, GetCompressionFlush(*cfd->ioptions(), mutable_cf_options),
-        stats_, &event_logger_, mutable_cf_options.report_bg_io_stats,
-        false /* sync_output_directory */, false /* write_manifest */,
-        thread_pri, io_tracer_, db_id_, db_session_id_,
-        cfd->GetFullHistoryTsLow()));
+    // all_mutable_cf_options.emplace_back(*cfd->GetLatestMutableCFOptions());
+    // const MutableCFOptions& mutable_cf_options =
+    // all_mutable_cf_options.back();
+    const MutableCFOptions& mutable_cf_options =
+        *cfd->GetLatestMutableCFOptions();
+    bool pushed_range = false;
+    while (cfd->imm()->IsFlushPending()) {
+      jobs.emplace_back(new FlushJob(
+          dbname_, cfd, immutable_db_options_, mutable_cf_options,
+          file_options_for_compaction_, versions_.get(), &mutex_,
+          &shutting_down_, snapshot_seqs, earliest_write_conflict_snapshot,
+          snapshot_checker, job_context, log_buffer, directories_.GetDbDir(),
+          data_dir, GetCompressionFlush(*cfd->ioptions(), mutable_cf_options),
+          stats_, &event_logger_, mutable_cf_options.report_bg_io_stats,
+          false /* sync_output_directory */, false /* write_manifest */,
+          thread_pri, io_tracer_, db_id_, db_session_id_,
+          cfd->GetFullHistoryTsLow()));
+      auto& job = jobs.back();
+      job->PickMemTable(arg.max_memtable_id_);
+
+      // Don't create empty flush jobs
+      const auto& memtables = job->GetMemTables();
+      if (memtables.empty()) {
+        jobs.pop_back();
+        break;
+      }
+
+      if (!pushed_range) {
+        uint64_t start = memtables.front()->GetID();
+        cfd_ranges.push_back(std::make_pair(cfd, std::make_pair(start, start)));
+        pushed_range = true;
+      }
+      cfd_ranges.back().second.second = memtables.back()->GetID();
+    }
   }
 
-  std::vector<FileMetaData> file_meta(num_cfs);
+  std::vector<FileMetaData> file_meta(jobs.size());
   Status s;
   IOStatus log_io_s = IOStatus::OK();
-  assert(num_cfs == static_cast<int>(jobs.size()));
 
 #ifndef ROCKSDB_LITE
-  for (int i = 0; i != num_cfs; ++i) {
-    const MutableCFOptions& mutable_cf_options = all_mutable_cf_options.at(i);
+  for (size_t i = 0; i < jobs.size(); ++i) {
+    const auto& job = jobs[i];
+    const MutableCFOptions& mutable_cf_options = job->GetMutableCFOptions();
     // may temporarily unlock and lock the mutex.
-    NotifyOnFlushBegin(cfds[i], &file_meta[i], mutable_cf_options,
+    NotifyOnFlushBegin(job->cfd(), &file_meta[i], mutable_cf_options,
                        job_context->job_id);
   }
 #endif /* !ROCKSDB_LITE */
@@ -449,30 +465,21 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
   // <bool /* executed */, Status /* status code */>
   autovector<std::pair<bool, Status>> exec_status;
   autovector<IOStatus> io_status;
-  std::vector<bool> pick_status;
-  for (int i = 0; i != num_cfs; ++i) {
+  for (size_t i = 0; i < jobs.size(); ++i) {
     // Initially all jobs are not executed, with status OK.
     exec_status.emplace_back(false, Status::OK());
     io_status.emplace_back(IOStatus::OK());
-    pick_status.push_back(false);
-  }
-
-  if (s.ok()) {
-    for (int i = 0; i != num_cfs; ++i) {
-      jobs[i]->PickMemTable();
-      pick_status[i] = true;
-    }
   }
 
   if (s.ok()) {
     // TODO (yanqin): parallelize jobs with threads.
-    for (int i = 1; i != num_cfs; ++i) {
-      exec_status[i].second =
-          jobs[i]->Run(&logs_with_prep_tracker_, &file_meta[i]);
-      exec_status[i].first = true;
-      io_status[i] = jobs[i]->io_status();
+    for (size_t i = 1; i < jobs.size(); ++i) {
+      auto& job = jobs[i];
+      exec_status[i] = std::make_pair(
+          true, job->Run(&logs_with_prep_tracker_, &file_meta[i]));
+      io_status[i] = job->io_status();
     }
-    if (num_cfs > 1) {
+    if (jobs.size() > 1) {
       TEST_SYNC_POINT(
           "DBImpl::AtomicFlushMemTablesToOutputFiles:SomeFlushJobsComplete:1");
       TEST_SYNC_POINT(
@@ -480,9 +487,8 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     }
     assert(exec_status.size() > 0);
     assert(!file_meta.empty());
-    exec_status[0].second =
-        jobs[0]->Run(&logs_with_prep_tracker_, &file_meta[0]);
-    exec_status[0].first = true;
+    exec_status[0] = std::make_pair(
+        true, jobs[0]->Run(&logs_with_prep_tracker_, &file_meta[0]));
     io_status[0] = jobs[0]->io_status();
 
     Status error_status;
@@ -537,41 +543,35 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     // it is not because of CF drop.
     // Have to cancel the flush jobs that have NOT executed because we need to
     // unref the versions.
-    for (int i = 0; i != num_cfs; ++i) {
-      if (pick_status[i] && !exec_status[i].first) {
-        jobs[i]->Cancel();
+    // Also need to roll back any picked memtables of runs that are either
+    // successful or not started (failed runs roll back the memtable picking
+    // on their own).
+    for (int i = static_cast<int>(jobs.size()) - 1; i >= 0; --i) {
+      auto& job = jobs[i];
+      if (!exec_status[i].first) {
+        job->Cancel();
+      } else if (!exec_status[i].second.ok()) {
+        continue;
       }
-    }
-    for (int i = 0; i != num_cfs; ++i) {
-      if (exec_status[i].second.ok() && exec_status[i].first) {
-        auto& mems = jobs[i]->GetMemTables();
-        cfds[i]->imm()->RollbackMemtableFlush(mems,
-                                              file_meta[i].fd.GetNumber());
-      }
+      job->cfd()->imm()->RollbackMemtableFlush(job->GetMemTables(),
+                                               file_meta[i].fd.GetNumber());
     }
   }
 
   if (s.ok()) {
     auto wait_to_install_func = [&]() {
       bool ready = true;
-      for (size_t i = 0; i != cfds.size(); ++i) {
-        const auto& mems = jobs[i]->GetMemTables();
-        if (cfds[i]->IsDropped()) {
+      for (auto& cfd_info : cfd_ranges) {
+        auto* cfd = cfd_info.first;
+        const auto& range = cfd_info.second;
+        if (cfd->IsDropped()) {
           // If the column family is dropped, then do not wait.
           continue;
-        } else if (!mems.empty() &&
-                   cfds[i]->imm()->GetEarliestMemTableID() < mems[0]->GetID()) {
+        } else if (cfd->imm()->GetEarliestMemTableID() < range.first) {
           // If a flush job needs to install the flush result for mems and
           // mems[0] is not the earliest memtable, it means another thread must
           // be installing flush results for the same column family, then the
           // current thread needs to wait.
-          ready = false;
-          break;
-        } else if (mems.empty() && cfds[i]->imm()->GetEarliestMemTableID() <=
-                                       bg_flush_args[i].max_memtable_id_) {
-          // If a flush job does not need to install flush results, then it has
-          // to wait until all memtables up to max_memtable_id_ (inclusive) are
-          // installed.
           ready = false;
           break;
         }
@@ -595,12 +595,13 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     autovector<const autovector<MemTable*>*> mems_list;
     autovector<const MutableCFOptions*> mutable_cf_options_list;
     autovector<FileMetaData*> tmp_file_meta;
-    for (int i = 0; i != num_cfs; ++i) {
-      const auto& mems = jobs[i]->GetMemTables();
-      if (!cfds[i]->IsDropped() && !mems.empty()) {
-        tmp_cfds.emplace_back(cfds[i]);
+    for (size_t i = 0; i < jobs.size(); ++i) {
+      auto& job = jobs[i];
+      const auto& mems = job->GetMemTables();
+      if (!job->cfd()->IsDropped() && !mems.empty()) {
+        tmp_cfds.emplace_back(job->cfd());
         mems_list.emplace_back(&mems);
-        mutable_cf_options_list.emplace_back(&all_mutable_cf_options[i]);
+        mutable_cf_options_list.emplace_back(&job->GetMutableCFOptions());
         tmp_file_meta.emplace_back(&file_meta[i]);
       }
     }
@@ -612,21 +613,22 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
   }
 
   if (s.ok()) {
-    assert(num_cfs ==
-           static_cast<int>(job_context->superversion_contexts.size()));
-    for (int i = 0; i != num_cfs; ++i) {
-      assert(cfds[i]);
+    assert(jobs.size() == job_context->superversion_contexts.size());
+    for (size_t i = 0; i < jobs.size(); ++i) {
+      const auto& job = jobs[i];
+      auto* cfd = job->cfd();
+      assert(cfd);
 
-      if (cfds[i]->IsDropped()) {
+      if (cfd->IsDropped()) {
         continue;
       }
-      InstallSuperVersionAndScheduleWork(cfds[i],
+      InstallSuperVersionAndScheduleWork(cfd,
                                          &job_context->superversion_contexts[i],
-                                         all_mutable_cf_options[i]);
+                                         job->GetMutableCFOptions());
 
-      const std::string& column_family_name = cfds[i]->GetName();
+      const std::string& column_family_name = cfd->GetName();
 
-      Version* const current = cfds[i]->current();
+      Version* const current = cfd->current();
       assert(current);
 
       const VersionStorageInfo* const storage_info = current->storage_info();
@@ -654,16 +656,17 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
 #ifndef ROCKSDB_LITE
     auto sfm = static_cast<SstFileManagerImpl*>(
         immutable_db_options_.sst_file_manager.get());
-    assert(all_mutable_cf_options.size() == static_cast<size_t>(num_cfs));
-    for (int i = 0; s.ok() && i != num_cfs; ++i) {
-      if (cfds[i]->IsDropped()) {
+    for (size_t i = 0; s.ok() && i < jobs.size(); ++i) {
+      const auto& job = jobs[i];
+      auto* cfd = job->cfd();
+      if (cfd->IsDropped()) {
         continue;
       }
-      NotifyOnFlushCompleted(cfds[i], all_mutable_cf_options[i],
-                             jobs[i]->GetCommittedFlushJobsInfo());
+      NotifyOnFlushCompleted(cfd, job->GetMutableCFOptions(),
+                             job->GetCommittedFlushJobsInfo());
       if (sfm) {
         std::string file_path = MakeTableFileName(
-            cfds[i]->ioptions()->cf_paths[0].path, file_meta[i].fd.GetNumber());
+            cfd->ioptions()->cf_paths[0].path, file_meta[i].fd.GetNumber());
         // TODO (PR7798).  We should only add the file to the FileManager if it
         // exists. Otherwise, some tests may fail.  Ignore the error in the
         // interim.

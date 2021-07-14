@@ -61,7 +61,7 @@ class FlushJob {
   // IMPORTANT: mutable_cf_options needs to be alive while FlushJob is alive
   FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
            const ImmutableDBOptions& db_options,
-           const MutableCFOptions& mutable_cf_options, uint64_t max_memtable_id,
+           const MutableCFOptions& mutable_cf_options,
            const FileOptions& file_options, VersionSet* versions,
            InstrumentedMutex* db_mutex, std::atomic<bool>* shutting_down,
            std::vector<SequenceNumber> existing_snapshots,
@@ -77,11 +77,15 @@ class FlushJob {
            std::string full_history_ts_low = "",
            BlobFileCompletionCallback* blob_callback = nullptr);
 
+  FlushJob(const FlushJob&) = delete;
+
+  FlushJob(FlushJob&&);
+
   ~FlushJob();
 
   // Require db_mutex held.
   // Once PickMemTable() is called, either Run() or Cancel() has to be called.
-  void PickMemTable();
+  void PickMemTable(uint64_t max_memtable_id);
   Status Run(LogsWithPrepTracker* prep_tracker = nullptr,
              FileMetaData* file_meta = nullptr);
   void Cancel();
@@ -95,6 +99,12 @@ class FlushJob {
 
   // Return the IO status
   IOStatus io_status() const { return io_status_; }
+
+  ColumnFamilyData* cfd() const { return cfd_; }
+
+  const MutableCFOptions& GetMutableCFOptions() const {
+    return mutable_cf_options_;
+  }
 
  private:
   void ReportStartedFlush();
@@ -111,11 +121,6 @@ class FlushJob {
   ColumnFamilyData* cfd_;
   const ImmutableDBOptions& db_options_;
   const MutableCFOptions& mutable_cf_options_;
-  // A variable storing the largest memtable id to flush in this
-  // flush job. RocksDB uses this variable to select the memtables to flush in
-  // this job. All memtables in this column family with an ID smaller than or
-  // equal to max_memtable_id_ will be selected for flush.
-  uint64_t max_memtable_id_;
   const FileOptions file_options_;
   VersionSet* versions_;
   InstrumentedMutex* db_mutex_;

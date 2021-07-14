@@ -5,10 +5,12 @@
 //
 #include "db/memtable_list.h"
 
+#include <cassert>
 #include <cinttypes>
 #include <limits>
 #include <queue>
 #include <string>
+
 #include "db/db_impl/db_impl.h"
 #include "db/memtable.h"
 #include "db/range_tombstone_fragmenter.h"
@@ -335,7 +337,9 @@ bool MemTableList::IsFlushPending() const {
 
 // Returns the memtables that need to be flushed.
 void MemTableList::PickMemtablesToFlush(uint64_t max_memtable_id,
-                                        autovector<MemTable*>* ret) {
+                                        autovector<MemTable*>* ret,
+                                        size_t max_count) {
+  assert(max_count > 0);
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_PICK_MEMTABLES_TO_FLUSH);
   const auto& memlist = current_->memlist_;
@@ -356,6 +360,9 @@ void MemTableList::PickMemtablesToFlush(uint64_t max_memtable_id,
       }
       m->flush_in_progress_ = true;  // flushing will start very soon
       ret->push_back(m);
+      if (ret->size() >= max_count) {
+        break;
+      }
     }
   }
   if (!atomic_flush || num_flush_not_started_ == 0) {
