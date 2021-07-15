@@ -148,6 +148,8 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
     result.avoid_flush_during_recovery = false;
   }
 
+  result.avoid_unnecessary_blocking_io = true;
+
 #ifndef ROCKSDB_LITE
   ImmutableDBOptions immutable_db_options(result);
   if (!IsWalDirSameAsDBPath(&immutable_db_options)) {
