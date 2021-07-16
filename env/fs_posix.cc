@@ -662,9 +662,35 @@ class PosixFileSystem : public FileSystem {
 
   IOStatus DeleteFile(const std::string& fname, const IOOptions& /*opts*/,
                       IODebugContext* /*dbg*/) override {
+    int f = open(fname.c_str(), O_WRONLY | O_NOFOLLOW | O_NOATIME | O_CLOEXEC);
+    if (f < 0) {
+      if (errno != ELOOP) {
+        return IOError("while open() file for unlinking", fname, errno);
+      }
+    }
     IOStatus result;
     if (unlink(fname.c_str()) != 0) {
       result = IOError("while unlink() file", fname, errno);
+    }
+    if (f >= 0) {
+      struct stat statbuf = {};
+      if (fstat(f, &statbuf) == 0 && statbuf.st_nlink == 0) {
+        constexpr size_t kTruncSize = (500 << 20);  // 500 MiB
+        struct timespec sleep_duration = {};
+        sleep_duration.tv_nsec = 10000;  // 10 microseconds
+        for (size_t size = statbuf.st_size; size > kTruncSize;
+             size -= kTruncSize) {
+          if (ftruncate(f, size - kTruncSize) != 0) {
+            break;
+          }
+          // Give the block layer time to catch up before we continue hammering
+          // on
+          clock_nanosleep(CLOCK_MONOTONIC, 0, &sleep_duration, NULL);
+        }
+        // Ignore errors
+        fsync(f);
+      }
+      close(f);
     }
     return result;
   }
