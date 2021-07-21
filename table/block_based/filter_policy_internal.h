@@ -179,4 +179,6 @@ class BloomFilterPolicy : public FilterPolicy {
   FilterBitsReader* GetRibbonBitsReader(const Slice& contents) const;
 };
 
+extern bool SpdbIsNoFilterPolicy(const FilterPolicy* policy);
+
 }  // namespace ROCKSDB_NAMESPACE

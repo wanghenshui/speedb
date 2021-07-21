@@ -23,6 +23,7 @@
 #include "rocksdb/utilities/options_type.h"
 #include "table/block_based/block_based_table_builder.h"
 #include "table/block_based/block_based_table_reader.h"
+#include "table/block_based/filter_policy_internal.h"
 #include "table/format.h"
 #include "util/mutexlock.h"
 #include "util/string_util.h"
@@ -316,6 +317,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
              const std::string& value, void* addr) {
             auto* policy =
                 static_cast<std::shared_ptr<const FilterPolicy>*>(addr);
+            if (policy->get() &&
+                std::string((*policy)->Name()).find("speedb.") == 0) {
+              policy->reset();
+            }
             return FilterPolicy::CreateFromString(opts, value, policy);
           },
           // Converts the FilterPolicy to its string representation
@@ -338,6 +343,12 @@ static std::unordered_map<std::string, OptionTypeInfo>
                     ->get();
             const auto* policy2 =
                 static_cast<const std::shared_ptr<FilterPolicy>*>(addr2)->get();
+            if (SpdbIsNoFilterPolicy(policy1)) {
+                policy1 = nullptr;
+            }
+            if (SpdbIsNoFilterPolicy(policy2)) {
+                policy2 = nullptr;
+            }
             if (policy1 == policy2) {
               return true;
             } else if (policy1 != nullptr && policy2 != nullptr) {
@@ -446,6 +457,8 @@ void BlockBasedTableFactory::InitializeOptions() {
       BlockBasedTableOptions::kDataBlockBinaryAndHash;
   if (table_options_.filter_policy == nullptr) {
     table_options_.filter_policy.reset(NewSpdbHybridFilterPolicy());
+  } else if (SpdbIsNoFilterPolicy(table_options_.filter_policy.get())) {
+    table_options_.filter_policy.reset();
   }
   if (table_options_.flush_block_policy_factory == nullptr) {
     table_options_.flush_block_policy_factory.reset(
@@ -567,6 +580,16 @@ Status BlockBasedTableFactory::ValidateOptions(
     return Status::InvalidArgument(
         "max_successive_merges larger than 0 is currently inconsistent with "
         "unordered_write");
+  }
+  if (cf_opts.comparator->CanKeysWithDifferentByteContentsBeEqual() &&
+      table_options_.filter_policy != nullptr) {
+    const std::string filter_policy_name = table_options_.filter_policy->Name();
+    if (filter_policy_name.find("rocksdb.") == 0 ||
+        filter_policy_name.find("speedb.") == 0) {
+      return Status::InvalidArgument(
+          "A custom comparator with different byte contents being equal is "
+          "incompatible with the built-in filter policies");
+    }
   }
   return TableFactory::ValidateOptions(db_opts, cf_opts);
 }

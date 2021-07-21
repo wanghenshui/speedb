@@ -103,7 +103,9 @@ class HybridCompactionPicker : public CompactionPicker {
       space_amp = 110;
     }
 
-    options.memtable_whole_key_filtering = true;
+    if (!options.comparator->CanKeysWithDifferentByteContentsBeEqual()) {
+      options.memtable_whole_key_filtering = true;
+    }
   }
 
  private:

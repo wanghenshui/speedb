@@ -12,6 +12,7 @@
 #include <array>
 #include <deque>
 #include <limits>
+#include <memory>
 
 #include "rocksdb/slice.h"
 #include "table/block_based/block_based_filter_block.h"
@@ -1028,7 +1029,7 @@ static std::string get_filter_config_spec(double bits_per_key,
                                           BloomFilterPolicy::Mode mode) {
   switch (mode) {
     case BloomFilterPolicy::kSpdbBloom:
-      return "spdb:" + ToString(bits_per_key);
+      return "speedb:" + ToString(bits_per_key);
     case BloomFilterPolicy::kAutoBloom:
     case BloomFilterPolicy::kLegacyBloom:
     case BloomFilterPolicy::kFastLocalBloom:
@@ -1395,8 +1396,23 @@ extern const FilterPolicy* NewRibbonFilterPolicy(
                                BloomFilterPolicy::kStandard128Ribbon);
 }
 
-extern const FilterPolicy* NewSpdbHybridFilterPolicy() {
+const FilterPolicy* NewSpdbHybridFilterPolicy() {
   return new BloomFilterPolicy(32, BloomFilterPolicy::kSpdbBloom);
+}
+
+class NoFilterPolicy : public FilterPolicy {
+ public:
+  const char* Name() const override { return kNullptrString.c_str(); }
+
+  void CreateFilter(const Slice*, int, std::string*) const override { }
+
+  bool KeyMayMatch(const Slice&, const Slice&) const override { return true; }
+};
+
+static const std::shared_ptr<const FilterPolicy> no_filter_policy(new NoFilterPolicy());
+
+bool SpdbIsNoFilterPolicy(const FilterPolicy* policy) {
+  return policy == no_filter_policy.get();
 }
 
 FilterBuildingContext::FilterBuildingContext(
@@ -1411,9 +1427,10 @@ Status FilterPolicy::CreateFromString(
   const std::string kBloomName = "bloomfilter:";
   const std::string kExpRibbonName = "experimental_ribbon:";
   const std::string kRibbonName = "ribbonfilter:";
-  const std::string kSpdbBloomName = "spdb:";
-  if (value == kNullptrString || value == "rocksdb.BuiltinBloomFilter" ||
-      value == "speedb.HybridFilter") {
+  const std::string kSpdbBloomName = "speedb:";
+  if (value == kNullptrString) {
+    (*policy) = no_filter_policy;
+  } else if (value == "rocksdb.BuiltinBloomFilter" || value == "speedb.HybridFilter") {
     policy->reset();
 #ifndef ROCKSDB_LITE
   } else if (value.compare(0, kBloomName.size(), kBloomName) == 0) {
