@@ -267,6 +267,9 @@ const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
     {DB_GET_INDEX2, "rocksdb.db.get.index2.micros"},
     {DB_GET_FILTER1, "rocksdb.db.get.filter1.micros"},
     {DB_GET_FILTER2, "rocksdb.db.get.filter2.micros"},
+    {DB_WRITE_WAIT_FOR_WAL, "rocksdb.db.write_wait_for_wal.micros"},
+    {DB_WRITE_WAIT_FOR_WAL_WITH_MUTEX, "rocksdb.db.write_wait_mutex.micros"},
+    {DB_WAL_WRITE_TIME, "rocksdb.db.wal.write.micros"},
 };
 
 std::shared_ptr<Statistics> CreateDBStatistics() {

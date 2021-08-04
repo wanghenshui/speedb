@@ -21,6 +21,7 @@
 
 #include "db/column_family.h"
 #include "db/compaction/compaction_job.h"
+#include "db/db_impl/db_spdb_impl_write.h"
 #include "db/dbformat.h"
 #include "db/error_handler.h"
 #include "db/event_helpers.h"
@@ -1102,6 +1103,20 @@ class DBImpl : public DB {
     // WriteBufferManager.
     State state_;
   };
+
+ public:
+  // SPDB write
+  bool NeedQuiesce();
+  Status HandleQuiesce();
+
+  uint64_t FetchAddLastAllocatedSequence(uint64_t seq_inc) {
+    return versions_->FetchAddLastAllocatedSequence(seq_inc);
+  }
+
+  Status SpdbWrite(const WriteOptions& write_options, WriteBatch* my_batch,
+                   bool disable_memtable);
+  IOStatus SpdbWriteToWAL(WriteBatch* merged_batch, size_t write_with_wal,
+                          const WriteBatch* to_be_cached_state);
 
  protected:
   const std::string dbname_;
@@ -2314,6 +2329,10 @@ class DBImpl : public DB {
   bool wal_in_db_path_;
 
   BlobFileCompletionCallback blob_callback_;
+
+  // Speedb write flow parameters
+  WalSpdb spdb_wal_;
+  port::RWMutex spdb_write_batch_rwlock_;  // protect quiesce
 
   // Pointer to WriteBufferManager stalling interface.
   std::unique_ptr<StallInterface> wbm_stall_;
