@@ -349,6 +349,9 @@ class VectorRepFactory : public MemTableRepFactory {
   virtual const char* Name() const override { return "VectorRepFactory"; }
 };
 
+extern MemTableRepFactory* NewHashLocklessRepFactory(
+    size_t bucket_count = 1000000);
+
 // This class contains a fixed array of buckets, each
 // pointing to a skiplist (null if the bucket is empty).
 // bucket_count: number of fixed array buckets
