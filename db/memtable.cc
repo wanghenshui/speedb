@@ -95,8 +95,6 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
       flush_completed_(false),
       file_number_(0),
       first_seqno_(0),
-      earliest_seqno_(latest_seq),
-      creation_seq_(latest_seq),
       mem_next_logfile_number_(0),
       min_prep_log_referenced_(0),
       locks_(moptions_.inplace_update_support
@@ -110,6 +108,7 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
       oldest_key_time_(std::numeric_limits<uint64_t>::max()),
       atomic_flush_seqno_(kMaxSequenceNumber),
       approximate_memory_usage_(0) {
+  SetInitialSeq(latest_seq);
   UpdateFlushState();
   // something went wrong if we need to flush before inserting anything
   assert(!ShouldScheduleFlush());
@@ -127,6 +126,11 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
 MemTable::~MemTable() {
   mem_tracker_.FreeMem();
   assert(refs_ == 0);
+}
+
+void MemTable::SetInitialSeq(SequenceNumber sn) {
+  earliest_seqno_ = sn;
+  creation_seq_ = sn;
 }
 
 size_t MemTable::ApproximateMemoryUsage() {

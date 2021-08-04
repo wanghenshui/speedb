@@ -358,6 +358,10 @@ class MemTable {
 
   void SetCreationSeq(SequenceNumber sn) { creation_seq_ = sn; }
 
+  // Sets the initial sequence number for lazy initialization of the memtable
+  // NOTE: should only be called once before any other operation on the memtable
+  void SetInitialSeq(SequenceNumber sn);
+
   // Returns the next active logfile number when this memtable is about to
   // be flushed to storage
   // REQUIRES: external synchronization to prevent simultaneous
