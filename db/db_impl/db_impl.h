@@ -1873,6 +1873,9 @@ class DBImpl : public DB {
       ColumnFamilyData* cfd, SuperVersionContext* sv_context,
       const MutableCFOptions& mutable_cf_options);
 
+  // calculate the write rate based on the status of the current version
+  void RecalculateWriteRate();
+
   bool GetIntPropertyInternal(ColumnFamilyData* cfd,
                               const DBPropertyInfo& property_info,
                               bool is_locked, uint64_t* value);

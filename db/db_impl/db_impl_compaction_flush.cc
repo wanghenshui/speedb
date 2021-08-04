@@ -3498,27 +3498,16 @@ void DBImpl::InstallSuperVersionAndScheduleWork(
   // newer snapshot created and released frequently, the compaction will be
   // triggered soon anyway.
   bottommost_files_mark_threshold_ = kMaxSequenceNumber;
-  double rate_multiplier = 0;
-  bool needs_flush_speedup = false;
+
   for (auto* my_cfd : *versions_->GetColumnFamilySet()) {
-    rate_multiplier =
-        std::max(rate_multiplier,
-                 my_cfd->CalculateWriteDelayIncrement(&needs_flush_speedup));
     bottommost_files_mark_threshold_ = std::min(
         bottommost_files_mark_threshold_,
         my_cfd->current()->storage_info()->bottommost_files_mark_threshold());
   }
 
-  needs_flush_speedup_ = needs_flush_speedup;
-  if (rate_multiplier > 0) {
-    external_delay_.SetDelayWriteRate(mutable_db_options_.delayed_write_rate /
-                                      rate_multiplier);
-  } else {
-    external_delay_.Reset();
-  }
-
   // Whenever we install new SuperVersion, we might need to issue new flushes or
   // compactions.
+  RecalculateWriteRate();
   SchedulePendingCompaction(cfd);
   MaybeScheduleFlushOrCompaction();
 
@@ -3526,6 +3515,30 @@ void DBImpl::InstallSuperVersionAndScheduleWork(
   max_total_in_memory_state_ = max_total_in_memory_state_ - old_memtable_size +
                                mutable_cf_options.write_buffer_size *
                                    mutable_cf_options.max_write_buffer_number;
+}
+
+void DBImpl::RecalculateWriteRate() {
+  double rate_multiplier = 0;
+  bool needs_flush_speedup = false;
+  auto& cfds = *versions_->GetColumnFamilySet();
+  for (auto* my_cfd : cfds) {
+    rate_multiplier =
+        std::max(rate_multiplier,
+                 my_cfd->CalculateWriteDelayIncrement(&needs_flush_speedup));
+  }
+
+  needs_flush_speedup_ = needs_flush_speedup;
+  if (rate_multiplier > 0) {
+    ROCKS_LOG_INFO(
+        immutable_db_options_.info_log, "Setting delayed rate to be %" PRIu64,
+        static_cast<uint64_t>(mutable_db_options_.delayed_write_rate /
+                              rate_multiplier));
+
+    external_delay_.SetDelayWriteRate(mutable_db_options_.delayed_write_rate /
+                                      rate_multiplier);
+  } else {
+    external_delay_.Reset();
+  }
 }
 
 // ShouldPurge is called by FindObsoleteFiles when doing a full scan,

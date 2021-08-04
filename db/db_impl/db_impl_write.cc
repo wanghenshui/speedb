@@ -1712,6 +1712,7 @@ Status DBImpl::TrimMemtableHistory(WriteContext* context) {
       cfd = nullptr;
     }
   }
+  RecalculateWriteRate();
   return Status::OK();
 }
 
