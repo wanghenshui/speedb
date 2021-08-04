@@ -1370,6 +1370,7 @@ enum RepFactory {
   kPrefixHash,
   kVectorRep,
   kHashLinkedList,
+  kHashSpd,
 };
 
 static enum RepFactory StringToRepFactory(const char* ctype) {
@@ -1383,6 +1384,8 @@ static enum RepFactory StringToRepFactory(const char* ctype) {
     return kVectorRep;
   else if (!strcasecmp(ctype, "hash_linkedlist"))
     return kHashLinkedList;
+  else if (!strcasecmp(ctype, "hash_spd"))
+    return kHashSpd;
 
   fprintf(stdout, "Cannot parse memreptable %s\n", ctype);
   return kSkipList;
@@ -2591,6 +2594,9 @@ class Benchmark {
         break;
       case kHashLinkedList:
         fprintf(stdout, "Memtablerep: hash_linkedlist\n");
+        break;
+      case kHashSpd:
+        fprintf(stdout, "Memtablerep: hash_spd\n");
         break;
     }
     fprintf(stdout, "Perf Level: %d\n", FLAGS_perf_level);
@@ -3873,6 +3879,10 @@ class Benchmark {
         options.memtable_factory.reset(
           new VectorRepFactory
         );
+        break;
+      case kHashSpd:
+        options.memtable_factory.reset(
+            NewHashLocklessRepFactory(FLAGS_hash_bucket_count));
         break;
 #else
       default:

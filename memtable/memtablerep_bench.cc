@@ -62,6 +62,7 @@ DEFINE_string(memtablerep, "skiplist",
               "\tvector              -- backed by an std::vector\n"
               "\thashskiplist        -- backed by a hash skip list\n"
               "\thashlinklist        -- backed by a hash linked list\n"
+              "\thashspd             -- backed by a speedb hash table\n"
               "\tcuckoo              -- backed by a cuckoo hash table");
 
 DEFINE_int64(bucket_count, 1000000,
@@ -594,6 +595,9 @@ int main(int argc, char** argv) {
         FLAGS_if_log_bucket_dist_when_flash, FLAGS_threshold_use_skiplist));
     options.prefix_extractor.reset(
         ROCKSDB_NAMESPACE::NewFixedPrefixTransform(FLAGS_prefix_length));
+  } else if (FLAGS_memtablerep == "hashspd") {
+    factory.reset(
+        ROCKSDB_NAMESPACE::NewHashLocklessRepFactory(FLAGS_bucket_count));
 #endif  // ROCKSDB_LITE
   } else {
     fprintf(stdout, "Unknown memtablerep: %s\n", FLAGS_memtablerep.c_str());

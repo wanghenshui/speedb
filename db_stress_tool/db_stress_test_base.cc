@@ -2099,6 +2099,9 @@ void StressTest::PrintEnv() const {
     case kVectorRep:
       memtablerep = "vector";
       break;
+    case kHashSpd:
+      memtablerep = "hash_spd";
+      break;
   }
 
   fprintf(stdout, "Memtablerep               : %s\n", memtablerep);
@@ -2330,6 +2333,9 @@ void StressTest::Open() {
       break;
     case kVectorRep:
       options_.memtable_factory.reset(new VectorRepFactory());
+      break;
+    case kHashSpd:
+      options_.memtable_factory.reset(NewHashLocklessRepFactory(1000000));
       break;
 #else
     default:
