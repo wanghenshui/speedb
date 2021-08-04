@@ -172,6 +172,10 @@ bool SpdbVector::Sort(const MemTableRep::KeyComparator& comparator) {
     n_elements_.store(num_elements);
     if (num_elements < items_.size()) {
       items_.resize(num_elements);
+      // Shrink allocation if less than 75% of the vector memory is in use
+      if (items_.size() * 75 / 100 < items_.capacity()) {
+        items_.shrink_to_fit();
+      }
     }
     std::sort(items_.begin(), items_.end(), Compare(comparator));
     sorted_.store(true, std::memory_order_release);
