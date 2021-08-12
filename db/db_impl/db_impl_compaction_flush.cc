@@ -2353,7 +2353,7 @@ DBImpl::BGJobLimits DBImpl::GetBGJobLimits(int max_background_flushes,
     res.max_flushes = std::max(1, max_background_flushes);
     res.max_compactions = std::max(1, max_background_compactions);
   }
-  if (!parallelize_compactions) {
+  if (0 && !parallelize_compactions) {
     // throttle background compactions until we deem necessary
     res.max_compactions = 1;
   }
@@ -3499,10 +3499,23 @@ void DBImpl::InstallSuperVersionAndScheduleWork(
   // newer snapshot created and released frequently, the compaction will be
   // triggered soon anyway.
   bottommost_files_mark_threshold_ = kMaxSequenceNumber;
+  double rate_multiplier = 0;
+  bool needs_flush_speedup = false;
   for (auto* my_cfd : *versions_->GetColumnFamilySet()) {
+    rate_multiplier =
+        std::max(rate_multiplier,
+                 my_cfd->CalculateWriteDelayIncrement(&needs_flush_speedup));
     bottommost_files_mark_threshold_ = std::min(
         bottommost_files_mark_threshold_,
         my_cfd->current()->storage_info()->bottommost_files_mark_threshold());
+  }
+
+  needs_flush_speedup_ = needs_flush_speedup;
+  if (rate_multiplier > 0) {
+    external_delay_.SetDelayWriteRate(mutable_db_options_.delayed_write_rate /
+                                      rate_multiplier);
+  } else {
+    external_delay_.Reset();
   }
 
   // Whenever we install new SuperVersion, we might need to issue new flushes or

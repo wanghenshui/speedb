@@ -1,59 +1,77 @@
 #pragma once
 
-#include <math.h>
-#include <unistd.h>
+#include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <memory>
 
-#include "rocksdb/env.h"
+#include "rocksdb/system_clock.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 class ExternalDelay {
  public:
-  ExternalDelay() : delayPerByte_(0), increment_(0) {}
+  ExternalDelay(std::shared_ptr<SystemClock> clock)
+      : clock_(std::move(clock)), delay_per_byte_nanos_(0) {}
 
-  static void setExternalDelay(size_t maxRate, double increment) {
-    s_externalDelay.setRate(maxRate, increment);
-  }
-  static void reduceExternalDelay() { s_externalDelay.delayPerByte_ = 0; }
-  static void enforce(Env *env, size_t numBytes) {
-    s_externalDelay.enforceDelay(env, numBytes);
-  }
-  static size_t getDelay(size_t numBytes) {
-    return s_externalDelay.delayPerByte_ * numBytes;
-  }
+  void Enforce(size_t byte_count);
+
+  void Reset() { SetDelayWriteRate(0); }
+
+  void SetDelayWriteRate(size_t rate);
 
  private:
-  static const size_t kMicrosInSec = 1000000;
-  void setRate(size_t rate, double increment) {
-    if (rate == 0) {
-      delayPerByte_ = 0;
-    } else {
-      delayPerByte_ = 1.0 * kMicrosInSec / rate;
-    }
-    increment_ = increment;
-  }
-  void enforceDelay(Env *env, size_t numBytes) {
-    size_t delay = getDelay(numBytes);
-    if (delay == 0) {
-      return;
-    }
-    if (delay < 10) {
-      if ((size_t)rand() % 10000 < delay * 1000) {
-        env->SleepForMicroseconds(10);
-      }
-    } else {
-      if (delay > 100000) {
-        delay = 100000;  // do not sleep more than 0.1 sec
-      }
-      env->SleepForMicroseconds(int(delay));
-    }
-    delayPerByte_ *= pow(increment_, numBytes);
-  }
+  using Nanoseconds = std::chrono::nanoseconds;
 
- private:
-  static ExternalDelay s_externalDelay;
-  double delayPerByte_;
-  double increment_;
+  static constexpr auto kNanosPerSec =
+      std::chrono::duration_cast<Nanoseconds>(std::chrono::seconds(1)).count();
+
+  static constexpr auto kSleepNanosMin =
+      std::chrono::duration_cast<Nanoseconds>(std::chrono::microseconds(100))
+          .count();
+  static constexpr auto kSleepNanosMax =
+      std::chrono::duration_cast<Nanoseconds>(std::chrono::seconds(1)).count();
+
+  std::shared_ptr<SystemClock> clock_;
+  std::atomic<double> delay_per_byte_nanos_;
+  std::atomic<size_t> next_request_time_;
 };
+
+inline void ExternalDelay::Enforce(size_t byte_count) {
+  if (delay_per_byte_nanos_ > 0) {
+    const auto start_time = clock_->NowNanos();
+    const auto delay_mul = 1.0 + (1.0 / kNanosPerSec * byte_count);
+    const auto current_delay =
+        delay_per_byte_nanos_.load(std::memory_order_acquire);
+    // We just need the delay per byte to be written atomically, but we don't
+    // really care if another thread wins and sets the delay that it calculated.
+    delay_per_byte_nanos_.store(current_delay * delay_mul,
+                                std::memory_order_release);
+
+    const auto added_delay = size_t(byte_count * current_delay);
+    const auto request_time =
+        added_delay +
+        next_request_time_.fetch_add(added_delay, std::memory_order_relaxed);
+    const auto sleep_time =
+        std::min(int(request_time) - int(start_time), int(kSleepNanosMax));
+    if (sleep_time > 0 && sleep_time > kSleepNanosMin) {
+      const auto sleep_micros =
+          std::chrono::duration_cast<std::chrono::microseconds>(
+              Nanoseconds(sleep_time))
+              .count();
+      clock_->SleepForMicroseconds(int(sleep_micros));
+    }
+  }
+}
+
+inline void ExternalDelay::SetDelayWriteRate(size_t new_rate) {
+  if (new_rate == 0) {
+    delay_per_byte_nanos_.store(0, std::memory_order_release);
+  } else {
+    next_request_time_.store(clock_->NowNanos(), std::memory_order_release);
+    delay_per_byte_nanos_.store(1.0 * kNanosPerSec / new_rate,
+                                std::memory_order_release);
+  }
+}
 
 };  // namespace ROCKSDB_NAMESPACE

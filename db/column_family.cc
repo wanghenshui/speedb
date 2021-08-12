@@ -23,7 +23,6 @@
 #include "db/compaction/compaction_picker_level.h"
 #include "db/compaction/compaction_picker_universal.h"
 #include "db/db_impl/db_impl.h"
-#include "db/db_impl/external_delay.h"
 #include "db/internal_stats.h"
 #include "db/job_context.h"
 #include "db/range_del_aggregator.h"
@@ -857,8 +856,16 @@ ColumnFamilyData::GetWriteStallConditionAndCause(
     uint64_t num_compaction_needed_bytes,
     const MutableCFOptions& mutable_cf_options,
     const ImmutableCFOptions& /* immutable_cf_options */) {
-  if (0 &&
-      num_unflushed_memtables >= mutable_cf_options.max_write_buffer_number) {
+  if (num_unflushed_memtables >
+      mutable_cf_options.max_write_buffer_number - 1) {
+    return {WriteStallCondition::kDelayed, WriteStallCause::kMemtableLimit};
+  } else if (num_l0_files > mutable_cf_options.level0_slowdown_writes_trigger) {
+    return {WriteStallCondition::kDelayed, WriteStallCause::kL0FileCountLimit};
+  } else {
+    return {WriteStallCondition::kNormal, WriteStallCause::kNone};
+  }
+
+  if (num_unflushed_memtables >= mutable_cf_options.max_write_buffer_number) {
     return {WriteStallCondition::kStopped, WriteStallCause::kMemtableLimit};
   } else if (!mutable_cf_options.disable_auto_compactions &&
              num_l0_files >= mutable_cf_options.level0_stop_writes_trigger) {
@@ -886,38 +893,35 @@ ColumnFamilyData::GetWriteStallConditionAndCause(
   return {WriteStallCondition::kNormal, WriteStallCause::kNone};
 }
 
+double ColumnFamilyData::CalculateWriteDelayIncrement(
+    bool* needs_flush_speedup) {
+  if (current_ == nullptr) {
+    return 0;
+  }
+
+  const auto* vstorage = current_->storage_info();
+
+  const int extra_memtables = imm()->NumNotFlushed() -
+                              (mutable_cf_options_.max_write_buffer_number - 1);
+  const double memtable_increment =
+      extra_memtables <= 0 ? 0 : pow(2, extra_memtables);
+  if (needs_flush_speedup != nullptr && memtable_increment > 0) {
+    *needs_flush_speedup = true;
+  }
+
+  const int extra_l0_ssts = vstorage->NumLevelFiles(0) -
+                            mutable_cf_options_.level0_slowdown_writes_trigger;
+  const double l0_increment = extra_l0_ssts < 0 ? 0 : pow(1.2, extra_l0_ssts);
+
+  return std::max(l0_increment, memtable_increment);
+}
+
 WriteStallCondition ColumnFamilyData::RecalculateWriteStallConditions(
       const MutableCFOptions& mutable_cf_options) {
   auto write_stall_condition = WriteStallCondition::kNormal;
   if (current_ != nullptr) {
     auto* vstorage = current_->storage_info();
     auto write_controller = column_family_set_->write_controller_;
-    size_t memTableRate =
-        imm()->NumNotFlushed() > mutable_cf_options.max_write_buffer_number
-            ? write_controller->max_delayed_write_rate() *
-                  pow(0.5, imm()->NumNotFlushed() -
-                               mutable_cf_options.max_write_buffer_number)
-            : -1ull;
-    size_t L0Rate =
-        vstorage->NumLevelFiles(0) >
-                mutable_cf_options.level0_slowdown_writes_trigger
-            ? write_controller->max_delayed_write_rate() *
-                  pow(0.75,
-                      vstorage->NumLevelFiles(0) -
-                          mutable_cf_options.level0_slowdown_writes_trigger)
-            : -1ull;
-    size_t rate = std::min(L0Rate, memTableRate);
-    if (rate != -1ull) {
-      ExternalDelay::setExternalDelay(
-          rate, 1 + 1.0 / mutable_cf_options.write_buffer_size);
-      ROCKS_LOG_WARN(
-          ioptions_.info_log,
-          "[%s] Stalling writes , numL0Files %lu, numMemFiles %lu, rate %lu",
-          name_.c_str(), (size_t)vstorage->NumLevelFiles(0),
-          (size_t)imm()->NumNotFlushed(), rate);
-    } else {
-      ExternalDelay::reduceExternalDelay();
-    }
     uint64_t compaction_needed_bytes =
         vstorage->estimated_compaction_needed_bytes();
 
@@ -927,6 +931,16 @@ WriteStallCondition ColumnFamilyData::RecalculateWriteStallConditions(
         *ioptions());
     write_stall_condition = write_stall_condition_and_cause.first;
     auto write_stall_cause = write_stall_condition_and_cause.second;
+
+    if (write_stall_condition != WriteStallCondition::kNormal) {
+      const auto delay_increment = CalculateWriteDelayIncrement();
+      ROCKS_LOG_WARN(
+          ioptions_.info_log,
+          "[%s] Stalling writes, L0 files %d, memtables %d, increment %f",
+          name_.c_str(), vstorage->NumLevelFiles(0), imm()->NumNotFlushed(),
+          delay_increment);
+      return write_stall_condition;
+    }
 
     bool was_stopped = write_controller->IsStopped();
     bool needed_delay = write_controller->NeedsDelay();
@@ -1058,7 +1072,7 @@ WriteStallCondition ColumnFamilyData::RecalculateWriteStallConditions(
       // If the DB recovers from delay conditions, we reward with reducing
       // double the slowdown ratio. This is to balance the long term slowdown
       // increase signal.
-      if (needed_delay) {
+      if (0 && needed_delay) {
         uint64_t write_rate = write_controller->delayed_write_rate();
         write_controller->set_delayed_write_rate(static_cast<uint64_t>(
             static_cast<double>(write_rate) * kDelayRecoverSlowdownRatio));

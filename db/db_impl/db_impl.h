@@ -42,6 +42,7 @@
 #include "db/wal_manager.h"
 #include "db/write_controller.h"
 #include "db/write_thread.h"
+#include "external_delay.h"
 #include "logging/event_logger.h"
 #include "monitoring/instrumented_mutex.h"
 #include "options/db_options.h"
@@ -2319,6 +2320,9 @@ class DBImpl : public DB {
 
   std::atomic<size_t> n_requests_in_last_cycle_;
   void RunLowPriorityCompaction();
+
+  ExternalDelay external_delay_;
+  bool needs_flush_speedup_ = false;
 };
 
 extern Options SanitizeOptions(const std::string& db, const Options& src,

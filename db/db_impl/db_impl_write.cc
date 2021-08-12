@@ -19,8 +19,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-ExternalDelay ExternalDelay::s_externalDelay;
-
 // Convenience methods
 Status DBImpl::Put(const WriteOptions& o, ColumnFamilyHandle* column_family,
                    const Slice& key, const Slice& val) {
@@ -82,7 +80,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     }
   }
 
-  ExternalDelay::enforce(env_, last_batch_group_size_);
+  external_delay_.Enforce(last_batch_group_size_);
 
   assert(!seq_per_batch_ || batch_cnt != 0);
   if (my_batch == nullptr) {
