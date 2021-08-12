@@ -2268,26 +2268,28 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
   auto bg_job_limits = GetBGJobLimits();
   bool is_flush_pool_empty =
       env_->GetBackgroundThreads(Env::Priority::HIGH) == 0;
-  while (!is_flush_pool_empty && unscheduled_flushes_ > 0 &&
-         bg_flush_scheduled_ < bg_job_limits.max_flushes) {
-    bg_flush_scheduled_++;
-    FlushThreadArg* fta = new FlushThreadArg;
-    fta->db_ = this;
-    fta->thread_pri_ = Env::Priority::HIGH;
-    env_->Schedule(&DBImpl::BGWorkFlush, fta, Env::Priority::HIGH, this,
-                   &DBImpl::UnscheduleFlushCallback);
-    --unscheduled_flushes_;
-    TEST_SYNC_POINT_CALLBACK(
-        "DBImpl::MaybeScheduleFlushOrCompaction:AfterSchedule:0",
-        &unscheduled_flushes_);
-  }
-
-  // special case -- if high-pri (flush) thread pool is empty, then schedule
-  // flushes in low-pri (compaction) thread pool.
-  if (is_flush_pool_empty) {
+  if (!is_flush_pool_empty) {
     while (unscheduled_flushes_ > 0 &&
-           bg_flush_scheduled_ + bg_compaction_scheduled_ <
-               bg_job_limits.max_flushes) {
+           bg_flush_scheduled_ < bg_job_limits.max_flushes) {
+      bg_flush_scheduled_++;
+      FlushThreadArg* fta = new FlushThreadArg;
+      fta->db_ = this;
+      fta->thread_pri_ = Env::Priority::HIGH;
+      env_->Schedule(&DBImpl::BGWorkFlush, fta, Env::Priority::HIGH, this,
+                     &DBImpl::UnscheduleFlushCallback);
+      --unscheduled_flushes_;
+      TEST_SYNC_POINT_CALLBACK(
+          "DBImpl::MaybeScheduleFlushOrCompaction:AfterSchedule:0",
+          &unscheduled_flushes_);
+    }
+  } else {
+    // special case -- if high-pri (flush) thread pool is empty, then schedule
+    // flushes in low-pri (compaction) thread pool.
+    while (unscheduled_flushes_ > 0 &&
+           (bg_flush_scheduled_ + bg_compaction_scheduled_ <
+                bg_job_limits.max_flushes ||
+            (needs_flush_speedup_ &&
+             bg_flush_scheduled_ <= bg_job_limits.max_flushes))) {
       bg_flush_scheduled_++;
       FlushThreadArg* fta = new FlushThreadArg;
       fta->db_ = this;

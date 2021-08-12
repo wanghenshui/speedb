@@ -597,11 +597,11 @@ Compaction* HybridCompactionPicker::PickLevel0Compaction(
   }
 
   // normal compact of l0
-  const size_t maxWidth = multiplier_[0] * 1.5;
+  const size_t l0_max_width = multiplier_[0];
 
   CompactionInputFiles input;
   input.level = 0;
-  const auto input_file_count = std::min(level0_files.size(), maxWidth);
+  const auto input_file_count = std::min(level0_files.size(), l0_max_width);
   input.files.reserve(input_file_count);
   input.files.insert(input.files.end(), level0_files.end() - input_file_count,
                      level0_files.end());
@@ -622,7 +622,7 @@ Compaction* HybridCompactionPicker::PickLevel0Compaction(
       GetCompressionType(ioptions_, vstorage, mutable_cf_options,
                          int(outputLevel), 1),
       GetCompressionOptions(mutable_cf_options, vstorage, int(outputLevel)),
-      level0_files.size() > maxWidth ? 2 : 1 /* max_subcompactions */,
+      level0_files.size() > l0_max_width ? 2 : 1 /* max_subcompactions */,
       grandparents,
       /* is manual */ false, 0, false /* deletion_compaction */,
       CompactionReason::kLevelL0FilesNum);
