@@ -900,6 +900,9 @@ ColumnFamilyData::GetWriteStallConditionAndCause(
     return {WriteStallCondition::kNormal, WriteStallCause::kNone};
   }
 
+  // The following RocksDB code is preserved here in order to limit conflicts
+  // in future rebases on newer RocksDB versions, but is never reached.
+
   if (num_unflushed_memtables >= mutable_cf_options.max_write_buffer_number) {
     return {WriteStallCondition::kStopped, WriteStallCause::kMemtableLimit};
   } else if (!mutable_cf_options.disable_auto_compactions &&
@@ -976,6 +979,12 @@ WriteStallCondition ColumnFamilyData::RecalculateWriteStallConditions(
           delay_increment);
       return write_stall_condition;
     }
+
+    // NOTE: The following code paths are only taken if `write_stall_condition`
+    // is set to `WriteStallCondition::kNormal`, otherwise we exit early above.
+    // The code is preserved here even though most of it isn't reached (due to
+    // the fact that we only continue here if not write stall condition is set)
+    // in order to limit conflicts in future rebases on newer RocksDB versions.
 
     bool was_stopped = write_controller->IsStopped();
     bool needed_delay = write_controller->NeedsDelay();
@@ -1107,6 +1116,8 @@ WriteStallCondition ColumnFamilyData::RecalculateWriteStallConditions(
       // If the DB recovers from delay conditions, we reward with reducing
       // double the slowdown ratio. This is to balance the long term slowdown
       // increase signal.
+      // Disabled in SpeeDB because we never enter a stall condition in the
+      // write controller.
       if (0 && needed_delay) {
         uint64_t write_rate = write_controller->delayed_write_rate();
         write_controller->set_delayed_write_rate(static_cast<uint64_t>(

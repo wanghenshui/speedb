@@ -3529,14 +3529,15 @@ void DBImpl::RecalculateWriteRate() {
 
   needs_flush_speedup_ = needs_flush_speedup;
   if (rate_multiplier > 0) {
-    ROCKS_LOG_INFO(
-        immutable_db_options_.info_log, "Setting delayed rate to be %" PRIu64,
-        static_cast<uint64_t>(mutable_db_options_.delayed_write_rate /
-                              rate_multiplier));
+    const double delayed_write_rate =
+        mutable_db_options_.delayed_write_rate / rate_multiplier;
 
-    external_delay_.SetDelayWriteRate(mutable_db_options_.delayed_write_rate /
-                                      rate_multiplier);
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                   "Setting up external delay with write rate %" PRIu64 " B/s",
+                   uint64_t(delayed_write_rate));
+    external_delay_.SetDelayWriteRate(delayed_write_rate);
   } else {
+    ROCKS_LOG_INFO(immutable_db_options_.info_log, "Resetting external delay");
     external_delay_.Reset();
   }
 }
