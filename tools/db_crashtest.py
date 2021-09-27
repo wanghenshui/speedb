@@ -490,6 +490,14 @@ def execute_cmd(cmd, timeout):
 
     return hit_timeout, child.returncode, outs.decode('utf-8'), errs.decode('utf-8')
 
+# old copy of the db is kept at same src dir as new db. 
+def copy_tree_and_remove_old(counter, dbname):
+    dest = dbname + "_" + str(counter)
+    shutil.copytree(dbname, dest)
+    shutil.copyfile(expected_values_file, dest + "/" + "expected_values_file")
+    old_db = dbname + "_" + str(counter - 2)
+    if counter > 1:
+        shutil.rmtree(old_db, True)
 
 # This script runs and kills db_stress multiple times. It checks consistency
 # in case of unsafe crashes in RocksDB.
@@ -501,6 +509,8 @@ def blackbox_crash_main(args, unknown_args):
     print("Running blackbox-crash-test with \n"
           + "interval_between_crash=" + str(cmd_params['interval']) + "\n"
           + "total-duration=" + str(cmd_params['duration']) + "\n")
+   
+    counter = 0
 
     while time.time() < exit_time:
         cmd = gen_cmd(dict(
@@ -508,6 +518,8 @@ def blackbox_crash_main(args, unknown_args):
             + list({'db': dbname}.items())), unknown_args)
 
         hit_timeout, retcode, outs, errs = execute_cmd(cmd, cmd_params['interval'])
+        copy_tree_and_remove_old(counter, dbname)
+        counter+=1
 
         if not hit_timeout:
             print('Exit Before Killing') 
@@ -551,6 +563,8 @@ def whitebox_crash_main(args, unknown_args):
     check_mode = 0
     kill_random_test = cmd_params['random_kill_odd']
     kill_mode = 0
+
+    counter = 0
 
     while time.time() < exit_time:
         if check_mode == 0:
@@ -636,6 +650,9 @@ def whitebox_crash_main(args, unknown_args):
         print(msg)
         print(stdoutdata)
         print(stderrdata)
+        
+        copy_tree_and_remove_old(counter, dbname)
+        counter+=1
 
         if hit_timeout:
             print("Killing the run for running too long")
