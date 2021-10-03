@@ -85,9 +85,9 @@ const char* GetFlushReasonString (FlushReason flush_reason) {
 FlushJob::FlushJob(
     const std::string& dbname, ColumnFamilyData* cfd,
     const ImmutableDBOptions& db_options,
-    const MutableCFOptions& mutable_cf_options, const FileOptions& file_options,
-    VersionSet* versions, InstrumentedMutex* db_mutex,
-    std::atomic<bool>* shutting_down,
+    const MutableCFOptions& mutable_cf_options, uint64_t max_memtable_id,
+    const FileOptions& file_options, VersionSet* versions,
+    InstrumentedMutex* db_mutex, std::atomic<bool>* shutting_down,
     std::vector<SequenceNumber> existing_snapshots,
     SequenceNumber earliest_write_conflict_snapshot,
     SnapshotChecker* snapshot_checker, JobContext* job_context,
@@ -104,6 +104,7 @@ FlushJob::FlushJob(
       cfd_(cfd),
       db_options_(db_options),
       mutable_cf_options_(mutable_cf_options),
+      max_memtable_id_(max_memtable_id),
       file_options_(file_options),
       versions_(versions),
       db_mutex_(db_mutex),
@@ -133,8 +134,6 @@ FlushJob::FlushJob(
   ReportStartedFlush();
   TEST_SYNC_POINT("FlushJob::FlushJob()");
 }
-
-FlushJob::FlushJob(FlushJob&&) = default;
 
 FlushJob::~FlushJob() {
   io_status_.PermitUncheckedError();
@@ -167,14 +166,12 @@ void FlushJob::RecordFlushIOStats() {
       ThreadStatus::FLUSH_BYTES_WRITTEN, IOSTATS(bytes_written));
   IOSTATS_RESET(bytes_written);
 }
-void FlushJob::PickMemTable(uint64_t max_memtable_id) {
+void FlushJob::PickMemTable() {
   db_mutex_->AssertHeld();
   assert(!pick_memtable_called);
   pick_memtable_called = true;
-  assert(mutable_cf_options_.max_write_buffer_number > 1);
   // Save the contents of the earliest memtable as a new Table
-  cfd_->imm()->PickMemtablesToFlush(
-      max_memtable_id, &mems_, mutable_cf_options_.max_write_buffer_number - 1);
+  cfd_->imm()->PickMemtablesToFlush(max_memtable_id_, &mems_);
   if (mems_.empty()) {
     return;
   }
@@ -184,7 +181,7 @@ void FlushJob::PickMemTable(uint64_t max_memtable_id) {
   // entries mems are (implicitly) sorted in ascending order by their created
   // time. We will use the first memtable's `edit` to keep the meta info for
   // this flush.
-  MemTable* m = mems_.front();
+  MemTable* m = mems_[0];
   edit_ = m->GetEdits();
   edit_->SetPrevLogNumber(0);
   // SetLogNumber(log_num) indicates logs with number smaller than log_num
@@ -494,7 +491,7 @@ Status FlushJob::WriteLevel0Table() {
   }
 #ifndef ROCKSDB_LITE
   // Piggyback FlushJobInfo on the first first flushed memtable.
-  mems_.front()->SetFlushJobInfo(GetFlushJobInfo());
+  mems_[0]->SetFlushJobInfo(GetFlushJobInfo());
 #endif  // !ROCKSDB_LITE
 
   // Note that here we treat flush as level 0 compaction in internal stats
