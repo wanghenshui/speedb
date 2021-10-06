@@ -182,7 +182,7 @@ struct CompactionJob::SubcompactionState {
   std::string last_user_key;
 
   SubcompactionState(Compaction* c, Slice* _start, Slice* _end,
-                     size_t prefix_size, uint64_t size = 0)
+                     size_t prefix_size, uint64_t size)
       : compaction(c),
         start(_start),
         end(_end),
@@ -2292,6 +2292,7 @@ Status CompactionServiceCompactionJob::Run() {
   compact_->sub_compact_states.emplace_back(
       c, compaction_input_.has_begin ? &begin : nullptr,
       compaction_input_.has_end ? &end : nullptr,
+      c->mutable_cf_options()->table_prefix_size,
       compaction_input_.approx_size);
 
   log_buffer_->FlushBufferToLog();
