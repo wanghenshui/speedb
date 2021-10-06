@@ -27,6 +27,7 @@ import datetime
 #   for txn:
 #       default_params < {blackbox,whitebox}_default_params < txn_params < args
 
+DB_STRESS_PATH = './db_stress'
 
 default_params = {
     "acquire_snapshot_one_in": 10000,
@@ -417,7 +418,7 @@ def gen_cmd_params(args):
 
 def gen_cmd(params, unknown_params):
     finalzied_params = finalize_and_sanitize(params)
-    cmd = ['./db_stress'] + [
+    cmd = [DB_STRESS_PATH] + [
         '--{0}={1}'.format(k, v)
         for k, v in [(k, finalzied_params[k]) for k in sorted(finalzied_params)]
         if k not in set(['test_type', 'simple', 'duration', 'interval',
@@ -703,6 +704,7 @@ def whitebox_crash_main(args, unknown_args):
 
 
 def main():
+    global DB_STRESS_PATH
     parser = argparse.ArgumentParser(description="This script runs and kills \
         db_stress multiple times")
     parser.add_argument("test_type", choices=["blackbox", "whitebox"])
@@ -711,6 +713,7 @@ def main():
     parser.add_argument("--txn", action='store_true')
     parser.add_argument("--test_best_efforts_recovery", action='store_true')
     parser.add_argument("--enable_ts", action='store_true')
+    parser.add_argument("--db_stress_path", default=DB_STRESS_PATH)
 
     all_params = dict(list(default_params.items())
                       + list(blackbox_default_params.items())
@@ -731,6 +734,12 @@ def main():
         print('%s env var is set to a non-existent directory: %s' %
                 (_TEST_DIR_ENV_VAR, test_tmpdir))
         sys.exit(1)
+
+    if not os.path.isfile(args.db_stress_path):
+        raise SystemExit('db_stress could not be found at %s' %
+                         os.path.realpath(args.db_stress_path))
+    DB_STRESS_PATH = os.path.realpath(args.db_stress_path)
+    del args.db_stress_path
 
     if args.test_type == 'blackbox':
         blackbox_crash_main(args, unknown_args)
