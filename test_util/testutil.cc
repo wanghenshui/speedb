@@ -106,6 +106,10 @@ class Uint64ComparatorImpl : public Comparator {
   }
 
   void FindShortSuccessor(std::string* /*key*/) const override { return; }
+
+  bool CanKeysWithDifferentByteContentsBeEqual() const override {
+    return false;
+  }
 };
 
 // A test implementation of comparator with 64-bit integer timestamp.
@@ -154,6 +158,10 @@ class ComparatorWithU64TsImpl : public Comparator {
     } else {
       return 0;
     }
+  }
+
+  bool CanKeysWithDifferentByteContentsBeEqual() const override {
+    return cmp_without_ts_->CanKeysWithDifferentByteContentsBeEqual();
   }
 
  private:
