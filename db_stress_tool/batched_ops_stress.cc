@@ -24,8 +24,7 @@ class BatchedOpsStressTest : public StressTest {
                  const std::vector<int>& rand_column_families,
                  const std::vector<int64_t>& rand_keys, char (&value)[100],
                  std::unique_ptr<MutexLock>& /* lock */) override {
-    uint32_t value_base =
-        thread->rand.Next() % thread->shared->UNKNOWN_SENTINEL;
+    uint32_t value_base = thread->shared->SanitizeValue(thread->rand.Next());
     size_t sz = GenerateValue(value_base, value, sizeof(value));
     Slice v(value, sz);
     std::string keys[10] = {"9", "8", "7", "6", "5", "4", "3", "2", "1", "0"};

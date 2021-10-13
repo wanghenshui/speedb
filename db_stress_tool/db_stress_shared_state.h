@@ -38,11 +38,18 @@ class StressTest;
 // State shared by all concurrent executions of the same benchmark.
 class SharedState {
  public:
+  // indicates a key should definitely be deleted
+  static constexpr uint32_t DELETION_SENTINEL = 0;
   // indicates a key may have any value (or not be present) as an operation on
   // it is incomplete.
-  static const uint32_t UNKNOWN_SENTINEL;
-  // indicates a key should definitely be deleted
-  static const uint32_t DELETION_SENTINEL;
+  static constexpr uint32_t UNKNOWN_SENTINEL = 1;
+
+  // the minimum of generated values which isn't a sentinel
+  static constexpr uint32_t VALUE_MIN = UNKNOWN_SENTINEL + 1;
+  // the upper bound of the range of generated values that aren't sentinels
+  // (i.e. each generated value should be MOD by this constant and then added
+  //  to VALUE_MIN)
+  static constexpr uint32_t VALUE_BOUND = uint32_t(0) - VALUE_MIN;
 
   // Errors when reading filter blocks are ignored, so we use a thread
   // local variable updated via sync points to keep track of errors injected
@@ -106,9 +113,8 @@ class SharedState {
     }
     delete[] permutation;
 
-    size_t expected_values_size =
+    const size_t expected_values_size =
         sizeof(std::atomic<uint32_t>) * FLAGS_column_families * max_key_;
-    bool values_init_needed = false;
     Status status;
     if (!FLAGS_expected_values_path.empty()) {
       if (!std::atomic<uint32_t>{}.is_lock_free()) {
@@ -126,15 +132,24 @@ class SharedState {
         status = env->GetFileSize(FLAGS_expected_values_path, &size);
       }
       std::unique_ptr<WritableFile> wfile;
-      if (status.ok() && size == 0) {
+      if (status.IsNotFound() || size == 0) {
         const EnvOptions soptions;
         status =
             env->NewWritableFile(FLAGS_expected_values_path, &wfile, soptions);
-      }
-      if (status.ok() && size == 0) {
-        std::string buf(expected_values_size, '\0');
-        status = wfile->Append(buf);
-        values_init_needed = true;
+        if (status.ok()) {
+          static_assert(DELETION_SENTINEL == 0,
+                        "DELETION_SENTINEL needs to be 0 in order for file "
+                        "initialization to work correctly");
+
+          if (!wfile->Truncate(expected_values_size).ok() ||
+              wfile->GetFileSize() != expected_values_size) {
+            const size_t file_size = wfile->GetFileSize();
+            const size_t needed_append_size =
+                std::max(expected_values_size, file_size) - file_size;
+            std::string buf(needed_append_size, '\0');
+            status = wfile->Append(buf);
+          }
+        }
       }
       if (status.ok()) {
         status = env->NewMemoryMappedFileBuffer(FLAGS_expected_values_path,
@@ -155,16 +170,13 @@ class SharedState {
       values_allocation_.reset(
           new std::atomic<uint32_t>[FLAGS_column_families * max_key_]);
       values_ = &values_allocation_[0];
-      values_init_needed = true;
-    }
-    assert(values_ != nullptr);
-    if (values_init_needed) {
       for (int i = 0; i < FLAGS_column_families; ++i) {
         for (int j = 0; j < max_key_; ++j) {
           Delete(i, j, false /* pending */);
         }
       }
     }
+    assert(values_ != nullptr);
 
     if (FLAGS_test_batches_snapshots) {
       fprintf(stdout, "No lock creation because test_batches_snapshots set\n");
@@ -208,6 +220,10 @@ class SharedState {
       SyncPoint::GetInstance()->DisableProcessing();
     }
 #endif
+  }
+
+  static uint32_t SanitizeValue(uint32_t v) {
+    return v % VALUE_BOUND + VALUE_MIN;
   }
 
   port::Mutex* GetMutex() { return &mu_; }

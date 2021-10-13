@@ -289,7 +289,7 @@ class NonBatchedOpsStressTest : public StressTest {
             case 0:
             case 1: {
               uint32_t value_base =
-                  thread->rand.Next() % thread->shared->UNKNOWN_SENTINEL;
+                  thread->shared->SanitizeValue(thread->rand.Next());
               char value[100];
               size_t sz = GenerateValue(value_base, value, sizeof(value));
               Slice v(value, sz);
@@ -514,7 +514,7 @@ class NonBatchedOpsStressTest : public StressTest {
         return s;
       }
     }
-    uint32_t value_base = thread->rand.Next() % shared->UNKNOWN_SENTINEL;
+    uint32_t value_base = thread->shared->SanitizeValue(thread->rand.Next());
     size_t sz = GenerateValue(value_base, value, sizeof(value));
     Slice v(value, sz);
     shared->Put(rand_column_family, rand_key, value_base, true /* pending */);
@@ -743,7 +743,7 @@ class NonBatchedOpsStressTest : public StressTest {
             new MutexLock(shared->GetMutexForKey(column_family, key)));
       }
 
-      uint32_t value_base = thread->rand.Next() % shared->UNKNOWN_SENTINEL;
+      uint32_t value_base = thread->shared->SanitizeValue(thread->rand.Next());
       values.push_back(value_base);
       shared->Put(column_family, key, value_base, true /* pending */);
 

@@ -12,8 +12,10 @@
 #include "db_stress_tool/db_stress_shared_state.h"
 
 namespace ROCKSDB_NAMESPACE {
-const uint32_t SharedState::UNKNOWN_SENTINEL = 0xfffffffe;
-const uint32_t SharedState::DELETION_SENTINEL = 0xffffffff;
+constexpr uint32_t SharedState::DELETION_SENTINEL;
+constexpr uint32_t SharedState::UNKNOWN_SENTINEL;
+constexpr uint32_t SharedState::VALUE_MIN;
+constexpr uint32_t SharedState::VALUE_BOUND;
 #if defined(ROCKSDB_SUPPORT_THREAD_LOCAL)
 #if defined(OS_SOLARIS)
 __thread bool SharedState::ignore_read_error;
