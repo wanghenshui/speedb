@@ -1,20 +1,37 @@
-image: ubuntu:latest
+default:
+  image: alpine:3.14
 
-before_script:
-  - 'command -v ssh-agent >/dev/null || ( apt-get update -y && apt-get install openssh-client -y )'
-  - eval $(ssh-agent -s)
-  - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
-  - mkdir -p ~/.ssh
-  - chmod 700 ~/.ssh
-  - JIRA_ID=$(echo $CI_COMMIT_REF_NAME | grep  -o  "[A-Z]\+-[0-9]\+" | head -1)
-  - JOB_NAME=$(echo $CI_COMMIT_REF_NAME |tr "/" "_")
+verify_merge:
+  stage: .pre
+  before_script:
+    - apk add git
+  script:
+    - JIRA_ID=$($CI_PROJECT_DIR/tools/spdb_git_merge_check.sh "$CI_COMMIT_REF_NAME" "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME")
+    - JOB_NAME=$(echo "$CI_COMMIT_REF_NAME" | tr '/' '_')
+    - echo "JIRA_ID=$JIRA_ID" >> merge.env
+    - echo "JOB_NAME=$JOB_NAME" >> merge.env
+  artifacts:
+    reports:
+      dotenv: merge.env
+  only:
+    - merge_requests
+
 test:
   stage: test
+  variables:
+    GIT_STRATEGY: none
+  before_script:
+    - apk add openssh-client curl
+    - mkdir -p ~/.ssh
+    - chmod 700 ~/.ssh
+    - eval $(ssh-agent -s)
+    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
   script:
-    - apt-get install curl -y
-    - ssh -o StrictHostKeyChecking=no remo@3.19.246.21 ./remotnic.sh $CI_COMMIT_REF_NAME "$JOB_NAME"_fuzz $GITLAB_USER_EMAIL fuzz $JIRA_ID $CI_COMMIT_SHA
-    - ssh -o StrictHostKeyChecking=no remo@3.19.246.21 ./remotnic.sh $CI_COMMIT_REF_NAME "$JOB_NAME"_fuzz_db $GITLAB_USER_EMAIL fuzz_map $JIRA_ID $CI_COMMIT_SHA
+    - ssh -o StrictHostKeyChecking=no remo@3.19.246.21 ./remotnic.sh "$CI_COMMIT_REF_NAME" "${JOB_NAME}_fuzz" "$GITLAB_USER_EMAIL" fuzz "$JIRA_ID" "$CI_COMMIT_SHA"
+    - ssh -o StrictHostKeyChecking=no remo@3.19.246.21 ./remotnic.sh "$CI_COMMIT_REF_NAME" "${JOB_NAME}_fuzz_map" "$GITLAB_USER_EMAIL" fuzz_map "$JIRA_ID" "$CI_COMMIT_SHA"
     - curl -X POST -H "Content-type:application/json" --data "{'blocks':[{'type':'section','text':{'type':'mrkdwn','text':'Starting automation tests on branch *$CI_COMMIT_REF_NAME*'}}],'attachments':[{'color':'#334455','blocks':[{'type':'section','text':{'type':'mrkdwn','text':'<$CI_PROJECT_URL|$CI_PROJECT_TITLE> with job <$CI_JOB_URL|#$CI_JOB_ID> by <https://gitlab.com/$GITLAB_USER_LOGIN|$GITLAB_USER_NAME>\nTriggered by <$CI_MERGE_REQUEST_SOURCE_PROJECT_URL|$CI_MERGE_REQUEST_TITLE>'}},{'type':'section','fields':[{'type':'mrkdwn','text':'*Type:*\ndb fuzzer'},{'type':'mrkdwn','text':'*JIRA:*\n$JIRA_ID'},{'type':'mrkdwn','text':'*Commit:*\n$CI_COMMIT_SHORT_SHA'}]}]}]}" $SLACK_WEBHOOK_URL
     - curl -X POST -H "Content-type:application/json" --data "{'blocks':[{'type':'section','text':{'type':'mrkdwn','text':'Starting automation tests on branch *$CI_COMMIT_REF_NAME*'}}],'attachments':[{'color':'#334455','blocks':[{'type':'section','text':{'type':'mrkdwn','text':'<$CI_PROJECT_URL|$CI_PROJECT_TITLE> with job <$CI_JOB_URL|#$CI_JOB_ID> by <https://gitlab.com/$GITLAB_USER_LOGIN|$GITLAB_USER_NAME>\nTriggered by <$CI_MERGE_REQUEST_SOURCE_PROJECT_URL|$CI_MERGE_REQUEST_TITLE>'}},{'type':'section','fields':[{'type':'mrkdwn','text':'*Type:*\ndb map fuzzer'},{'type':'mrkdwn','text':'*JIRA:*\n$JIRA_ID'},{'type':'mrkdwn','text':'*Commit:*\n$CI_COMMIT_SHORT_SHA'}]}]}]}" $SLACK_WEBHOOK_URL
   only:
     - merge_requests
+  dependencies:
+    - verify_merge
