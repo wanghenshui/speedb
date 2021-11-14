@@ -179,7 +179,6 @@ struct CompactionJob::SubcompactionState {
   std::string first_key_prefix;
   std::vector<size_t> max_sizes;
   size_t prefix_table_size;
-  std::string last_user_key;
 
   SubcompactionState(Compaction* c, Slice* _start, Slice* _end,
                      size_t prefix_size, uint64_t size)
@@ -233,7 +232,6 @@ struct CompactionJob::SubcompactionState {
     first_key_prefix = std::move(o.first_key_prefix);
     max_sizes = std::move(o.max_sizes);
     prefix_table_size = std::move(o.prefix_table_size);
-    last_user_key = std::move(o.last_user_key);
     return *this;
   }
 
@@ -255,8 +253,6 @@ struct CompactionJob::SubcompactionState {
   // before processing "internal_key".
   bool ShouldStopBefore(const Slice& user_key, uint64_t curr_file_size) {
     auto ucmp = compaction->column_family_data()->user_comparator();
-    std::string prev_user_key(last_user_key);
-    last_user_key.assign(user_key.data(), user_key.size());
 
     const std::vector<FileMetaData*>& grandparents = compaction->grandparents();
 
@@ -272,10 +268,6 @@ struct CompactionJob::SubcompactionState {
       if (prefix_table_size > 0 && prefix_table_size < user_key.size()) {
         first_key_prefix.assign(user_key.data(), prefix_table_size);
       }
-      return false;
-    }
-    if (!prev_user_key.empty() &&
-        ucmp->Compare(user_key, Slice(prev_user_key)) == 0) {
       return false;
     }
 
@@ -1356,51 +1348,64 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
         key, value, ikey.sequence, ikey.type);
     sub_compact->num_output_records++;
 
-    // Close output file if it is big enough. Two possibilities determine it's
-    // time to close it: (1) the current key should be this file's last key, (2)
-    // the next key should not be in this file.
-    //
-    // TODO(aekmekji): determine if file should be closed earlier than this
-    // during subcompactions (i.e. if output size, estimated by input size, is
-    // going to be 1.2MB and max_output_file_size = 1MB, prefer to have 0.6MB
-    // and 0.6MB instead of 1MB and 0.2MB)
-    bool output_file_ended = false;
-    if (sub_compact->compaction->output_level() != 0 &&
-        sub_compact->current_output_file_size >=
-            sub_compact->compaction->max_output_file_size()) {
-      // (1) this key terminates the file. For historical reasons, the iterator
-      // status before advancing will be given to FinishCompactionOutputFile().
-      output_file_ended = true;
-    }
     TEST_SYNC_POINT_CALLBACK(
         "CompactionJob::Run():PausingManualCompaction:2",
         reinterpret_cast<void*>(
             const_cast<std::atomic<int>*>(manual_compaction_paused_)));
-    if (partitioner.get()) {
-      last_key_for_partitioner.assign(c_iter->user_key().data_,
-                                      c_iter->user_key().size_);
-    }
+    last_key_for_partitioner.assign(c_iter->user_key().data(),
+                                    c_iter->user_key().size());
     c_iter->Next();
     if (c_iter->status().IsManualCompactionPaused()) {
       break;
     }
-    if (!output_file_ended && c_iter->Valid()) {
-      if (((partitioner.get() &&
-            partitioner->ShouldPartition(PartitionerRequest(
-                last_key_for_partitioner, c_iter->user_key(),
-                sub_compact->current_output_file_size)) == kRequired) ||
-           (sub_compact->compaction->output_level() != 0 &&
-            sub_compact->ShouldStopBefore(
-                c_iter->user_key(), sub_compact->current_output_file_size))) &&
-          sub_compact->builder != nullptr) {
+
+    bool output_file_ended = false;
+    // Don't allow breaking a file before all of the keys that compare equal
+    // have been consumed
+    if (!c_iter->Valid() || !cfd->user_comparator()->Equal(
+                                c_iter->user_key(), last_key_for_partitioner)) {
+      // Close output file if it is big enough. Two possibilities determine it's
+      // time to close it: (1) the current key should be this file's last key,
+      // (2) the next key should not be in this file.
+      //
+      // TODO(aekmekji): determine if file should be closed earlier than this
+      // during subcompactions (i.e. if output size, estimated by input size, is
+      // going to be 1.2MB and max_output_file_size = 1MB, prefer to have 0.6MB
+      // and 0.6MB instead of 1MB and 0.2MB)
+      if (sub_compact->compaction->output_level() != 0 &&
+          sub_compact->current_output_file_size >=
+              sub_compact->compaction->max_output_file_size()) {
+        // (1) this key terminates the file. For historical reasons, the
+        // iterator status before advancing will be given to
+        // FinishCompactionOutputFile().
+        if (enable_spdb_log) {
+          ROCKS_LOG_INFO(db_options_.info_log,
+                         "Breaking before key %s, %" PRIu64
+                         " file size %" PRIu64 ", max %" PRIu64,
+                         c_iter->user_key().ToString(true).c_str(),
+                         c_iter->ikey().sequence,
+                         sub_compact->current_output_file_size,
+                         sub_compact->compaction->max_output_file_size());
+        }
+        output_file_ended = true;
+      } else if (c_iter->Valid() && sub_compact->builder != nullptr &&
+                 ((partitioner.get() &&
+                   partitioner->ShouldPartition(PartitionerRequest(
+                       last_key_for_partitioner, c_iter->user_key(),
+                       sub_compact->current_output_file_size)) == kRequired) ||
+                  (sub_compact->compaction->output_level() != 0 &&
+                   sub_compact->ShouldStopBefore(
+                       c_iter->user_key(),
+                       sub_compact->current_output_file_size)))) {
         // (2) this key belongs to the next file. For historical reasons, the
         // iterator status after advancing will be given to
         // FinishCompactionOutputFile().
         if (enable_spdb_log) {
-          ROCKS_LOG_INFO(db_options_.info_log,
-                         "should stop before return true at key %s size %lu",
-                         c_iter->user_key().ToString(true).c_str(),
-                         sub_compact->current_output_file_size);
+          ROCKS_LOG_INFO(
+              db_options_.info_log,
+              "Should stop before key %s, %" PRIu64 " file size %" PRIu64,
+              c_iter->user_key().ToString(true).c_str(),
+              c_iter->ikey().sequence, sub_compact->current_output_file_size);
         }
         output_file_ended = true;
       }
