@@ -131,7 +131,7 @@ class HybridCompactionPicker : public CompactionPicker {
                                   const MutableCFOptions& mutable_cf_options,
                                   const MutableDBOptions& mutable_db_options,
                                   VersionStorageInfo* vstorage,
-                                  bool lowPriority = false);
+                                  bool lowPriority, LogBuffer* log_buffer);
 
   // checking the database size (creating a new hyper level if the size is too
   // large)
@@ -207,7 +207,7 @@ class HybridCompactionPicker : public CompactionPicker {
 
   bool SelectNBuffers(std::vector<CompactionInputFiles>& inputs,
                       size_t nBuffers, size_t outputLevel, size_t hyperLevelNum,
-                      VersionStorageInfo* vstorage);
+                      VersionStorageInfo* vstorage, LogBuffer* log_buffer);
 
   void expandSelection(const std::vector<FileMetaData*>& levelFiles,
                        std::vector<FileMetaData*>& outFiles,

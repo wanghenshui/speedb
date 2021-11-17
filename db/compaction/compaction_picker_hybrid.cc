@@ -256,8 +256,9 @@ Compaction* HybridCompactionPicker::PickCompaction(
        hyperLevelNum++) {
     if (MayStartLevelCompaction(hyperLevelNum, runningDesc, vstorage) &&
         NeedToRunLevelCompaction(hyperLevelNum, vstorage)) {
-      Compaction* ret = PickLevelCompaction(hyperLevelNum, mutable_cf_options,
-                                            mutable_db_options, vstorage);
+      Compaction* ret =
+          PickLevelCompaction(hyperLevelNum, mutable_cf_options,
+                              mutable_db_options, vstorage, false, log_buffer);
       if (ret) {
         if (enable_spdb_log) {
           ROCKS_LOG_BUFFER(
@@ -325,7 +326,7 @@ Compaction* HybridCompactionPicker::PickCompaction(
       if (!vstorage->LevelFiles(l).empty()) {
         Compaction* ret =
             PickLevelCompaction(hyperLevelNum, mutable_cf_options,
-                                mutable_db_options, vstorage, true);
+                                mutable_db_options, vstorage, true, log_buffer);
         if (ret) {
           if (enable_spdb_log) {
             ROCKS_LOG_BUFFER(
@@ -645,7 +646,7 @@ static void buildGrandparents(std::vector<FileMetaData*>& grandparents,
 Compaction* HybridCompactionPicker::PickLevelCompaction(
     size_t hyperLevelNum, const MutableCFOptions& mutable_cf_options,
     const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
-    bool lowPriority) {
+    bool lowPriority, LogBuffer* log_buffer) {
   const size_t lastLevelInHyper = LastLevelInHyper(hyperLevelNum);
   assert(!vstorage->LevelFiles(int(lastLevelInHyper)).empty());
 
@@ -702,8 +703,8 @@ Compaction* HybridCompactionPicker::PickLevelCompaction(
   if (grandparents.size() / 10 > num_buffers)
     num_buffers = grandparents.size() / 10;
 
-  if (!SelectNBuffers(inputs, num_buffers, outputLevel, hyperLevelNum,
-                      vstorage)) {
+  if (!SelectNBuffers(inputs, num_buffers, outputLevel, hyperLevelNum, vstorage,
+                      log_buffer)) {
     return nullptr;
   }
 
@@ -984,7 +985,23 @@ void HybridCompactionPicker::selectNBufferFromFirstLevel(
       levelIter++;
     }
   }
+
   largestKey = outFiles.back()->largest.user_key();
+
+  // Need to check for cases where next file has the same user key with
+  // a different version and select those files as well
+  bool expanded_overlapping = false;
+  for (; levelIter != levelFiles.end(); ++levelIter) {
+    if (ucmp_->Compare(largestKey, (*levelIter)->smallest.user_key()) != 0) {
+      break;
+    }
+    outFiles.push_back(*levelIter);
+    largestKey = (*levelIter)->largest.user_key();
+    expanded_overlapping = true;
+  }
+  if (expanded_overlapping) {
+    targetEnd = locateFile(targetLevelFiles, largestKey, targetEnd);
+  }
 
   if (targetEnd != targetLevelFiles.end()) {
     upperBound = (*targetEnd)->smallest.user_key();
@@ -1023,38 +1040,57 @@ void HybridCompactionPicker::expandSelection(
     }
   }
 
-  if (f == levelFiles.end()) {
-    // check lowerBound
-    auto last = *levelFiles.rbegin();
-    if (!lowerBound.size() ||
-        ucmp_->Compare(last->largest.user_key(), lowerBound) > 0) {
-      lowerBound = last->largest.user_key();
-    }
-  } else {
-    if (f != levelFiles.begin()) {
-      auto prevf = f;
-      --prevf;
-      if (lowerBound.size() == 0 ||
-          ucmp_->Compare((*prevf)->largest.user_key(), lowerBound) > 0) {
-        lowerBound = (*prevf)->largest.user_key();
+  // Skip files if prev's last user key is the same as f's first user key
+  if (f != levelFiles.begin()) {
+    for (auto prevf = std::prev(f); f != levelFiles.end(); ++f, ++prevf) {
+      if (ucmp_->Compare((*prevf)->largest.user_key(),
+                         (*f)->smallest.user_key()) != 0) {
+        break;
+      }
+
+      if (upperBound.size() != 0 &&
+          ucmp_->Compare((*f)->smallest.user_key(), upperBound) >= 0) {
+        break;
       }
     }
-    // we are at the spot take all the files in the range smallest largest that
-    // have largestKey <= upperbound
+  }
+
+  // setup lower bound if needed
+  if (f != levelFiles.begin()) {
+    auto prevf = std::prev(f);
+    if (lowerBound.size() == 0 ||
+        ucmp_->Compare((*prevf)->largest.user_key(), lowerBound) > 0) {
+      lowerBound = (*prevf)->largest.user_key();
+    }
+  }
+
+  // we are at the spot take all the files in the range smallest largest that
+  // have largestKey < upperbound
+  if (f != levelFiles.end()) {
     for (; f != levelFiles.end(); f++) {
       if ((largest.size() != 0 &&
            ucmp_->Compare((*f)->smallest.user_key(), largest) > 0) ||
           (upperBound.size() != 0 &&
            ucmp_->Compare((*f)->largest.user_key(), upperBound) >= 0)) {
         break;
-      } else {
-        // file is contained
-        outFiles.push_back(*f);
       }
+      // file is contained
+      outFiles.push_back(*f);
     }
 
-    // setup the large borders
     if (f != levelFiles.end()) {
+      // Pop up files if the next files countains the same user key f is
+      // pointing to next file
+      for (; !outFiles.empty(); --f) {
+        auto curfile = outFiles.back();
+        if (ucmp_->Compare((*f)->smallest.user_key(),
+                           curfile->largest.user_key()) != 0) {
+          break;
+        }
+        outFiles.pop_back();
+      }
+
+      // setup the upper bound if needed
       if (upperBound.size() == 0 ||
           ucmp_->Compare((*f)->smallest.user_key(), upperBound) < 0) {
         upperBound = (*f)->smallest.user_key();
@@ -1069,7 +1105,8 @@ void HybridCompactionPicker::expandSelection(
 
 bool HybridCompactionPicker::SelectNBuffers(
     std::vector<CompactionInputFiles>& inputs, size_t nBuffers,
-    size_t outputLevel, size_t hyperLevelNum, VersionStorageInfo* vstorage) {
+    size_t outputLevel, size_t hyperLevelNum, VersionStorageInfo* vstorage,
+    LogBuffer* log_buffer) {
   const size_t lowest_level = LastLevelInHyper(hyperLevelNum);
   if (vstorage->LevelFiles(int(lowest_level)).empty()) {
     return false;
@@ -1113,6 +1150,15 @@ bool HybridCompactionPicker::SelectNBuffers(
       lowerBound = prevPlace;
     }
   }
+  if (enable_spdb_log) {
+    ROCKS_LOG_BUFFER(
+        log_buffer, " Hybrid: select files for level %lu, (%s [%s %s] %s)",
+        lowest_level,
+        lowerBound.empty() ? "NULL" : lowerBound.ToString(true).c_str(),
+        smallestKey.empty() ? "NULL" : smallestKey.ToString(true).c_str(),
+        largestKey.empty() ? "NULL" : largestKey.ToString(true).c_str(),
+        upperBound.empty() ? "NULL" : upperBound.ToString(true).c_str());
+  }
 
   for (size_t level = lowest_level - 1; level >= upper_level; level--) {
     if (!vstorage->LevelFiles(int(level)).empty()) {
@@ -1132,6 +1178,15 @@ bool HybridCompactionPicker::SelectNBuffers(
           largestKey = (*fl.rbegin())->largest.user_key();
         }
       }
+      if (enable_spdb_log) {
+        ROCKS_LOG_BUFFER(
+            log_buffer,
+            " Hybrid: expand selection for level %lu, (%s [%s %s] %s)", level,
+            lowerBound.empty() ? "NULL" : lowerBound.ToString(true).c_str(),
+            smallestKey.empty() ? "NULL" : smallestKey.ToString(true).c_str(),
+            largestKey.empty() ? "NULL" : largestKey.ToString(true).c_str(),
+            upperBound.empty() ? "NULL" : upperBound.ToString(true).c_str());
+      }
     }
   }
   assert(count == 0);
@@ -1139,12 +1194,40 @@ bool HybridCompactionPicker::SelectNBuffers(
   inputs[count].level = int(outputLevel);
   auto& fl = vstorage->LevelFiles(int(outputLevel));
   auto iter = locateFile(fl, smallestKey, fl.begin());
+  // SPDB-228: if the smallest of the file is the same as the largest of the
+  // prev add the prev file as well....
+  if (iter != fl.end()) {
+    while (iter != fl.begin()) {
+      auto prev = std::prev(iter);
+      if (ucmp_->Compare((*iter)->smallest.user_key(),
+                         (*prev)->largest.user_key()) == 0) {
+        iter = prev;
+      } else {
+        break;
+      }
+    }
+  }
+
+  auto& target_fl = inputs[count].files;
   for (; iter != fl.end(); iter++) {
     if (ucmp_->Compare((*iter)->smallest.user_key(), largestKey) > 0) {
-      break;
-    } else {
-      inputs[count].files.push_back(*iter);
+      // SPDB-228: take additional files if needed to ensure the compaction
+      // select all the versions of the same user key
+      if (target_fl.empty() ||
+          ucmp_->Compare((*iter)->smallest.user_key(),
+                         target_fl.back()->largest.user_key()) > 0) {
+        if (enable_spdb_log) {
+          ROCKS_LOG_BUFFER(log_buffer,
+                           " Hybrid: finish for outputLevel %lu, stopped at %s "
+                           " largest is %s",
+                           outputLevel,
+                           (*iter)->smallest.user_key().ToString(true).c_str(),
+                           largestKey.ToString(true).c_str());
+        }
+        break;
+      }
     }
+    inputs[count].files.push_back(*iter);
   }
   // trivial move ?
   // one level with data at count -1
@@ -1170,7 +1253,6 @@ bool HybridCompactionPicker::SelectNBuffers(
   } else {
     prevSubCompaction_[hyperLevelNum].lastKey.clear();
   }
-
   return true;
 }
 
