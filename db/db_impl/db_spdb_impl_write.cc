@@ -36,10 +36,10 @@ void WalSpdb::WritesBatchList::Add(WriteBatch* batch, bool disable_wal,
   // Need to set the sequence even if we don't write to WAL because the WAL
   // thread is the one responsible for publishing the last sequence
   const uint64_t sequence = WriteBatchInternal::Sequence(batch);
-  if (max_seq_ == 0) {
+  if (min_seq_ == 0) {
     min_seq_ = sequence;
   }
-  max_seq_ = sequence;
+  max_seq_ = sequence + WriteBatchInternal::Count(batch) - 1;
 }
 
 void WalSpdb::WritesBatchList::MemtableAddComplete() {
@@ -87,8 +87,9 @@ void* WalSpdb::Add(WriteBatch* batch, bool disable_wal,
 
   {
     MutexLock l(&mutex_);
-    const uint64_t last_sequence = db_->FetchAddLastAllocatedSequence(seq_inc);
-    WriteBatchInternal::SetSequence(batch, last_sequence + seq_inc);
+    const uint64_t start_sequence =
+        db_->FetchAddLastAllocatedSequence(seq_inc) + 1;
+    WriteBatchInternal::SetSequence(batch, start_sequence);
 
     WritesBatchList& pending_list = GetActiveList();
     if (read_lock_for_memtable) {
@@ -97,7 +98,7 @@ void* WalSpdb::Add(WriteBatch* batch, bool disable_wal,
 
     pending_list.Add(batch, disable_wal, read_lock_for_memtable);
     // No need to trigger work if this isn't the first batch
-    if (pending_list.GetMinSeq() != pending_list.GetMaxSeq()) {
+    if (pending_list.GetMinSeq() < start_sequence) {
       return returned_list;
     }
   }
@@ -201,8 +202,15 @@ void WalSpdb::WalWriteThread() {
             ++write_with_wal;
           }
 
-          WriteBatchInternal::SetSequence(merged_batch,
-                                          batch_group.GetMaxSeq());
+          // XXX: This is wrong. Consider the following scenario:
+          // A normal write batch arrives, then one with disableWAL, then a
+          // normal one again. This results in only two WAL batches, but the
+          // sequence number in the middle has already been taken by a memtable
+          // only batch, resulting in a wrong sequence number for the data in
+          // the WAL.
+          WriteBatchInternal::SetSequence(
+              merged_batch,
+              WriteBatchInternal::Sequence(batch_group.wal_writes_.front()));
         }
       }
 
@@ -268,7 +276,8 @@ bool WalSpdb::WaitForPendingWork(size_t written_buffers) {
 }
 
 Status WalSpdb::WaitForWalWrite(WriteBatch* batch) {
-  const uint64_t last_sequence = WriteBatchInternal::Sequence(batch);
+  const uint64_t last_sequence = WriteBatchInternal::Sequence(batch) +
+                                 WriteBatchInternal::Count(batch) - 1;
 
   SystemClock* clock = db_->GetSystemClock();
   Statistics* stats = db_->immutable_db_options().stats;
@@ -373,6 +382,7 @@ bool DBImpl::NeedQuiesce() {
 
 Status DBImpl::SpdbWrite(const WriteOptions& write_options,
                          WriteBatch* my_batch, bool disable_memtable) {
+  assert(my_batch != nullptr && WriteBatchInternal::Count(my_batch) > 0);
   StopWatch write_sw(immutable_db_options_.clock, immutable_db_options_.stats,
                      DB_WRITE);
 
