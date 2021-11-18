@@ -214,7 +214,7 @@ whitebox_default_params = {
     "log2_keys_per_lock": 10,
     "ops_per_thread": 200000,
     "random_kill_odd": 888887,
-    "test_batches_snapshots": lambda: random.randint(0, 1),
+    "test_batches_snapshots": random.randint(0, 1),
 }
 
 simple_default_params = {
@@ -365,6 +365,11 @@ def finalize_and_sanitize(src_params):
         dest_params["enable_pipelined_write"] = 0
     if dest_params.get("sst_file_manager_bytes_per_sec", 0) == 0:
         dest_params["sst_file_manager_bytes_per_truncate"] = 0
+    # test_batches_snapshots needs to stay const (either 1 or 0) throught
+    # successive runs. this stops the next check from switching its value.
+    if (dest_params.get("test_batches_snapshots", 0) == 1 and 
+        dest_params.get("enable_compaction_filter", 0) == 1):
+        dest_params["enable_compaction_filter"] = 0
     if dest_params.get("enable_compaction_filter", 0) == 1:
         # Compaction filter is incompatible with snapshots. Need to avoid taking
         # snapshots, as well as avoid operations that use snapshots for
