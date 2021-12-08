@@ -5,7 +5,9 @@ verify_merge:
   stage: .pre
   before_script:
     - apk add git
+    - apk add python3 clang-extra-tools
   script:
+    - export "PATH=$PATH:/usr/share/clang"
     - JIRA_ID=$($CI_PROJECT_DIR/tools/spdb_git_merge_check.sh "$CI_COMMIT_REF_NAME" "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME")
     - JOB_NAME=$(echo "$CI_COMMIT_REF_NAME" | tr '/' '_')
     - echo "JIRA_ID=$JIRA_ID" >> merge.env
