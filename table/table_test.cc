@@ -140,6 +140,10 @@ class ReverseKeyComparator : public Comparator {
     BytewiseComparator()->FindShortSuccessor(&s);
     *key = Reverse(s);
   }
+
+  bool CanKeysWithDifferentByteContentsBeEqual() const override {
+    return false;
+  }
 };
 
 ReverseKeyComparator reverse_key_comparator;
