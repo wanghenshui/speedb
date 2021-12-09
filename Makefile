@@ -957,6 +957,9 @@ crash_test_with_ts: whitebox_crash_test_with_ts blackbox_crash_test_with_ts
 narrow_crash_test: db_stress
 	$(PYTHON) -u tools/db_crashtest.py narrow $(CRASH_TEST_EXT_ARGS)
 
+no_kill_crash_test: db_stress
+	$(PYTHON) -u tools/db_crashtest.py whitebox --disable_kill_points=1 --duration=4000 $(CRASH_TEST_EXT_ARGS)	
+
 blackbox_crash_test: db_stress
 	$(PYTHON) -u tools/db_crashtest.py --simple blackbox $(CRASH_TEST_EXT_ARGS)
 	$(PYTHON) -u tools/db_crashtest.py blackbox $(CRASH_TEST_EXT_ARGS)

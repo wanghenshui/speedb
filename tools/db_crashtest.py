@@ -44,7 +44,7 @@ default_params = {
     # Consider larger number when backups considered more stable
     "backup_one_in": 100000,
     "batch_protection_bytes_per_key": lambda: random.choice([0, 8]),
-    "block_size": 16384,
+    "block_size": random.choice([16384, 4096]),
     "bloom_bits": lambda: random.choice([random.randint(0,19),
                                          random.lognormvariate(2.3, 1.3)]),
     "cache_index_and_filter_blocks": lambda: random.randint(0, 1),
@@ -67,40 +67,35 @@ default_params = {
     "clear_column_family_one_in": 0,
     "compact_files_one_in": 1000000,
     "compact_range_one_in": 1000000,
-    "delpercent": 4,
-    "delrangepercent": 1,
     "destroy_db_initially": 0,
-    "enable_pipelined_write": lambda: random.randint(0, 1),
+    "enable_pipelined_write": lambda: random.choice([0, 0, 0, 0, 1]),
     "enable_compaction_filter": lambda: random.choice([0, 0, 0, 1]),
     "expected_values_path": lambda: setup_expected_values_file(),
     "fail_if_options_file_error": lambda: random.randint(0, 1),
     "flush_one_in": 1000000,
     "file_checksum_impl": lambda: random.choice(["none", "crc32c", "xxh64", "big"]),
-    "get_live_files_one_in": 1000000,
+    "get_live_files_one_in": 100000,
     # Note: the following two are intentionally disabled as the corresponding
     # APIs are not guaranteed to succeed.
     "get_sorted_wal_files_one_in": 0,
     "get_current_wal_file_one_in": 0,
     # Temporarily disable hash index
     "index_type": lambda: random.choice([0, 0, 0, 2, 2, 3]),
-    "iterpercent": 10,
     "mark_for_compaction_one_file_in": lambda: 10 * random.randint(0, 1),
     "max_background_compactions": 20,
     "max_bytes_for_level_base": 10485760,
-    "max_key": 100000000,
+    "max_key": random.choice([100 * 1024, 1024 * 1024, 10 * 1024 * 1024]),
     "max_write_buffer_number": 3,
     "mmap_read": lambda: random.randint(0, 1),
-    "nooverwritepercent": 1,
+    "nooverwritepercent": random.choice([0, 5, 20, 30, 40, 50, 95]),
     "open_files": lambda : random.choice([-1, -1, 100, 500000]),
     "optimize_filters_for_memory": lambda: random.randint(0, 1),
     "partition_filters": lambda: random.randint(0, 1),
     "partition_pinning": lambda: random.randint(0, 3),
     "pause_background_one_in": 1000000,
-    "prefixpercent": 5,
     "progress_reports": 0,
-    "readpercent": 45,
     "recycle_log_file_num": lambda: random.randint(0, 1),
-    "reopen": 20,
+    "reopen": lambda: random.randint(0, 15),
     "snapshot_hold_ops": 100000,
     "sst_file_manager_bytes_per_sec": lambda: random.choice([0, 104857600]),
     "sst_file_manager_bytes_per_truncate": lambda: random.choice([0, 1048576]),
@@ -114,13 +109,13 @@ default_params = {
     "use_direct_io_for_flush_and_compaction": lambda: random.randint(0, 1),
     "mock_direct_io": False,
     "use_clock_cache": 0, # currently broken
-    "use_full_merge_v1": lambda: random.randint(0, 1),
+    "use_full_merge_v1": lambda: bool(random.randint(0, 10)),
     "use_merge": lambda: random.randint(0, 1),
     "use_ribbon_filter": lambda: random.randint(0, 1),
     "verify_checksum": 1,
-    "write_buffer_size": 4 * 1024 * 1024,
-    "writepercent": 35,
-    "format_version": lambda: random.choice([2, 3, 4, 5, 5]),
+    "write_buffer_size": lambda: random.choice(
+        [1024 * 1024, 8 * 1024 * 1024, 128 * 1024 * 1024, 1024 * 1024 * 1024]),
+    "format_version": lambda: random.choice([2, 3, 4, 5, 5, 5, 5, 5, 5]),
     "index_block_restart_interval": lambda: random.choice(range(1, 16)),
     "use_multiget" : lambda: random.randint(0, 1),
     "periodic_compaction_seconds" :
@@ -131,13 +126,12 @@ default_params = {
     "max_manifest_file_size" : lambda : random.choice(
         [t * 16384 if t < 3 else 1024 * 1024 * 1024 for t in range(1, 30)]),
     # Sync mode might make test runs slower so running it in a smaller chance
-    "sync" : lambda : random.choice(
-        [1 if t == 0 else 0 for t in range(0, 20)]),
+    "sync" : lambda : bool(random.randint(0, 20)),
     # Disable compation_readahead_size because the test is not passing.
     #"compaction_readahead_size" : lambda : random.choice(
     #    [0, 0, 1024 * 1024]),
     "db_write_buffer_size" : lambda: random.choice(
-        [0, 0, 0, 1024 * 1024, 8 * 1024 * 1024, 128 * 1024 * 1024]),
+        [0, 0, 0, 1024 * 1024, 8 * 1024 * 1024, 128 * 1024 * 1024, 1024 * 1024 * 1024]),
     "avoid_unnecessary_blocking_io" : random.randint(0, 1),
     "write_dbid_to_manifest" : random.randint(0, 1),
     "avoid_flush_during_recovery" : random.choice(
@@ -148,8 +142,8 @@ default_params = {
     "verify_checksum_one_in": 1000000,
     "verify_db_one_in": 100000,
     "continuous_verification_interval" : 0,
-    "max_key_len": 3,
-    "key_len_percent_dist": "1,30,69",
+    "max_key_len": 0,
+    "key_len_percent_dist": "0",
     "read_fault_one_in": lambda: random.choice([0, 1000]),
     "open_metadata_write_fault_one_in": lambda: random.choice([0, 8]),
     "sync_fault_injection": False,
@@ -158,6 +152,15 @@ default_params = {
     "max_write_buffer_size_to_maintain": lambda: random.choice(
         [0, 1024 * 1024, 2 * 1024 * 1024, 4 * 1024 * 1024, 8 * 1024 * 1024]),
     "user_timestamp_size": 0,
+    # cannot change seed between runs because the seed decides which keys are nonoverwrittenable
+    "seed": int(time.time() * 1000000) & 0xffffffff,
+    "test_batches_snapshots": random.choice([0, 0, 0, 1]),
+    "verify_before_write": lambda: bool(random.randint(0, 20)),
+    "allow_concurrent_memtable_write": lambda: random.randint(0, 1),
+    # only done when thread#0 does TestAcquireSnapshot. 
+    "compare_full_db_state_snapshot": lambda: random.choice([0, 0, 0, 1]),
+    "num_iterations": lambda: random.randint(0, 100),
+    "sync_wal_one_in": 100000,
 }
 
 _TEST_DIR_ENV_VAR = 'TEST_TMPDIR'
@@ -178,6 +181,7 @@ def get_dbname(test_name):
         shutil.rmtree(dbname, True)
         os.mkdir(dbname)
     return dbname
+
 
 expected_values_file = None
 def setup_expected_values_file():
@@ -207,27 +211,51 @@ def is_direct_io_supported(dbname):
         return True
 
 
+def generate_key_dist_and_len(params):
+    # check if user supplied key dist or len
+    if params["max_key_len"] == 0 and params["key_len_percent_dist"] != "0":
+        params["max_key_len"] = params["key_len_percent_dist"].count(",") + 1
+        return
+    
+    if params["max_key_len"] == 0 and params["key_len_percent_dist"] == "0":
+        params["max_key_len"] = random.randint(1, 10)
+    
+    # randomly select max_key_len - 1 unique points which represent the
+    # boundaries between two dist points. e.g. if max_key_len == 2 and
+    # 65 is the unique point, then dists are 64,36.
+    # https://math.stackexchange.com/questions/1276206/method-of-generating-random-numbers-that-sum-to-100-is-this-truly-random/1276225#1276225
+    cuts_count = params["max_key_len"] - 1
+    choice_max = 100 + cuts_count
+    cut_points = set()
+    while len(cut_points) < cuts_count:
+        cut_points.add(random.randint(1, choice_max))
+    dist = [x for x in sorted(cut_points)]
+    prev = 0
+    for i, x in enumerate(dist):
+        dist[i] -= prev + 1
+        prev = x
+    dist.append(100 - sum(dist))
+    params["key_len_percent_dist"] = ",".join(str(i) for i in dist)
+
+    
 blackbox_default_params = {
     # total time for this script to test db_stress
-    "duration": 6000,
+    "duration": 4000,
     # time for one db_stress instance to run
-    "interval": 120,
+    "interval": 240,
     # since we will be killing anyway, use large value for ops_per_thread
     "ops_per_thread": 100000000,
     "set_options_one_in": 10000,
-    "test_batches_snapshots": 1,
 }
 
 whitebox_default_params = {
     "duration": 10000,
-    "log2_keys_per_lock": 10,
+    "disable_kill_points": False,
     "ops_per_thread": 200000,
     "random_kill_odd": 888887,
-    "test_batches_snapshots": random.randint(0, 1),
 }
 
 simple_default_params = {
-    "allow_concurrent_memtable_write": lambda: random.randint(0, 1),
     "column_families": 1,
     "max_background_compactions": 1,
     "max_bytes_for_level_base": 67108864,
@@ -350,10 +378,12 @@ narrow_params = {
     "progress_reports": 0,
 }
 
+
 def store_ops_supplied(params):
     for k in supplied_ops:
         supplied_ops[k] = params.get(k, -1)
-    
+
+
 # make sure sum of ops == 100.
 # value of -1 means that the op should be initialized. 
 def randomize_operation_type_percentages(src_params):
@@ -391,7 +421,8 @@ def randomize_operation_type_percentages(src_params):
 
     src_params.update(params)
 
-def finalize_and_sanitize(src_params):
+
+def finalize_and_sanitize(src_params, counter):
     dest_params = dict([(k,  v() if callable(v) else v)
                         for (k, v) in src_params.items()])
     if dest_params.get("compression_max_dict_bytes") == 0:
@@ -455,6 +486,16 @@ def finalize_and_sanitize(src_params):
     if (dest_params.get("test_batches_snapshots", 0) == 1 and 
         dest_params.get("enable_compaction_filter", 0) == 1):
         dest_params["enable_compaction_filter"] = 0
+    if dest_params.get("read_only", 0) == 1:
+        if counter == 0:
+            dest_params["read_only"] = 0
+        else:
+            dest_params["readpercent"] += dest_params["writepercent"]
+            dest_params["writepercent"] = 0
+            dest_params["iterpercent"] += dest_params["delpercent"]
+            dest_params["delpercent"] = 0
+            dest_params["iterpercent"] += dest_params["delrangepercent"]
+            dest_params["delrangepercent"] = 0    
     if dest_params.get("enable_compaction_filter", 0) == 1:
         # Compaction filter is incompatible with snapshots. Need to avoid taking
         # snapshots, as well as avoid operations that use snapshots for
@@ -462,12 +503,13 @@ def finalize_and_sanitize(src_params):
         dest_params["acquire_snapshot_one_in"] = 0
         dest_params["compact_range_one_in"] = 0
         # Give the iterator ops away to reads.
-        dest_params["readpercent"] += dest_params.get("iterpercent", 10)
+        dest_params["readpercent"] += dest_params.get("iterpercent", 0)
         dest_params["iterpercent"] = 0
         dest_params["test_batches_snapshots"] = 0
     if dest_params.get("test_batches_snapshots") == 0:
         dest_params["batch_protection_bytes_per_key"] = 0
     return dest_params
+
 
 def gen_cmd_params(args):
     params = {}
@@ -503,17 +545,21 @@ def gen_cmd_params(args):
     for k, v in vars(args).items():
         if v is not None:
             params[k] = v
+    
+    if params["max_key_len"] == 0 or params["key_len_percent_dist"] == "0":
+        generate_key_dist_and_len(params)
+
     return params
 
 
-def gen_cmd(params, unknown_params):
-    finalzied_params = finalize_and_sanitize(params)
+def gen_cmd(params, unknown_params, counter):
+    finalzied_params = finalize_and_sanitize(params, counter)
     cmd = [DB_STRESS_PATH] + [
         '--{0}={1}'.format(k, v)
         for k, v in [(k, finalzied_params[k]) for k in sorted(finalzied_params)]
         if k not in set(['test_type', 'simple', 'duration', 'interval',
                          'random_kill_odd', 'cf_consistency', 'txn',
-                         'test_best_efforts_recovery', 'enable_ts'])
+                         'test_best_efforts_recovery', 'enable_ts', 'disable_kill_points'])
         and v is not None] + unknown_params
     return cmd
 
@@ -554,9 +600,11 @@ def inject_inconsistencies_to_db_dir(dir_path):
         with open(os.path.join(dir_path, fname), "w") as fd:
             fd.write("garbage")
 
+
 DEADLY_SIGNALS = {
     signal.SIGABRT, signal.SIGBUS, signal.SIGFPE, signal.SIGILL, signal.SIGSEGV
 }
+
 
 def execute_cmd(cmd, timeout):
     child = subprocess.Popen(cmd, stderr=subprocess.PIPE,
@@ -586,6 +634,7 @@ def execute_cmd(cmd, timeout):
 
     return hit_timeout, child.returncode, outs.decode('utf-8'), errs.decode('utf-8')
 
+
 # old copy of the db is kept at same src dir as new db. 
 def copy_tree_and_remove_old(counter, dbname):
     dest = dbname + "_" + str(counter)
@@ -594,6 +643,7 @@ def copy_tree_and_remove_old(counter, dbname):
     old_db = dbname + "_" + str(counter - 2)
     if counter > 1:
         shutil.rmtree(old_db, True)
+
 
 def gen_narrow_cmd_params(args):
     params = {}
@@ -611,6 +661,7 @@ def gen_narrow_cmd_params(args):
             
     return params
 
+
 def narrow_crash_main(args, unknown_args):
     cmd_params = gen_narrow_cmd_params(args)
     dbname = get_dbname('narrow')
@@ -624,7 +675,7 @@ def narrow_crash_main(args, unknown_args):
     
     while time.time() < exit_time:
         randomize_operation_type_percentages(cmd_params)
-        cmd = gen_cmd(dict(cmd_params, **{'db': dbname}), unknown_args)
+        cmd = gen_cmd(dict(cmd_params, **{'db': dbname}), unknown_args, counter)
 
         hit_timeout, retcode, outs, errs = execute_cmd(cmd, cmd_params['duration'])
         copy_tree_and_remove_old(counter, dbname)
@@ -642,13 +693,16 @@ def narrow_crash_main(args, unknown_args):
         time.sleep(2)  # time to stabilize before the next run
 
     shutil.rmtree(dbname, True)
-    
+
+
 # This script runs and kills db_stress multiple times. It checks consistency
 # in case of unsafe crashes in RocksDB.
 def blackbox_crash_main(args, unknown_args):
     cmd_params = gen_cmd_params(args)
     dbname = get_dbname('blackbox')
     exit_time = time.time() + cmd_params['duration']
+
+    store_ops_supplied(cmd_params)
 
     print("Running blackbox-crash-test with \n"
           + "interval_between_crash=" + str(cmd_params['interval']) + "\n"
@@ -657,9 +711,8 @@ def blackbox_crash_main(args, unknown_args):
     counter = 0
 
     while time.time() < exit_time:
-        cmd = gen_cmd(dict(
-            list(cmd_params.items())
-            + list({'db': dbname}.items())), unknown_args)
+        randomize_operation_type_percentages(cmd_params)
+        cmd = gen_cmd(dict(cmd_params, **{'db': dbname}), unknown_args, counter)
 
         hit_timeout, retcode, outs, errs = execute_cmd(cmd, cmd_params['interval'])
         copy_tree_and_remove_old(counter, dbname)
@@ -702,6 +755,8 @@ def whitebox_crash_main(args, unknown_args):
     exit_time = cur_time + cmd_params['duration']
     half_time = cur_time + cmd_params['duration'] // 2
 
+    store_ops_supplied(cmd_params)
+
     print("Running whitebox-crash-test with \n"
           + "total-duration=" + str(cmd_params['duration']) + "\n")
 
@@ -713,6 +768,8 @@ def whitebox_crash_main(args, unknown_args):
     counter = 0
 
     while time.time() < exit_time:
+        if cmd_params["disable_kill_points"]:
+            check_mode = 3
         if check_mode == 0:
             additional_opts = {
                 # use large ops per thread since we will kill it anyway
@@ -775,10 +832,8 @@ def whitebox_crash_main(args, unknown_args):
                 "kill_random_test": None,
                 "ops_per_thread": cmd_params['ops_per_thread'],
             }
-
-        cmd = gen_cmd(dict(list(cmd_params.items())
-            + list(additional_opts.items())
-            + list({'db': dbname}.items())), unknown_args)
+        randomize_operation_type_percentages(cmd_params)
+        cmd = gen_cmd(dict(cmd_params, **{'db': dbname}, **additional_opts), unknown_args, counter)
 
         # If the running time is 15 minutes over the run time, explicit kill and
         # exit even if white box kill didn't hit. This is to guarantee run time
@@ -835,10 +890,14 @@ def whitebox_crash_main(args, unknown_args):
             # success
             shutil.rmtree(dbname, True)
             os.mkdir(dbname)
-            cmd_params.pop('expected_values_path', None)
+            global expected_values_file
+            if os.path.exists(expected_values_file):
+                os.remove(expected_values_file)
+            expected_values_file = None
             check_mode = (check_mode + 1) % total_check_mode
             for ctr in range(max(0, counter - 2), counter):
                 shutil.rmtree('{}_{}'.format(dbname, ctr))
+            counter = 0
 
         time.sleep(1)  # time to stabilize after a kill
 
@@ -902,7 +961,7 @@ def main():
     if args.test_type == 'narrow':
         narrow_crash_main(args, unknown_args)
     # Only delete the `expected_values_file` if test passes
-    if os.path.exists(expected_values_file):
+    if expected_values_file and os.path.exists(expected_values_file):
         os.remove(expected_values_file)
 
 
