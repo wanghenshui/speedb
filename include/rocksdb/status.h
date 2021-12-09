@@ -412,6 +412,16 @@ class Status {
     return (code() == kAborted) && (subcode() == kMemoryLimit);
   }
 
+  // Returns true iff the status indicates a SpaceLimit error
+  // This is caused by a logical space limit being reached, similar to an
+  // I/O error returning the specific "out of space" error condition.
+  // Stricto sensu, a SpaceLimit error is an I/O error with a specific subcode,
+  // enabling users to take the appropriate action if needed
+  bool IsSpaceLimit() const {
+    MarkChecked();
+    return (code() == kIOError) && (subcode() == kSpaceLimit);
+  }
+  
   // Returns true iff the status indicates a PathNotFound error
   // This is caused by an I/O error returning the specific "no such file or
   // directory" error condition. A PathNotFound error is an I/O error with

@@ -327,7 +327,7 @@ const Status& ErrorHandler::SetBGError(const Status& bg_err,
   }
 
   // Allow some error specific overrides
-  if (new_bg_err.IsNoSpace()) {
+  if (new_bg_err.IsNoSpace() || new_bg_err.IsSpaceLimit()) {
     new_bg_err = OverrideNoSpaceError(new_bg_err, &auto_recovery);
   }
 
@@ -349,7 +349,7 @@ const Status& ErrorHandler::SetBGError(const Status& bg_err,
     recovery_in_prog_ = true;
 
     // Kick-off error specific recovery
-    if (bg_error_.IsNoSpace()) {
+    if (bg_error_.IsNoSpace() || bg_error_.IsSpaceLimit()) {
       RecoverFromNoSpace();
     }
   }
