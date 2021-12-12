@@ -109,7 +109,7 @@ default_params = {
     "use_direct_io_for_flush_and_compaction": lambda: random.randint(0, 1),
     "mock_direct_io": False,
     "use_clock_cache": 0, # currently broken
-    "use_full_merge_v1": lambda: bool(random.randint(0, 10)),
+    "use_full_merge_v1": lambda: random.randrange(10) == 0,
     "use_merge": lambda: random.randint(0, 1),
     "use_ribbon_filter": lambda: random.randint(0, 1),
     "verify_checksum": 1,
@@ -126,7 +126,7 @@ default_params = {
     "max_manifest_file_size" : lambda : random.choice(
         [t * 16384 if t < 3 else 1024 * 1024 * 1024 for t in range(1, 30)]),
     # Sync mode might make test runs slower so running it in a smaller chance
-    "sync" : lambda : bool(random.randint(0, 20)),
+    "sync" : lambda : random.randrange(20) == 0,
     # Disable compation_readahead_size because the test is not passing.
     #"compaction_readahead_size" : lambda : random.choice(
     #    [0, 0, 1024 * 1024]),
@@ -155,7 +155,7 @@ default_params = {
     # cannot change seed between runs because the seed decides which keys are nonoverwrittenable
     "seed": int(time.time() * 1000000) & 0xffffffff,
     "test_batches_snapshots": random.choice([0, 0, 0, 1]),
-    "verify_before_write": lambda: bool(random.randint(0, 20)),
+    "verify_before_write": lambda: random.randrange(20) == 0,
     "allow_concurrent_memtable_write": lambda: random.randint(0, 1),
     # only done when thread#0 does TestAcquireSnapshot. 
     "compare_full_db_state_snapshot": lambda: random.choice([0, 0, 0, 1]),
