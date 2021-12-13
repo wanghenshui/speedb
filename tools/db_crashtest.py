@@ -220,24 +220,25 @@ def generate_key_dist_and_len(params):
     if params["max_key_len"] == 0 and params["key_len_percent_dist"] == "0":
         params["max_key_len"] = random.randint(1, 10)
     
-    # randomly select max_key_len - 1 unique points which represent the
-    # boundaries between two dist points. e.g. if max_key_len == 2 and
-    # 65 is the unique point, then dists are 64,36.
-    # https://math.stackexchange.com/questions/1276206/method-of-generating-random-numbers-that-sum-to-100-is-this-truly-random/1276225#1276225
-    cuts_count = params["max_key_len"] - 1
-    choice_max = 100 + cuts_count
-    cut_points = set()
-    while len(cut_points) < cuts_count:
-        cut_points.add(random.randint(1, choice_max))
-    dist = [x for x in sorted(cut_points)]
-    prev = 0
-    for i, x in enumerate(dist):
-        dist[i] -= prev + 1
-        prev = x
-    dist.append(100 - sum(dist))
+    dist = random_distribution(params["max_key_len"] - 1)
     params["key_len_percent_dist"] = ",".join(str(i) for i in dist)
 
-    
+
+# Randomly select unique points (cut_points) on the distribution range
+# and set the distribution to the differences between these points.
+# Inspired by the following post, with changes to disallow 0:
+# https://math.stackexchange.com/questions/1276206/method-of-generating-random-numbers-that-sum-to-100-is-this-truly-random/1276225#1276225
+def random_distribution(cuts_count):
+    cut_points = set()
+    while len(cut_points) < cuts_count:
+        cut_points.add(random.randint(1, 100 - 1))
+    dist = []
+    for x in sorted(cut_points):
+        dist.append(x - sum(dist))
+    dist.append(100 - sum(dist))
+    return dist
+
+
 blackbox_default_params = {
     # total time for this script to test db_stress
     "duration": 4000,
