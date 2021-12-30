@@ -1,0 +1,207 @@
+====================================================================================================
+Date:2022-03-22 21:29:28.351635
+Folder:/home/udi/speedb/tools/spdb_make_check/samples/ref-test
+Description:New Sample
+====================================================================================================
+
+############ test1-Test1 - PASS ############
+<---------------------------------------------------------------------------------------------------->
+LOG FILE NAME: log-run-test1-Test1
+FILE: test1
+TEST: Test1
+DISABLED: NO
+
+Note: Google Test filter = Test1
+[==========] Running 1 test from 1 test case.
+[----------] Global test environment set-up.
+[----------] 1 test from Test1
+[ RUN      ] Test1
+[       OK ] Test1 (154 ms)
+[----------] 1 test from Test1 (154 ms total)
+
+[----------] Global test environment tear-down
+[==========] 1 test from 1 test case ran. (154 ms total)
+[  PASSED  ] 1 test.
+
+############ test1-Test2 - PASS ############
+<---------------------------------------------------------------------------------------------------->
+LOG FILE NAME: log-run-test1-Test2
+FILE: test1
+TEST: Test2
+DISABLED: NO
+
+Note: Google Test filter = Test2
+[==========] Running 1 test from 1 test case.
+[----------] Global test environment set-up.
+[----------] 1 test from Test2
+[ RUN      ] Test2
+[       OK ] Test2 (154 ms)
+[----------] 1 test from Test2 (154 ms total)
+
+[----------] Global test environment tear-down
+[==========] 1 test from 1 test case ran. (154 ms total)
+[  PASSED  ] 1 test.
+
+############ test3-Test1-ITERATION 0 ############
+<---------------------------------------------------------------------------------------------------->
+LOG FILE NAME: log-run-test3-Test1-0
+FILE: test3
+TEST: Test1/0
+DISABLED: NO
+
+Note: Google Test filter = Test1/0
+[==========] Running 1 test from 1 test case.
+[----------] Global test environment set-up.
+[----------] 1 test from Test1
+[ RUN      ] Test1/0
+[       OK ] Test1/0 (54 ms)
+[----------] 1 test from Test1 (54 ms total)
+
+[----------] Global test environment tear-down
+[==========] 1 test from 1 test case ran. (54 ms total)
+[  FAILED  ] 1 test.
+
+############ test3-Test1-ITERATION 1 ############
+<---------------------------------------------------------------------------------------------------->
+LOG FILE NAME: log-run-test3-Test1-1
+FILE: test3
+TEST: Test1/1
+DISABLED: NO
+
+Note: Google Test filter = Test1/1
+[==========] Running 1 test from 1 test case.
+[----------] Global test environment set-up.
+[----------] 1 test from Test1
+[ RUN      ] Test1/1
+[       OK ] Test1/1 (54 ms)
+[----------] 1 test from Test1 (54 ms total)
+
+[----------] Global test environment tear-down
+[==========] 1 test from 1 test case ran. (54 ms total)
+[  FAILED  ] 1 test.
+
+############ test3-Test1-ITERATION 2 - FAIL ############
+<---------------------------------------------------------------------------------------------------->
+LOG FILE NAME: log-run-test3-Test1-2
+FILE: test3
+TEST: Test1/2
+DISABLED: NO
+
+Note: Google Test filter = Test1/2
+[==========] Running 1 test from 1 test case.
+[----------] Global test environment set-up.
+[----------] 1 test from Test1
+[ RUN      ] Test1/2
+test3.cc:238: Failure XXXX
+Value of: table->TEST_KeyInCache(ReadOptions(), keys[i])
+  Actual: false
+Expected: true
+[  FAILED  ] Test1/2, where GetParam() = (2, false, 0, false) (29 ms)
+[----------] 1 test from Test1 (29 ms total)
+
+[----------] Global test environment tear-down
+[==========] 1 test from 1 test case ran. (29 ms total)
+[  PASSED  ] 0 tests.
+[  FAILED  ] 1 test, listed below:
+[  FAILED  ] Test1/2, where GetParam() = (2, false, 0, false)
+
+############ test3-Test1-ITERATION 3 - ASSERTION ############
+<---------------------------------------------------------------------------------------------------->
+LOG FILE NAME: log-run-test3-Test1-3
+FILE: test3
+TEST: Test1/3
+DISABLED: NO
+
+Note: Google Test filter = Test1/3
+[==========] Running 1 test from 1 test case.
+[----------] Global test environment set-up.
+[----------] 1 test from Test1
+[ RUN      ] Test1/3
+test3: test3..cc:1515: void rocksdb::DBImpl::SchedulePurge(): Assertion `opened_successfully_' failed.
+Aborted (core dumped)
+
+############ test3-Test1-ITERATION 4 - ASSERTION ############
+<---------------------------------------------------------------------------------------------------->
+LOG FILE NAME: log-run-test3-Test1-4
+FILE: test3
+TEST: Test1/4
+DISABLED: NO
+
+Note: Google Test filter = Test1/4
+[==========] Running 1 test from 1 test case.
+[----------] Global test environment set-up.
+[----------] 1 test from Test1
+[ RUN      ] Test1/4
+test3: test3..cc:1515: void rocksdb::DBImpl::SchedulePurge(): Assertion `opened_successfully_' failed.
+Aborted (core dumped)
+
+############ test3-Test1-ITERATION 2 - FAIL ############
+<---------------------------------------------------------------------------------------------------->
+LOG FILE NAME: log-run-test3-Test1-5
+FILE: test3
+TEST: Test1/5
+DISABLED: NO
+
+Note: Google Test filter = Test1/5
+[==========] Running 1 test from 1 test case.
+[----------] Global test environment set-up.
+[----------] 1 test from Test1
+[ RUN      ] Test1/5
+test3.cc:238: Failure XXXX
+Value of: table->TEST_KeyInCache(ReadOptions(), keys[i])
+  Actual: false
+Expected: true
+[  FAILED  ] Test1/5, where GetParam() = (10, true, 0, false) (70 ms)
+[----------] 1 test from Test1 (70 ms total)
+
+[----------] Global test environment tear-down
+[==========] 1 test from 1 test case ran. (70 ms total)
+[  PASSED  ] 0 tests.
+[  FAILED  ] 1 test, listed below:
+[  FAILED  ] Test1/5, where GetParam() = (10, true, 0, false)
+
+############ test4-Test1-ITERATION 0 ############
+<---------------------------------------------------------------------------------------------------->
+LOG FILE NAME: log-run-test4-Test1-0
+FILE: test4
+TEST: Test1/0
+DISABLED: NO
+
+Note: Google Test filter = Test1/0
+[==========] Running 1 test from 1 test case.
+[----------] Global test environment set-up.
+[----------] 1 test from Test1
+[ RUN      ] Test1/0
+test4.cc:555: Failure
+Value of: table->TEST_KeyInCache(ReadOptions(), keys[i])
+  Actual: false
+Expected: true
+[  FAILED  ] Test1/0, where GetParam() = (10, true, 0, true) (70 ms)
+[----------] 1 test from Test1 (70 ms total)
+
+[----------] Global test environment tear-down
+[==========] 1 test from 1 test case ran. (70 ms total)
+[  PASSED  ] 0 tests.
+[  FAILED  ] 1 test, listed below:
+[  FAILED  ] Test1/0, where GetParam() = (10, true, 0, false)
+
+############ test3-Test1-ITERATION 1 ############
+<---------------------------------------------------------------------------------------------------->
+LOG FILE NAME: log-run-test3-Test1-1
+FILE: test4
+TEST: Test1/1
+DISABLED: NO
+
+Note: Google Test filter = Test1/1
+[==========] Running 1 test from 1 test case.
+[----------] Global test environment set-up.
+[----------] 1 test from Test1
+[ RUN      ] Test1/1
+[       OK ] Test1/1 (54 ms)
+[----------] 1 test from Test1 (54 ms total)
+
+[----------] Global test environment tear-down
+[==========] 1 test from 1 test case ran. (54 ms total)
+[  PASSED  ] 1 test.
+
+<---------------------------------------------------------------------------------------------------->
