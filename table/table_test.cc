@@ -1414,6 +1414,10 @@ TEST_P(BlockBasedTableTest, BasicBlockBasedTableProperties) {
   table_options.block_restart_interval = 1;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
+  // Restore RocksDB's defaults that Speedb have overwritten
+  options.table_factory->GetOptions<BlockBasedTableOptions>()
+      ->filter_policy.reset();
+
   ImmutableOptions ioptions(options);
   MutableCFOptions moptions(options);
   c.Finish(options, ioptions, moptions, table_options,
@@ -1503,8 +1507,8 @@ TEST_P(BlockBasedTableTest, BlockBasedTableProperties2) {
     ASSERT_EQ("nullptr", props.prefix_extractor_name);
     // No property collectors
     ASSERT_EQ("[]", props.property_collectors_names);
-    // No filter policy is used
-    ASSERT_EQ("", props.filter_policy_name);
+    // Speedb sets filter policy to HybridFilter
+    ASSERT_EQ("speedb.HybridFilter", props.filter_policy_name);
     // Compression type == that set:
     ASSERT_EQ("NoCompression", props.compression_name);
     c.ResetTableReader();
@@ -1535,7 +1539,8 @@ TEST_P(BlockBasedTableTest, BlockBasedTableProperties2) {
     ASSERT_EQ(
         "[DummyPropertiesCollectorFactory1,DummyPropertiesCollectorFactory2]",
         props.property_collectors_names);
-    ASSERT_EQ("", props.filter_policy_name);  // no filter policy is used
+    // Speedb sets filter policy to HybridFilter
+    ASSERT_EQ("speedb.HybridFilter", props.filter_policy_name);
     c.ResetTableReader();
   }
 }
@@ -3576,6 +3581,11 @@ static void DoCompressionTest(CompressionType comp) {
   options.compression = comp;
   BlockBasedTableOptions table_options;
   table_options.block_size = 1024;
+
+  // Restore Rocksdb configuration to restore the offset approximations below
+  options.table_factory->GetOptions<BlockBasedTableOptions>()
+      ->filter_policy.reset();
+
   const ImmutableOptions ioptions(options);
   const MutableCFOptions moptions(options);
   c.Finish(options, ioptions, moptions, table_options, ikc, &keys, &kvmap);
