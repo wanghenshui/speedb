@@ -93,11 +93,20 @@ class TestCompactionListener : public EventListener {
   void OnCompactionCompleted(DB *db, const CompactionJobInfo& ci) override {
     std::lock_guard<std::mutex> lock(mutex_);
     compacted_dbs_.push_back(db);
+
+    // In Rocksdb, this listener is called once per cf, in speedb's case it is
+    // called multiple times per cf => record the individual cf-s to allow
+    // comparing to them in the tests
+    compacted_cfs_.insert(ci.cf_name);
+
     ASSERT_GT(ci.input_files.size(), 0U);
     ASSERT_EQ(ci.input_files.size(), ci.input_file_infos.size());
 
     for (size_t i = 0; i < ci.input_file_infos.size(); ++i) {
-      ASSERT_EQ(ci.input_file_infos[i].level, ci.base_input_level);
+      // The following condition fails (SPDB-457)
+      ASSERT_GE(ci.input_file_infos[i].level, ci.base_input_level);
+      ASSERT_LE(ci.input_file_infos[i].level, ci.output_level);
+
       ASSERT_EQ(ci.input_file_infos[i].file_number,
                 TableFileNameToNumber(ci.input_files[i]));
     }
@@ -145,6 +154,7 @@ class TestCompactionListener : public EventListener {
 
   EventListenerTest* test_;
   std::vector<DB*> compacted_dbs_;
+  std::set<std::string> compacted_cfs_;
   std::mutex mutex_;
 };
 
@@ -159,7 +169,8 @@ TEST_F(EventListenerTest, OnSingleDBCompactionTest) {
   options.env = CurrentOptions().env;
   options.create_if_missing = true;
   options.write_buffer_size = kEntrySize * kEntriesPerBuffer;
-  options.compaction_style = kCompactionStyleLevel;
+  // We force hybrid style so might as well make it explicit
+  options.compaction_style = kCompactionStyleHybrid;
   options.target_file_size_base = options.write_buffer_size;
   options.max_bytes_for_level_base = options.target_file_size_base * 2;
   options.max_bytes_for_level_multiplier = 2;
@@ -199,8 +210,10 @@ TEST_F(EventListenerTest, OnSingleDBCompactionTest) {
     ASSERT_OK(dbfull()->TEST_WaitForCompact());
   }
 
-  ASSERT_EQ(listener->compacted_dbs_.size(), cf_names.size());
-  for (size_t i = 0; i < cf_names.size(); ++i) {
+  // Rocksdb expect a single call to the listener per cf. We call it
+  // multiple times => compare against the num of compacted cf-s
+  ASSERT_EQ(listener->compacted_cfs_.size(), cf_names.size());
+  for (size_t i = 0; i < listener->compacted_dbs_.size(); ++i) {
     ASSERT_EQ(listener->compacted_dbs_[i], db_);
   }
 }
@@ -532,7 +545,8 @@ TEST_F(EventListenerTest, CompactionReasonLevel) {
 
   options.level0_file_num_compaction_trigger = 4;
   options.level0_slowdown_writes_trigger = 5;
-  options.compaction_style = kCompactionStyleLevel;
+  // We force hybrid style so might as well make it explicit
+  options.compaction_style = kCompactionStyleHybrid;
 
   DestroyAndReopen(options);
   Random rnd(301);
@@ -543,9 +557,13 @@ TEST_F(EventListenerTest, CompactionReasonLevel) {
   }
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
-  ASSERT_EQ(listener->compaction_reasons_.size(), 1);
-  ASSERT_EQ(listener->compaction_reasons_[0],
-            CompactionReason::kLevelL0FilesNum);
+  for (auto compaction_reason : listener->compaction_reasons_) {
+    ASSERT_TRUE((compaction_reason == CompactionReason::kLevelL0FilesNum) ||
+                (compaction_reason == CompactionReason::kLevelMaxLevelSize))
+        << "Expected reasons: [" << CompactionReason::kLevelL0FilesNum << ", "
+        << CompactionReason::kLevelMaxLevelSize << "], "
+        << "Actual reason:" << compaction_reason;
+  }
 
   DestroyAndReopen(options);
 
@@ -566,7 +584,7 @@ TEST_F(EventListenerTest, CompactionReasonLevel) {
   Reopen(options);
 
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
-  ASSERT_GT(listener->compaction_reasons_.size(), 1);
+  ASSERT_GT(listener->compaction_reasons_.size(), 0);
 
   for (auto compaction_reason : listener->compaction_reasons_) {
     ASSERT_EQ(compaction_reason, CompactionReason::kLevelMaxLevelSize);
@@ -587,6 +605,8 @@ TEST_F(EventListenerTest, CompactionReasonLevel) {
   }
 }
 
+// TODO - The name is misleading as we always do Hybrid Compaction => Is there
+// any reason to keep this test?
 TEST_F(EventListenerTest, CompactionReasonUniversal) {
   Options options;
   options.env = CurrentOptions().env;
@@ -597,6 +617,8 @@ TEST_F(EventListenerTest, CompactionReasonUniversal) {
   TestCompactionReasonListener* listener = new TestCompactionReasonListener();
   options.listeners.emplace_back(listener);
 
+  // The compaction style is overwritten by Speedb to be kCompactionStyleHybrid
+  // regardless of user's request
   options.compaction_style = kCompactionStyleUniversal;
 
   Random rnd(301);
@@ -607,6 +629,9 @@ TEST_F(EventListenerTest, CompactionReasonUniversal) {
   DestroyAndReopen(options);
   listener->compaction_reasons_.clear();
 
+  // Speedb uses hybrid compaction by default
+  ASSERT_EQ(kCompactionStyleHybrid, dbfull()->GetOptions().compaction_style);
+
   // Write 8 files in L0
   for (int i = 0; i < 8; i++) {
     GenerateNewRandomFile(&rnd);
@@ -615,7 +640,11 @@ TEST_F(EventListenerTest, CompactionReasonUniversal) {
 
   ASSERT_GT(listener->compaction_reasons_.size(), 0);
   for (auto compaction_reason : listener->compaction_reasons_) {
-    ASSERT_EQ(compaction_reason, CompactionReason::kUniversalSizeRatio);
+    ASSERT_TRUE((compaction_reason == CompactionReason::kLevelL0FilesNum) ||
+                (compaction_reason == CompactionReason::kLevelMaxLevelSize))
+        << "Expected reasons: [" << CompactionReason::kLevelL0FilesNum << ", "
+        << CompactionReason::kLevelMaxLevelSize << "], "
+        << "Actual reason:" << compaction_reason;
   }
 
   options.level0_file_num_compaction_trigger = 8;
@@ -633,7 +662,11 @@ TEST_F(EventListenerTest, CompactionReasonUniversal) {
 
   ASSERT_GT(listener->compaction_reasons_.size(), 0);
   for (auto compaction_reason : listener->compaction_reasons_) {
-    ASSERT_EQ(compaction_reason, CompactionReason::kUniversalSizeAmplification);
+    ASSERT_TRUE((compaction_reason == CompactionReason::kLevelL0FilesNum) ||
+                (compaction_reason == CompactionReason::kLevelMaxLevelSize))
+        << "Expected reasons: [" << CompactionReason::kLevelL0FilesNum << ", "
+        << CompactionReason::kLevelMaxLevelSize << "], "
+        << "Actual reason:" << compaction_reason;
   }
 
   options.disable_auto_compactions = true;

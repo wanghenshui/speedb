@@ -1657,4 +1657,9 @@ uint64_t DBTestBase::GetNumberOfSstFilesForColumnFamily(
 }
 #endif  // ROCKSDB_LITE
 
+std::ostream& operator<<(std::ostream& os, const CompactionReason& reason) {
+  os << static_cast<int>(reason);
+  return os;
+}
+
 }  // namespace ROCKSDB_NAMESPACE

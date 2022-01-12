@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cinttypes>
 #include <map>
+#include <ostream>
 #include <set>
 #include <string>
 #include <thread>
@@ -1267,5 +1268,7 @@ class DBTestBase : public testing::Test {
 
   bool time_elapse_only_sleep_on_reopen_ = false;
 };
+
+std::ostream& operator<<(std::ostream& os, const CompactionReason& reason);
 
 }  // namespace ROCKSDB_NAMESPACE
