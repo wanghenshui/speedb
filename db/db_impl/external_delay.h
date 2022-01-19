@@ -16,9 +16,9 @@ class ExternalDelay {
 
   void Enforce(size_t byte_count);
 
-  void Reset() { SetDelayWriteRate(0); }
+  bool Reset() { return SetDelayWriteRate(0) != 0; }
 
-  void SetDelayWriteRate(size_t rate);
+  size_t SetDelayWriteRate(size_t rate);
 
  private:
   using Nanoseconds = std::chrono::nanoseconds;
@@ -64,14 +64,16 @@ inline void ExternalDelay::Enforce(size_t byte_count) {
   }
 }
 
-inline void ExternalDelay::SetDelayWriteRate(size_t new_rate) {
+inline size_t ExternalDelay::SetDelayWriteRate(size_t new_rate) {
+  double old_delay = 0;
   if (new_rate == 0) {
-    delay_per_byte_nanos_.store(0, std::memory_order_release);
+    old_delay = delay_per_byte_nanos_.exchange(0, std::memory_order_release);
   } else {
     next_request_time_.store(clock_->NowNanos(), std::memory_order_release);
-    delay_per_byte_nanos_.store(1.0 * kNanosPerSec / new_rate,
-                                std::memory_order_release);
+    old_delay = delay_per_byte_nanos_.exchange(1.0 * kNanosPerSec / new_rate,
+                                               std::memory_order_release);
   }
+  return old_delay == 0 ? 0 : static_cast<size_t>(kNanosPerSec / old_delay);
 }
 
 };  // namespace ROCKSDB_NAMESPACE

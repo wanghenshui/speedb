@@ -3536,9 +3536,8 @@ void DBImpl::RecalculateWriteRate() {
                    "Setting up external delay with write rate %" PRIu64 " B/s",
                    uint64_t(delayed_write_rate));
     external_delay_.SetDelayWriteRate(delayed_write_rate);
-  } else {
+  } else if (external_delay_.Reset()) {
     ROCKS_LOG_INFO(immutable_db_options_.info_log, "Resetting external delay");
-    external_delay_.Reset();
   }
 }
 
