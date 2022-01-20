@@ -2154,6 +2154,10 @@ void StressTest::PrintEnv() const {
           static_cast<int>(FLAGS_fail_if_options_file_error));
   fprintf(stdout, "User timestamp size bytes : %d\n",
           static_cast<int>(FLAGS_user_timestamp_size));
+  fprintf(stdout, "data_block_index_type : %d\n",
+          static_cast<int>(FLAGS_data_block_index_type));
+  fprintf(stdout, "data_block_hash_table_util_ratio : %f\n",
+          static_cast<double>(FLAGS_data_block_hash_table_util_ratio));
 
   fprintf(stdout, "------------------------------------------------\n");
 }
@@ -2187,6 +2191,11 @@ void StressTest::Open() {
         FLAGS_optimize_filters_for_memory;
     block_based_options.index_type =
         static_cast<BlockBasedTableOptions::IndexType>(FLAGS_index_type);
+    block_based_options.data_block_index_type =
+        static_cast<BlockBasedTableOptions::DataBlockIndexType>(
+            FLAGS_data_block_index_type);
+    block_based_options.data_block_hash_table_util_ratio =
+        static_cast<double>(FLAGS_data_block_hash_table_util_ratio);
     options_.table_factory.reset(
         NewBlockBasedTableFactory(block_based_options));
     options_.db_write_buffer_size = FLAGS_db_write_buffer_size;
