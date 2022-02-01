@@ -5875,6 +5875,8 @@ TEST_P(TransactionTest, DuplicateKeys) {
     ASSERT_TRUE(pinnable_val == ("value2b"));
     txn0.reset();
     cf_options.comparator = BytewiseComparator();
+    BlockBasedTableOptions bbto =
+        *cf_options.table_factory->GetOptions<BlockBasedTableOptions>();
     bbto.filter_policy.reset();
     cf_options.table_factory.reset(NewBlockBasedTableFactory(bbto));
   }
