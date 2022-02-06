@@ -28,3 +28,20 @@ fuzzing:
     - merge_requests
   dependencies:
     - verify_merge
+
+bump_version:
+  stage: deploy
+  variables:
+    VERSION_HEADER: $CI_PROJECT_DIR/speedb/version.h
+  before_script:
+    - apk add git
+    - apk add python3
+  script:
+    - >
+      $CI_PROJECT_DIR/tools/bump_version.py --version "$VERSION_HEADER"
+      --target "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME"
+  only:
+    - merge_requests
+  dependencies:
+    - verify_merge
+    - fuzzing
