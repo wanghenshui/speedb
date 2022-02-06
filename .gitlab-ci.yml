@@ -17,3 +17,14 @@ verify_merge:
       dotenv: merge.env
   only:
     - merge_requests
+
+fuzzing:
+  stage: test
+  script:
+    - echo "running fuzz"
+  variables:
+    GIT_STRATEGY: none
+  only:
+    - merge_requests
+  dependencies:
+    - verify_merge
