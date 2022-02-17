@@ -26,6 +26,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <array>
 
 #include "rocksdb/memory_allocator.h"
 #include "rocksdb/slice.h"
@@ -141,11 +142,80 @@ extern std::shared_ptr<Cache> NewClockCache(
     CacheMetadataChargePolicy metadata_charge_policy =
         kDefaultCacheMetadataChargePolicy);
 
+// UR - Add Comment
+struct AdditionalCacheStats {
+  // =========================================================================================================
+  struct PerPriorityCounters {
+    size_t total_inserted_ = 0U;
+    size_t max_num_ = 0U;
+    size_t total_evicted_ = 0U;
+    size_t total_evicted_high_due_to_ = 0U;
+    size_t total_replaced_pinned_ = 0U;
+    size_t total_replaced_evicted_ = 0U;
+    size_t total_released_and_deleted_forced_ = 0U;
+    size_t total_released_and_deleted_cache_full_ = 0U;
+    size_t max_pinned_usage_ = 0U;
+
+    // =========================================================================================================
+    PerPriorityCounters() = default;
+
+    PerPriorityCounters& operator+=(const PerPriorityCounters& other) {
+      total_inserted_ += other.total_inserted_;
+      max_num_ += other.max_num_;
+      total_evicted_ += other.total_evicted_;
+      total_evicted_high_due_to_ += other.total_evicted_high_due_to_;
+      total_replaced_pinned_ += other.total_replaced_pinned_;
+      total_replaced_evicted_ += other.total_replaced_evicted_;
+      total_released_and_deleted_forced_ += other.total_released_and_deleted_forced_;
+      total_released_and_deleted_cache_full_ += other.total_released_and_deleted_cache_full_;
+      max_pinned_usage_ += other.max_pinned_usage_;
+
+      return *this;
+    }
+  };
+
+  // =========================================================================================================
+  static constexpr size_t NumPriorities = 2U;
+  static constexpr auto HighPriValue = 0U;
+  static constexpr auto LowPriValue = 1U;
+
+  std::array<PerPriorityCounters, NumPriorities> per_pri_counters_;  
+  static const std::array<std::string, NumPriorities> PriNames;
+
+  // LRU
+  size_t total_inserted_to_high_lru_high_ = 0U;
+  size_t total_inserted_to_high_lru_low_hit_ = 0U;
+  size_t total_inserted_to_low_lru_ = 0U;
+  size_t total_moved_from_high_lru_to_low_lru_ = 0U;
+
+  // Misc
+  size_t total_erased_ = 0U;
+  size_t max_usage_ = 0U;
+
+  // =========================================================================================================
+  AdditionalCacheStats() = default;
+
+  AdditionalCacheStats& operator+=(const AdditionalCacheStats& other) {
+    for (auto i = 0U; i < per_pri_counters_.size(); ++i) {
+      per_pri_counters_[i] += other.per_pri_counters_[i];
+    }
+
+    total_inserted_to_high_lru_high_ += other.total_inserted_to_high_lru_high_;
+    total_inserted_to_high_lru_low_hit_ += other.total_inserted_to_high_lru_low_hit_;
+    total_inserted_to_low_lru_ += other.total_inserted_to_low_lru_;
+    total_moved_from_high_lru_to_low_lru_ += other.total_moved_from_high_lru_to_low_lru_;
+    total_erased_ += other.total_erased_;
+    max_usage_ += other.max_usage_;
+
+    return *this;
+  }  
+};
+
 class Cache {
  public:
   // Depending on implementation, cache entries with high priority could be less
   // likely to get evicted than low priority entries.
-  enum class Priority { HIGH, LOW };
+  enum class Priority { HIGH = 0, LOW = 1 };
 
   // A set of callbacks to allow objects in the primary block cache to be
   // be persisted in a secondary cache. The purpose of the secondary cache
@@ -341,6 +411,9 @@ class Cache {
   // the deleter can essentially verify that a cache entry is of an
   // expected type from an expected code source.
   virtual DeleterFn GetDeleter(Handle* handle) const = 0;
+
+  // UR - Add Comment
+  virtual AdditionalCacheStats GetAdditionalStats() const {return AdditionalCacheStats();}
 
   // Call this on shutdown if you want to speed it up. Cache will disown
   // any underlying data and will not free it on delete. This call will leak

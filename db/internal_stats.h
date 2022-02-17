@@ -362,6 +362,8 @@ class InternalStats {
     uint64_t last_start_time_micros_ = 0;
     uint64_t last_end_time_micros_ = 0;
 
+    AdditionalCacheStats cache_additional_stats_;
+
     void Clear() {
       // Wipe everything except collection_count
       uint32_t saved_collection_count = collection_count;
@@ -374,6 +376,8 @@ class InternalStats {
     GetEntryCallback();
     void EndCollection(Cache*, SystemClock*, uint64_t end_time_micros);
     void SkippedCollection();
+
+    void SetAdditionalCacheStats(const AdditionalCacheStats& additional_stats) {cache_additional_stats_ = additional_stats;}
 
     std::string ToString(SystemClock* clock) const;
     void ToMap(std::map<std::string, std::string>* values,

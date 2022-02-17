@@ -615,7 +615,7 @@ std::string InternalStats::CacheEntryRoleStats::ToString(
       << " last_copies: " << copies_of_last_collection
       << " last_secs: " << (GetLastDurationMicros() / 1000000.0)
       << " secs_since: "
-      << ((clock->NowMicros() - last_end_time_micros_) / 1000000U) << "\n";
+      << ((clock->NowMicros() - last_end_time_micros_) / 1000000U) << "\n";      
   str << "Block cache entry stats(count,size,portion):";
   for (size_t i = 0; i < kNumCacheEntryRoles; ++i) {
     if (entry_counts[i] > 0) {
@@ -625,6 +625,34 @@ std::string InternalStats::CacheEntryRoleStats::ToString(
     }
   }
   str << "\n";
+
+  str << "\nAdditional Cache Stats (" << cache_id << "):\n";
+  for (auto i = 0U; i < AdditionalCacheStats::NumPriorities; ++i) {
+    const auto& pri_counters = cache_additional_stats_.per_pri_counters_[i];
+
+    str << '\n';
+    str << "Priority:" << AdditionalCacheStats::PriNames[i] << '\n';
+    str << "   total inserted:" << pri_counters.total_inserted_ << '\n';
+    str << "   max num: " << pri_counters.max_num_ << '\n';
+    str << "   total_evicted_: " << pri_counters.total_evicted_ << '\n';
+    str << "   total_evicted_high_due_to_: " << pri_counters.total_evicted_high_due_to_ << '\n';
+    str << "   total_replaced_pinned_: " << pri_counters.total_replaced_pinned_ << '\n';
+    str << "   total_replaced_evicted_: " << pri_counters.total_replaced_evicted_ << '\n';
+    str << "   total_released_and_deleted_forced_: " << pri_counters.total_released_and_deleted_forced_ << '\n';
+    str << "   total_released_and_deleted_cache_full_: " << pri_counters.total_released_and_deleted_cache_full_ << '\n';
+    str << "   max_pinned_usage_: " << pri_counters.max_pinned_usage_ << '\n';
+  }
+
+  str << "\nMiscellaneous:\n";
+  str << "   total_inserted_to_high_lru_high_: " << cache_additional_stats_.total_inserted_to_high_lru_high_ << '\n';
+  str << "   total_inserted_to_high_lru_low_hit_: " << cache_additional_stats_.total_inserted_to_high_lru_low_hit_ << '\n';
+  str << "   total_inserted_to_low_lru_: " << cache_additional_stats_.total_inserted_to_low_lru_ << '\n';
+  str << "   total_moved_from_high_lru_to_low_lru_: " << cache_additional_stats_.total_moved_from_high_lru_to_low_lru_ << '\n';
+  str << "   total_erased_: " << cache_additional_stats_.total_erased_ << '\n';
+  str << "   max_usage_: " << cache_additional_stats_.max_usage_ << '\n';
+
+  str << '\n';
+
   return str.str();
 }
 

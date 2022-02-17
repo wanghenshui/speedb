@@ -119,6 +119,8 @@ LRUCacheShard::LRUCacheShard(
       table_(max_upper_hash_bits),
       usage_(0),
       lru_usage_(0),
+      usage_low_(0),
+      lru_usage_low_(0),
       mutex_(use_adaptive_mutex),
       secondary_cache_(secondary_cache) {
   set_metadata_charge_policy(metadata_charge_policy);
@@ -127,6 +129,59 @@ LRUCacheShard::LRUCacheShard(
   lru_.prev = &lru_;
   lru_low_pri_ = &lru_;
   SetCapacity(capacity);
+}
+
+void LRUCacheShard::DecreaseUsage(LRUHandle* e) {
+  size_t total_charge = e->CalcTotalCharge(metadata_charge_policy_);
+  assert(usage_ >= total_charge);
+  usage_ -= total_charge;
+
+  if (e->IsLowPri()) {
+    assert(usage_low_ >= total_charge);
+    usage_low_ -= total_charge;
+  }
+}
+
+void LRUCacheShard::IncreaseUsage(LRUHandle* e, size_t total_charge) {
+  usage_ += total_charge;
+
+  if (e->IsLowPri()) {
+    usage_low_ += total_charge;
+  }
+}
+
+void LRUCacheShard::UpdateMaxPinnedUsage(LRUHandle* e) {
+  if (e->IsHighPri()) {
+    assert(lru_usage_ >= lru_usage_low_);
+    auto lru_usage_high = lru_usage_ - lru_usage_low_;
+
+    assert(usage_ >= usage_low_);
+    auto usage_high = usage_ - usage_low_;
+
+    assert(usage_high >= lru_usage_high);
+    auto pinned_usage_high = usage_high - lru_usage_high;
+
+    auto& high_counters = additional_stats_.per_pri_counters_[AdditionalCacheStats::HighPriValue];
+    high_counters.max_pinned_usage_ = std::max<size_t>(high_counters.max_pinned_usage_, pinned_usage_high);
+  } else {
+    assert(usage_low_ >= lru_usage_low_);
+    auto pinned_usage_low = usage_low_ - lru_usage_low_; 
+
+    auto& low_counters = additional_stats_.per_pri_counters_[AdditionalCacheStats::LowPriValue];
+    low_counters.max_pinned_usage_ = std::max<size_t>(low_counters.max_pinned_usage_, pinned_usage_low);
+  }
+}
+
+void LRUCacheShard::SetItemNotInCache(LRUHandle* e) {
+  e->SetInCache(false);
+
+  if (e->IsHighPri()) {
+    assert(num_high_ > 0U);
+    --num_high_;
+  } else {
+    assert(num_low_ > 0U);
+    --num_low_;
+  }
 }
 
 void LRUCacheShard::EraseUnRefEntries() {
@@ -139,10 +194,13 @@ void LRUCacheShard::EraseUnRefEntries() {
       assert(old->InCache() && !old->HasRefs());
       LRU_Remove(old);
       table_.Remove(old->key(), old->hash);
-      old->SetInCache(false);
-      size_t total_charge = old->CalcTotalCharge(metadata_charge_policy_);
-      assert(usage_ >= total_charge);
-      usage_ -= total_charge;
+      // // old->SetInCache(false);
+      SetItemNotInCache(old);
+
+      // // size_t total_charge = old->CalcTotalCharge(metadata_charge_policy_);
+      // // assert(usage_ >= total_charge);
+      // // usage_ -= total_charge;
+      DecreaseUsage(old);
       last_reference_list.push_back(old);
     }
   }
@@ -210,6 +268,11 @@ double LRUCacheShard::GetHighPriPoolRatio() {
   return high_pri_pool_ratio_;
 }
 
+AdditionalCacheStats LRUCacheShard::GetShardAdditionalStats() const {
+  MutexLock l(&mutex_);
+  return additional_stats_;
+}
+
 void LRUCacheShard::LRU_Remove(LRUHandle* e) {
   assert(e->next != nullptr);
   assert(e->prev != nullptr);
@@ -226,6 +289,10 @@ void LRUCacheShard::LRU_Remove(LRUHandle* e) {
     assert(high_pri_pool_usage_ >= total_charge);
     high_pri_pool_usage_ -= total_charge;
   }
+  if (e->IsLowPri()) {
+    assert(lru_usage_low_ >= total_charge);
+    lru_usage_low_ -= total_charge;
+  }
 }
 
 void LRUCacheShard::LRU_Insert(LRUHandle* e) {
@@ -233,6 +300,12 @@ void LRUCacheShard::LRU_Insert(LRUHandle* e) {
   assert(e->prev == nullptr);
   size_t total_charge = e->CalcTotalCharge(metadata_charge_policy_);
   if (high_pri_pool_ratio_ > 0 && (e->IsHighPri() || e->HasHit())) {
+    if (e->IsLowPri()) {
+      additional_stats_.total_inserted_to_high_lru_low_hit_ += e->charge;
+    } else {
+      additional_stats_.total_inserted_to_high_lru_high_ += e->charge;
+    }
+
     // Inset "e" to head of LRU list.
     e->next = &lru_;
     e->prev = lru_.prev;
@@ -250,8 +323,13 @@ void LRUCacheShard::LRU_Insert(LRUHandle* e) {
     e->next->prev = e;
     e->SetInHighPriPool(false);
     lru_low_pri_ = e;
+
+    additional_stats_.total_inserted_to_low_lru_ += e->charge;
   }
   lru_usage_ += total_charge;
+  if (e->IsLowPri()) {
+    lru_usage_low_ += total_charge;
+  }
 }
 
 void LRUCacheShard::MaintainPoolSize() {
@@ -264,6 +342,7 @@ void LRUCacheShard::MaintainPoolSize() {
         lru_low_pri_->CalcTotalCharge(metadata_charge_policy_);
     assert(high_pri_pool_usage_ >= total_charge);
     high_pri_pool_usage_ -= total_charge;
+    additional_stats_.total_moved_from_high_lru_to_low_lru_ += lru_low_pri_->charge;
   }
 }
 
@@ -275,10 +354,14 @@ void LRUCacheShard::EvictFromLRU(size_t charge,
     assert(old->InCache() && !old->HasRefs());
     LRU_Remove(old);
     table_.Remove(old->key(), old->hash);
-    old->SetInCache(false);
-    size_t old_total_charge = old->CalcTotalCharge(metadata_charge_policy_);
-    assert(usage_ >= old_total_charge);
-    usage_ -= old_total_charge;
+    // // old->SetInCache(false);
+    SetItemNotInCache(old);
+
+    // // size_t old_total_charge = old->CalcTotalCharge(metadata_charge_policy_);
+    // // assert(usage_ >= old_total_charge);
+    // // usage_ -= old_total_charge;
+    DecreaseUsage(old);
+
     deleted->push_back(old);
   }
 }
@@ -309,6 +392,38 @@ void LRUCacheShard::SetStrictCapacityLimit(bool strict_capacity_limit) {
   strict_capacity_limit_ = strict_capacity_limit;
 }
 
+void LRUCacheShard::UpdateAdditionalCountersAfterEvictionDuringInsertion( LRUHandle* e, 
+                                                                          const autovector<LRUHandle*>& eviction_list) {
+  auto total_curr_evicted_high_priority = 0U;
+  auto total_curr_evicted_low_priority = 0U;
+  for (const auto& evicted_handle: eviction_list) {
+    if (evicted_handle->IsHighPri()) {
+      total_curr_evicted_high_priority += evicted_handle->charge;
+    } else {
+      total_curr_evicted_low_priority += evicted_handle->charge;
+    }
+  }
+
+  auto& per_pri_counters = additional_stats_.per_pri_counters_;
+  per_pri_counters[AdditionalCacheStats::HighPriValue].total_evicted_ += total_curr_evicted_high_priority;
+  per_pri_counters[AdditionalCacheStats::LowPriValue].total_evicted_ += total_curr_evicted_low_priority;
+
+  // If the inserted item is low-priority, count the total charge of the high-priority items it has evicted and update the counter
+  auto& pri_counters = per_pri_counters[GetPriValue(e)];
+  pri_counters.total_inserted_ += e->charge;      
+  pri_counters.total_evicted_high_due_to_ += total_curr_evicted_high_priority;      
+}
+
+void LRUCacheShard::UpdateReleasedAndDeletedAdditionalCounters(LRUHandle* e, bool force_erase) {
+  auto& pri_counters = additional_stats_.per_pri_counters_[GetPriValue(e)];
+
+  if (force_erase) {
+    pri_counters.total_released_and_deleted_forced_ += e->charge;
+  } else {
+    pri_counters.total_released_and_deleted_cache_full_= e->charge;
+  }
+}
+
 Status LRUCacheShard::InsertItem(LRUHandle* e, Cache::Handle** handle,
                                  bool free_handle_on_fail) {
   Status s = Status::OK();
@@ -321,6 +436,7 @@ Status LRUCacheShard::InsertItem(LRUHandle* e, Cache::Handle** handle,
     // Free the space following strict LRU policy until enough space
     // is freed or the lru list is empty
     EvictFromLRU(total_charge, &last_reference_list);
+    UpdateAdditionalCountersAfterEvictionDuringInsertion(e, last_reference_list);
 
     if ((usage_ + total_charge) > capacity_ &&
         (strict_capacity_limit_ || handle == nullptr)) {
@@ -340,25 +456,48 @@ Status LRUCacheShard::InsertItem(LRUHandle* e, Cache::Handle** handle,
       // Insert into the cache. Note that the cache might get larger than its
       // capacity if not enough space was freed up.
       LRUHandle* old = table_.Insert(e);
-      usage_ += total_charge;
+      // usage_ += total_charge;
+      IncreaseUsage(e, total_charge);
+
+      auto& pri_counters = additional_stats_.per_pri_counters_[GetPriValue(e)];
+
       if (old != nullptr) {
         s = Status::OkOverwritten();
         assert(old->InCache());
         old->SetInCache(false);
+
         if (!old->HasRefs()) {
           // old is on LRU because it's in cache and its reference count is 0
           LRU_Remove(old);
-          size_t old_total_charge =
-              old->CalcTotalCharge(metadata_charge_policy_);
-          assert(usage_ >= old_total_charge);
-          usage_ -= old_total_charge;
+          // // size_t old_total_charge =
+          // //     old->CalcTotalCharge(metadata_charge_policy_);
+          // // assert(usage_ >= old_total_charge);
+          // // usage_ -= old_total_charge;
+          DecreaseUsage(old);
+          pri_counters.total_replaced_evicted_ += old->charge;
+
           last_reference_list.push_back(old);
+        } else {
+          pri_counters.total_replaced_pinned_ += old->charge;
         }
+      } else {
+          if (e->IsHighPri()) {
+            ++num_high_;
+            pri_counters.max_num_ = std::max<size_t>(pri_counters.max_num_, num_high_);
+          } else {
+            ++num_low_;
+            pri_counters.max_num_ = std::max<size_t>(pri_counters.max_num_, num_low_);
+          }
       }
+
+      // Update the max usage only after handling replaced items to reflect the net max use
+      additional_stats_.max_usage_ = std::max<size_t>(additional_stats_.max_usage_, usage_);
+
       if (handle == nullptr) {
         LRU_Insert(e);
       } else {
         e->Ref();
+        UpdateMaxPinnedUsage(e);
         *handle = reinterpret_cast<Cache::Handle*>(e);
       }
     }
@@ -429,6 +568,8 @@ Cache::Handle* LRUCacheShard::Lookup(
       if (!e->HasRefs()) {
         // The entry is in LRU since it's in hash and has no external references
         LRU_Remove(e);
+        // Entry becomes pinned once in cache and removed from the LRU
+        UpdateMaxPinnedUsage(e);
       }
       e->Ref();
       e->SetHit();
@@ -465,6 +606,7 @@ Cache::Handle* LRUCacheShard::Lookup(
       e->sec_handle = secondary_handle.release();
       e->Ref();
 
+      // TODO - Handle the 
       if (wait) {
         Promote(e);
         if (!e->value) {
@@ -515,7 +657,9 @@ bool LRUCacheShard::Release(Cache::Handle* handle, bool force_erase) {
         assert(lru_.next == &lru_ || force_erase);
         // Take this opportunity and remove the item
         table_.Remove(e->key(), e->hash);
-        e->SetInCache(false);
+        // // e->SetInCache(false);
+        SetItemNotInCache(e);
+        UpdateReleasedAndDeletedAdditionalCounters(e, force_erase);
       } else {
         // Put the item back on the LRU list, and don't free it
         LRU_Insert(e);
@@ -523,9 +667,10 @@ bool LRUCacheShard::Release(Cache::Handle* handle, bool force_erase) {
       }
     }
     if (last_reference) {
-      size_t total_charge = e->CalcTotalCharge(metadata_charge_policy_);
-      assert(usage_ >= total_charge);
-      usage_ -= total_charge;
+      // // size_t total_charge = e->CalcTotalCharge(metadata_charge_policy_);
+      // // assert(usage_ >= total_charge);
+      // // usage_ -= total_charge;
+      DecreaseUsage(e);
     }
   }
 
@@ -575,13 +720,19 @@ void LRUCacheShard::Erase(const Slice& key, uint32_t hash) {
     e = table_.Remove(key, hash);
     if (e != nullptr) {
       assert(e->InCache());
-      e->SetInCache(false);
+      // // e->SetInCache(false);
+      SetItemNotInCache(e);
+
+      additional_stats_.total_erased_ += e->charge;
+      
       if (!e->HasRefs()) {
         // The entry is in LRU since it's in hash and has no external references
         LRU_Remove(e);
-        size_t total_charge = e->CalcTotalCharge(metadata_charge_policy_);
-        assert(usage_ >= total_charge);
-        usage_ -= total_charge;
+        // // size_t total_charge = e->CalcTotalCharge(metadata_charge_policy_);
+        // // assert(usage_ >= total_charge);
+        // // usage_ -= total_charge;
+        DecreaseUsage(e);
+
         last_reference = true;
       }
     }
@@ -740,6 +891,16 @@ void LRUCache::WaitAll(std::vector<Handle*>& handles) {
       shard->Promote(lru_handle);
     }
   }
+}
+
+AdditionalCacheStats LRUCache::GetAdditionalStats() const {
+  AdditionalCacheStats stats;
+  
+  for (int i = 0; i < num_shards_; i++) {
+    stats += shards_[i].GetShardAdditionalStats();
+  }
+
+  return stats;
 }
 
 std::shared_ptr<Cache> NewLRUCache(

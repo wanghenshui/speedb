@@ -91,6 +91,9 @@ class CacheEntryStatsCollector {
     } else {
       saved_stats_.SkippedCollection();
     }
+
+    saved_stats_.SetAdditionalCacheStats(cache_->GetAdditionalStats());
+
     // Copy to caller
     *stats = saved_stats_;
   }

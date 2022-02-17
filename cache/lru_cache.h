@@ -110,6 +110,7 @@ struct LRUHandle {
 
   bool InCache() const { return flags & IN_CACHE; }
   bool IsHighPri() const { return flags & IS_HIGH_PRI; }
+  bool IsLowPri() const { return IsHighPri() == false; }
   bool InHighPriPool() const { return flags & IN_HIGH_PRI_POOL; }
   bool HasHit() const { return flags & HAS_HIT; }
   bool IsSecondaryCacheCompatible() const {
@@ -339,6 +340,8 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
   //  Retrieves high pri pool ratio
   double GetHighPriPoolRatio();
 
+  AdditionalCacheStats GetShardAdditionalStats() const override;
+  
  private:
   friend class LRUCache;
   // Insert an item into the hash table and, if handle is null, insert into
@@ -375,7 +378,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
 
   // Memory size for entries in high-pri pool.
   size_t high_pri_pool_usage_;
-
+  
   // Whether to reject insertion if cache reaches its full capacity.
   bool strict_capacity_limit_;
 
@@ -413,12 +416,33 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
   // Memory size for entries residing only in the LRU list
   size_t lru_usage_;
 
+  size_t usage_low_ = 0U;
+  size_t lru_usage_low_ = 0U;
+
+  size_t num_high_ = 0U;
+  size_t num_low_ = 0U;
+
   // mutex_ protects the following state.
   // We don't count mutex_ as the cache's internal state so semantically we
   // don't mind mutex_ invoking the non-const actions.
   mutable port::Mutex mutex_;
 
   std::shared_ptr<SecondaryCache> secondary_cache_;
+
+  // ===================================================================================================================================================
+  void DecreaseUsage(LRUHandle* e);
+  void IncreaseUsage(LRUHandle* e, size_t total_charge);
+  void UpdateMaxPinnedUsage(LRUHandle* e);
+  void SetItemNotInCache(LRUHandle* e);
+
+  void UpdateAdditionalCountersAfterEvictionDuringInsertion(LRUHandle* e, 
+                                                            const autovector<LRUHandle*>& eviction_list);
+
+  void UpdateReleasedAndDeletedAdditionalCounters(LRUHandle* e, bool force_erase);
+
+  uint64_t GetPriValue(const LRUHandle* e) {return static_cast<uint64_t>(e->IsHighPri()? Cache::Priority::HIGH : Cache::Priority::LOW);}
+  
+  AdditionalCacheStats additional_stats_;
 };
 
 class LRUCache
@@ -449,6 +473,8 @@ class LRUCache
   size_t TEST_GetLRUSize();
   //  Retrieves high pri pool ratio
   double GetHighPriPoolRatio();
+
+  AdditionalCacheStats GetAdditionalStats() const override;
 
  private:
   LRUCacheShard* shards_ = nullptr;

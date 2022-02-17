@@ -61,6 +61,8 @@ class CacheShard {
     metadata_charge_policy_ = metadata_charge_policy;
   }
 
+ virtual AdditionalCacheStats GetShardAdditionalStats() const {return AdditionalCacheStats();};
+
  protected:
   CacheMetadataChargePolicy metadata_charge_policy_ = kDontChargeCacheMetadata;
 };

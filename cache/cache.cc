@@ -60,4 +60,10 @@ Status Cache::CreateFromString(const ConfigOptions& config_options,
   }
   return status;
 }
+
+const std::array<std::string, AdditionalCacheStats::NumPriorities> AdditionalCacheStats::PriNames = {
+  "HIGH",
+  "LOW"
+};
+
 }  // namespace ROCKSDB_NAMESPACE
