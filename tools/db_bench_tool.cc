@@ -6031,6 +6031,7 @@ class Benchmark {
     int64_t read = 0;
     int64_t found = 0;
     int64_t bytes = 0;
+    int64_t key_rand = 0;
     ReadOptions options(FLAGS_verify_checksum, true);
     options.total_order_seek = FLAGS_total_order_seek;
     options.prefix_same_as_start = FLAGS_prefix_same_as_start;
@@ -6044,13 +6045,14 @@ class Benchmark {
       options.timestamp = &ts;
     }
 
-    Iterator* single_iter = nullptr;
-    std::vector<Iterator*> multi_iters;
-    if (db_.db != nullptr) {
-      single_iter = db_.db->NewIterator(options);
-    } else {
-      for (const auto& db_with_cfh : multi_dbs_) {
-        multi_iters.push_back(db_with_cfh.db->NewIterator(options));
+    std::vector<Iterator*> tailing_iters;
+    if (FLAGS_use_tailing_iterator) {
+      if (db_.db != nullptr) {
+        tailing_iters.push_back(db_.db->NewIterator(options));
+      } else {
+        for (const auto& db_with_cfh : multi_dbs_) {
+          tailing_iters.push_back(db_with_cfh.db->NewIterator(options));
+        }
       }
     }
 
@@ -6063,9 +6065,10 @@ class Benchmark {
     Slice lower_bound = AllocateKey(&lower_bound_key_guard);
 
     Duration duration(FLAGS_duration, reads_);
-    char value_buffer[256];
     while (!duration.Done(1)) {
-      int64_t seek_pos = thread->rand.Next() % FLAGS_num;
+      key_rand = GetRandomKey(&thread->rand);
+      DBWithColumnFamilies* db_with_cfh = SelectDBWithCfh(key_rand);
+      int64_t seek_pos = key_rand;
       GenerateKeyFromIntForSeek(static_cast<uint64_t>(seek_pos), FLAGS_num,
                                 &key);
       if (FLAGS_max_scan_distance != 0) {
@@ -6084,24 +6087,19 @@ class Benchmark {
         }
       }
 
-      if (!FLAGS_use_tailing_iterator) {
-        if (db_.db != nullptr) {
-          delete single_iter;
-          single_iter = db_.db->NewIterator(options);
-        } else {
-          for (auto iter : multi_iters) {
-            delete iter;
-          }
-          multi_iters.clear();
-          for (const auto& db_with_cfh : multi_dbs_) {
-            multi_iters.push_back(db_with_cfh.db->NewIterator(options));
-          }
-        }
-      }
       // Pick a Iterator to use
-      Iterator* iter_to_use = single_iter;
-      if (single_iter == nullptr) {
-        iter_to_use = multi_iters[thread->rand.Next() % multi_iters.size()];
+      size_t db_idx_to_use =
+          (db_.db == nullptr)
+              ? (static_cast<uint64_t>(key_rand) % multi_dbs_.size())
+              : 0;
+      std::unique_ptr<Iterator> single_iter;
+      Iterator* iter_to_use;
+      if (FLAGS_use_tailing_iterator) {
+        iter_to_use = tailing_iters[db_idx_to_use];
+      } else {
+        single_iter.reset(db_with_cfh->db->NewIterator(
+            options, db_with_cfh->GetCfh(key_rand)));
+        iter_to_use = single_iter.get();
       }
 
       iter_to_use->Seek(key);
@@ -6112,9 +6110,6 @@ class Benchmark {
 
       for (int j = 0; j < FLAGS_seek_nexts && iter_to_use->Valid(); ++j) {
         // Copy out iterator's value to make sure we read them.
-        Slice value = iter_to_use->value();
-        memcpy(value_buffer, value.data(),
-               std::min(value.size(), sizeof(value_buffer)));
         bytes += iter_to_use->key().size() + iter_to_use->value().size();
 
         if (!FLAGS_reverse_iterator) {
@@ -6133,8 +6128,8 @@ class Benchmark {
 
       thread->stats.FinishedOps(&db_, db_.db, 1, kSeek);
     }
-    delete single_iter;
-    for (auto iter : multi_iters) {
+
+    for (auto iter : tailing_iters) {
       delete iter;
     }
 
@@ -6635,19 +6630,21 @@ class Benchmark {
     int64_t seeks = 0;
     int64_t found = 0;
     int64_t bytes = 0;
+    int64_t key_rand = 0;
     ReadOptions options(FLAGS_verify_checksum, true);
     options.total_order_seek = FLAGS_total_order_seek;
     options.prefix_same_as_start = FLAGS_prefix_same_as_start;
     options.tailing = FLAGS_use_tailing_iterator;
     options.readahead_size = FLAGS_readahead_size;
 
-    std::unique_ptr<Iterator> single_iter;
-    std::vector<std::unique_ptr<Iterator>> multi_iters;
-    if (db_.db != nullptr) {
-      single_iter.reset(db_.db->NewIterator(options));
-    } else {
-      for (const auto& db_with_cfh : multi_dbs_) {
-        multi_iters.emplace_back(db_with_cfh.db->NewIterator(options));
+    std::vector<Iterator*> tailing_iters;
+    if (FLAGS_use_tailing_iterator) {
+      if (db_.db != nullptr) {
+        tailing_iters.push_back(db_.db->NewIterator(options));
+      } else {
+        for (const auto& db_with_cfh : multi_dbs_) {
+          tailing_iters.push_back(db_with_cfh.db->NewIterator(options));
+        }
       }
     }
 
@@ -6672,6 +6669,8 @@ class Benchmark {
     // the number of iterations is the larger of read_ or write_
     while (!duration.Done(1)) {
       int prob_op = thread->rand.Uniform(100);
+      key_rand = GetRandomKey(&thread->rand);
+      DBWithColumnFamilies* db_with_cfh = SelectDBWithCfh(key_rand);
 
       // Seek
       if (prob_op >= 0 && prob_op < static_cast<int>(FLAGS_readwritepercent)) {
@@ -6682,7 +6681,7 @@ class Benchmark {
           options.timestamp = &ts;
         }
 
-        int64_t seek_pos = thread->rand.Next() % FLAGS_num;
+        int64_t seek_pos = key_rand;
         GenerateKeyFromIntForSeek(static_cast<uint64_t>(seek_pos), FLAGS_num,
                                   &key);
         if (FLAGS_max_scan_distance != 0) {
@@ -6701,22 +6700,19 @@ class Benchmark {
           }
         }
 
-        if (!FLAGS_use_tailing_iterator) {
-          if (db_.db != nullptr) {
-            single_iter.reset(db_.db->NewIterator(options));
-          } else {
-            multi_iters.clear();
-            for (const auto& db_with_cfh : multi_dbs_) {
-              multi_iters.emplace_back(db_with_cfh.db->NewIterator(options));
-            }
-          }
-        }
-
-        // Pick an Iterator to use
-        Iterator* iter_to_use = single_iter.get();
-        if (iter_to_use == nullptr) {
-          iter_to_use =
-              multi_iters[thread->rand.Next() % multi_iters.size()].get();
+        // Pick a Iterator to use
+        size_t db_idx_to_use =
+            (db_.db == nullptr)
+                ? (static_cast<uint64_t>(key_rand) % multi_dbs_.size())
+                : 0;
+        std::unique_ptr<Iterator> single_iter;
+        Iterator* iter_to_use;
+        if (FLAGS_use_tailing_iterator) {
+          iter_to_use = tailing_iters[db_idx_to_use];
+        } else {
+          single_iter.reset(db_with_cfh->db->NewIterator(
+              options, db_with_cfh->GetCfh(key_rand)));
+          iter_to_use = single_iter.get();
         }
 
         iter_to_use->Seek(key);
@@ -6744,25 +6740,29 @@ class Benchmark {
               RateLimiter::OpType::kRead);
         }
 
-        thread->stats.FinishedOps(&db_, db_.db, 1, kSeek);
+        thread->stats.FinishedOps(db_with_cfh, db_with_cfh->db, 1, kSeek);
         // Write
       } else {
-        DB* db = SelectDB(thread);
-        GenerateKeyFromInt(thread->rand.Next() % FLAGS_num, FLAGS_num, &key);
+        GenerateKeyFromInt(key_rand, FLAGS_num, &key);
 
         Slice ts;
         if (user_timestamp_size_ > 0) {
           ts = mock_app_clock_->Allocate(ts_guard.get());
           write_options_.timestamp = &ts;
         }
-        Status s = db->Put(write_options_, key, gen.Generate());
+        Status s = db_with_cfh->db->Put(
+            write_options_, db_with_cfh->GetCfh(key_rand), key, gen.Generate());
         if (!s.ok()) {
           fprintf(stderr, "put error: %s\n", s.ToString().c_str());
           ErrorExit();
         }
         writes_done++;
-        thread->stats.FinishedOps(nullptr, db, 1, kWrite);
+        thread->stats.FinishedOps(db_with_cfh, db_with_cfh->db, 1, kWrite);
       }
+    }
+
+    for (auto iter : tailing_iters) {
+      delete iter;
     }
 
     char msg[100];
