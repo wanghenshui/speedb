@@ -4522,7 +4522,13 @@ class Benchmark {
       }
 #endif  // ROCKSDB_LITE
     } else {
-      s = DB::Open(options, db_name, &db->db);
+      std::vector<ColumnFamilyDescriptor> column_families;
+      column_families.push_back(ColumnFamilyDescriptor(
+          kDefaultColumnFamilyName, ColumnFamilyOptions(options)));
+      s = DB::Open(options, db_name, column_families, &db->cfh, &db->db);
+      db->cfh.resize(1);
+      db->num_created = 1;
+      db->num_hot = 1;
     }
     if (!s.ok()) {
       fprintf(stderr, "open error: %s\n", s.ToString().c_str());
@@ -6545,6 +6551,7 @@ class Benchmark {
     ReadOptions options(FLAGS_verify_checksum, true);
     RandomGenerator gen;
     std::string value;
+    int64_t key_rand = 0;
     int64_t found = 0;
     int get_weight = 0;
     int put_weight = 0;
@@ -6562,8 +6569,10 @@ class Benchmark {
 
     // the number of iterations is the larger of read_ or write_
     while (!duration.Done(1)) {
-      DB* db = SelectDB(thread);
-      GenerateKeyFromInt(thread->rand.Next() % FLAGS_num, FLAGS_num, &key);
+      key_rand = GetRandomKey(&thread->rand);
+      DBWithColumnFamilies* db_with_cfh = SelectDBWithCfh(key_rand);
+      DB* db = db_with_cfh->db;
+      GenerateKeyFromInt(key_rand, FLAGS_num, &key);
       if (get_weight == 0 && put_weight == 0) {
         // one batch completed, reinitialize for next batch
         get_weight = FLAGS_readwritepercent;
@@ -6577,7 +6586,7 @@ class Benchmark {
                                                     ts_guard.get());
           options.timestamp = &ts;
         }
-        Status s = db->Get(options, key, &value);
+        Status s = db->Get(options, db_with_cfh->GetCfh(key_rand), key, &value);
         if (!s.ok() && !s.IsNotFound()) {
           fprintf(stderr, "get error: %s\n", s.ToString().c_str());
           // we continue after error rather than exiting so that we can
@@ -6587,7 +6596,7 @@ class Benchmark {
         }
         get_weight--;
         reads_done++;
-        thread->stats.FinishedOps(nullptr, db, 1, kRead);
+        thread->stats.FinishedOps(db_with_cfh, db, 1, kRead);
       } else  if (put_weight > 0) {
         // then do all the corresponding number of puts
         // for all the gets we have done earlier
@@ -6596,14 +6605,15 @@ class Benchmark {
           ts = mock_app_clock_->Allocate(ts_guard.get());
           write_options_.timestamp = &ts;
         }
-        Status s = db->Put(write_options_, key, gen.Generate());
+        Status s = db->Put(write_options_, db_with_cfh->GetCfh(key_rand), key,
+                           gen.Generate());
         if (!s.ok()) {
           fprintf(stderr, "put error: %s\n", s.ToString().c_str());
           ErrorExit();
         }
         put_weight--;
         writes_done++;
-        thread->stats.FinishedOps(nullptr, db, 1, kWrite);
+        thread->stats.FinishedOps(db_with_cfh, db, 1, kWrite);
       }
     }
     char msg[100];
