@@ -1,11 +1,16 @@
+.base_packages: &base_packages
+  - apk add git python3
+
 default:
   image: alpine:3.14
+  before_script:
+    - *base_packages
 
 verify_merge:
   stage: .pre
   before_script:
-    - apk add git
-    - apk add python3 clang-extra-tools
+    - *base_packages
+    - apk add clang-extra-tools
   script:
     - export "PATH=$PATH:/usr/share/clang"
     - JIRA_ID=$($CI_PROJECT_DIR/tools/spdb_git_merge_check.sh "$CI_COMMIT_REF_NAME" "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME")
@@ -18,30 +23,36 @@ verify_merge:
   only:
     - merge_requests
 
-fuzzing:
-  stage: test
+verify_build:
+  stage: build
+  before_script:
+    - *base_packages
+    - apk add gcc g++ cmake ninja
+    - apk add openjdk10 gflags-dev snappy-dev lz4-dev bzip2-dev zstd-dev zlib-dev linux-headers
   script:
-    - echo "running fuzz"
-  variables:
-    GIT_STRATEGY: none
+    - |
+      if [ -d "$CI_PROJECT_DIR/build" ]; then
+        echo >&2 "error: the build directory should not exist" && false
+      fi
+    - mkdir -p "$CI_PROJECT_DIR/build"
+    - cd "$CI_PROJECT_DIR/build"
+    - >
+      cmake .. -GNinja -DWITH_GFLAGS=1
+      -DWITH_ZLIB=1 -DWITH_SNAPPY=1 -DWITH_BZ2=1 -DWITH_LZ4=1 -DWITH_ZSTD=1
+      -DWITH_JNI=1 -DJAVA_HOME=/usr/lib/jvm/default-jvm
+      -DWITH_BENCHMARK_TOOLS=1 -DWITH_CORE_TOOLS=1 -DWITH_TOOLS=1
+      -DWITH_TESTS=1 -DWITH_ALL_TESTS=1 -DWITH_EXAMPLES=1
+    - ninja
   only:
     - merge_requests
-  dependencies:
-    - verify_merge
 
 bump_version:
   stage: deploy
   variables:
     VERSION_HEADER: $CI_PROJECT_DIR/speedb/version.h
-  before_script:
-    - apk add git
-    - apk add python3
   script:
     - >
       $CI_PROJECT_DIR/tools/bump_version.py --version "$VERSION_HEADER"
       --target "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME"
   only:
     - merge_requests
-  dependencies:
-    - verify_merge
-    - fuzzing
