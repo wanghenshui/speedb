@@ -59,9 +59,25 @@ bump_version:
   stage: deploy
   variables:
     VERSION_HEADER: $CI_PROJECT_DIR/speedb/version.h
+  before_script:
+    - *base_packages
+    - apk add openssh-client
   script:
+    - cd "$CI_PROJECT_DIR"
+    - HEAD_HASH="$(git rev-parse HEAD)"
     - >
       $CI_PROJECT_DIR/tools/bump_version.py --version "$VERSION_HEADER"
-      --target "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME"
+      --target "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME" --commit
+    - |
+      if [ "$HEAD_HASH" = "$(git rev-parse HEAD)" ]; then
+        exit  # Do nothing if no changes were made
+      fi
+    - mkdir -p ~/.ssh
+    - ssh-keyscan -H gitlab.com > ~/.ssh/known_hosts
+    - eval $(ssh-agent -s)
+    - echo "$SSH_PRIVATE_DEP_KEY" | tr -d '\r' | ssh-add - > /dev/null
+    - PUSH_URL="$(echo "$CI_REPOSITORY_URL" | sed 's/^.*@\([^\/]\+\)\//git@\1:/')"
+    - git push --force "$PUSH_URL" "HEAD:$CI_MERGE_REQUEST_SOURCE_BRANCH_NAME"
+    - kill $SSH_AGENT_PID
   only:
     - merge_requests
