@@ -33,11 +33,12 @@ class DBBloomFilterTest : public DBTestBase {
 
 class DBBloomFilterTestWithParam : public DBTestBase,
                                    public testing::WithParamInterface<
-                                       std::tuple<BFP::Mode, bool, uint32_t>> {
+                                       std::tuple<BFP::Mode, DBTestBase::TwoLevelIndexTypeConfig, uint32_t>> {
   //                             public testing::WithParamInterface<bool> {
  protected:
   BFP::Mode bfp_impl_;
   bool partition_filters_;
+  bool spdb_index_;
   uint32_t format_version_;
 
  public:
@@ -48,7 +49,9 @@ class DBBloomFilterTestWithParam : public DBTestBase,
 
   void SetUp() override {
     bfp_impl_ = std::get<0>(GetParam());
-    partition_filters_ = std::get<1>(GetParam());
+    auto partitioned_index_type = std::get<1>(GetParam());
+    partition_filters_ = (partitioned_index_type == DBTestBase::TwoLevelIndexTypeConfig::RocksdbPartitionedIndexAndFilters);
+    spdb_index_ = (partitioned_index_type == DBTestBase::TwoLevelIndexTypeConfig::SpdbIndex);
     format_version_ = std::get<2>(GetParam());
   }
 };
@@ -87,6 +90,10 @@ TEST_P(DBBloomFilterTestDefFormatVersion, KeyMayExist) {
     options_override.partition_filters = partition_filters_;
     options_override.metadata_block_size = 32;
     Options options = CurrentOptions(options_override);
+    if (spdb_index_) {
+      continue;
+    }
+    
     if (partition_filters_) {
       auto* table_options =
           options.table_factory->GetOptions<BlockBasedTableOptions>();
@@ -451,6 +458,9 @@ TEST_P(DBBloomFilterTestWithParam, BloomFilter) {
     if (partition_filters_) {
       table_options.index_type =
           BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+    } else if (spdb_index_) {
+      table_options.index_type =
+          BlockBasedTableOptions::IndexType::kSpdbTwoLevelIndexSearch;
     }
     table_options.format_version = format_version_;
     if (format_version_ >= 4) {
@@ -531,26 +541,29 @@ TEST_P(DBBloomFilterTestWithParam, BloomFilter) {
 INSTANTIATE_TEST_CASE_P(
     FormatDef, DBBloomFilterTestDefFormatVersion,
     ::testing::Values(
-        std::make_tuple(BFP::kDeprecatedBlock, false,
+        std::make_tuple(BFP::kDeprecatedBlock, DBTestBase::TwoLevelIndexTypeConfig::None,
                         test::kDefaultFormatVersion),
-        std::make_tuple(BFP::kAutoBloom, true, test::kDefaultFormatVersion),
-        std::make_tuple(BFP::kAutoBloom, false, test::kDefaultFormatVersion)));
+        std::make_tuple(BFP::kAutoBloom, DBTestBase::TwoLevelIndexTypeConfig::RocksdbPartitionedIndexAndFilters, test::kDefaultFormatVersion),
+        std::make_tuple(BFP::kAutoBloom, DBTestBase::TwoLevelIndexTypeConfig::SpdbIndex, test::kDefaultFormatVersion),
+        std::make_tuple(BFP::kAutoBloom, DBTestBase::TwoLevelIndexTypeConfig::None, test::kDefaultFormatVersion)));
 
 INSTANTIATE_TEST_CASE_P(
     FormatDef, DBBloomFilterTestWithParam,
     ::testing::Values(
-        std::make_tuple(BFP::kDeprecatedBlock, false,
+        std::make_tuple(BFP::kDeprecatedBlock, DBTestBase::TwoLevelIndexTypeConfig::None,
                         test::kDefaultFormatVersion),
-        std::make_tuple(BFP::kAutoBloom, true, test::kDefaultFormatVersion),
-        std::make_tuple(BFP::kAutoBloom, false, test::kDefaultFormatVersion)));
+        std::make_tuple(BFP::kAutoBloom, DBTestBase::TwoLevelIndexTypeConfig::RocksdbPartitionedIndexAndFilters, test::kDefaultFormatVersion),
+        std::make_tuple(BFP::kAutoBloom, DBTestBase::TwoLevelIndexTypeConfig::SpdbIndex, test::kDefaultFormatVersion),
+        std::make_tuple(BFP::kAutoBloom, DBTestBase::TwoLevelIndexTypeConfig::None, test::kDefaultFormatVersion)));
 
 INSTANTIATE_TEST_CASE_P(
     FormatLatest, DBBloomFilterTestWithParam,
     ::testing::Values(
-        std::make_tuple(BFP::kDeprecatedBlock, false,
+        std::make_tuple(BFP::kDeprecatedBlock, DBTestBase::TwoLevelIndexTypeConfig::None,
                         test::kLatestFormatVersion),
-        std::make_tuple(BFP::kAutoBloom, true, test::kLatestFormatVersion),
-        std::make_tuple(BFP::kAutoBloom, false, test::kLatestFormatVersion)));
+        std::make_tuple(BFP::kAutoBloom, DBTestBase::TwoLevelIndexTypeConfig::RocksdbPartitionedIndexAndFilters, test::kLatestFormatVersion),
+        std::make_tuple(BFP::kAutoBloom, DBTestBase::TwoLevelIndexTypeConfig::SpdbIndex, test::kLatestFormatVersion),
+        std::make_tuple(BFP::kAutoBloom, DBTestBase::TwoLevelIndexTypeConfig::None, test::kLatestFormatVersion)));
 #endif  // ROCKSDB_VALGRIND_RUN
 
 TEST_F(DBBloomFilterTest, BloomFilterRate) {
@@ -1305,11 +1318,13 @@ static constexpr PseudoMode kPlainTable = -1;
 
 class BloomStatsTestWithParam
     : public DBBloomFilterTest,
-      public testing::WithParamInterface<std::tuple<BFP2::PseudoMode, bool>> {
+      public testing::WithParamInterface<std::tuple<BFP2::PseudoMode, DBTestBase::TwoLevelIndexTypeConfig>> {
  public:
   BloomStatsTestWithParam() {
     bfp_impl_ = std::get<0>(GetParam());
-    partition_filters_ = std::get<1>(GetParam());
+    auto partitioned_index_type = std::get<1>(GetParam());
+    partition_filters_ = (partitioned_index_type == DBTestBase::TwoLevelIndexTypeConfig::RocksdbPartitionedIndexAndFilters);
+    spdb_index_ = (partitioned_index_type == DBTestBase::TwoLevelIndexTypeConfig::SpdbIndex);
 
     options_.create_if_missing = true;
     options_.prefix_extractor.reset(
@@ -1328,6 +1343,11 @@ class BloomStatsTestWithParam
         table_options.partition_filters = partition_filters_;
         table_options.index_type =
             BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+      } else if (spdb_index_) {
+        assert(bfp_impl_ != BFP::kDeprecatedBlock);
+        table_options.partition_filters = false;
+        table_options.index_type =
+            BlockBasedTableOptions::IndexType::kSpdbTwoLevelIndexSearch;
       }
       table_options.filter_policy.reset(
           new BFP(10, static_cast<BFP::Mode>(bfp_impl_)));
@@ -1350,6 +1370,7 @@ class BloomStatsTestWithParam
 
   BFP2::PseudoMode bfp_impl_;
   bool partition_filters_;
+  bool spdb_index_;
   Options options_;
 };
 
@@ -1464,12 +1485,14 @@ TEST_P(BloomStatsTestWithParam, BloomStatsTestWithIter) {
 
 INSTANTIATE_TEST_CASE_P(
     BloomStatsTestWithParam, BloomStatsTestWithParam,
-    ::testing::Values(std::make_tuple(BFP::kDeprecatedBlock, false),
-                      std::make_tuple(BFP::kLegacyBloom, false),
-                      std::make_tuple(BFP::kLegacyBloom, true),
-                      std::make_tuple(BFP::kFastLocalBloom, false),
-                      std::make_tuple(BFP::kFastLocalBloom, true),
-                      std::make_tuple(BFP2::kPlainTable, false)));
+    ::testing::Values(std::make_tuple(BFP::kDeprecatedBlock, DBTestBase::TwoLevelIndexTypeConfig::None),
+                      std::make_tuple(BFP::kLegacyBloom, DBTestBase::TwoLevelIndexTypeConfig::None),
+                      std::make_tuple(BFP::kLegacyBloom, DBTestBase::TwoLevelIndexTypeConfig::RocksdbPartitionedIndexAndFilters),
+                      std::make_tuple(BFP::kLegacyBloom, DBTestBase::TwoLevelIndexTypeConfig::SpdbIndex),
+                      std::make_tuple(BFP::kFastLocalBloom, DBTestBase::TwoLevelIndexTypeConfig::None),
+                      std::make_tuple(BFP::kFastLocalBloom, DBTestBase::TwoLevelIndexTypeConfig::RocksdbPartitionedIndexAndFilters),
+                      std::make_tuple(BFP::kFastLocalBloom, DBTestBase::TwoLevelIndexTypeConfig::SpdbIndex),
+                      std::make_tuple(BFP2::kPlainTable, DBTestBase::TwoLevelIndexTypeConfig::None)));
 
 namespace {
 void PrefixScanInit(DBBloomFilterTest* dbtest) {

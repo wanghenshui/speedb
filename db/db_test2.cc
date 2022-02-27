@@ -156,7 +156,11 @@ class PartitionedIndexTestListener : public EventListener {
   }
 };
 
-TEST_F(DBTest2, PartitionedIndexUserToInternalKey) {
+class DBTest2WithIndexType : public DBTest2,
+                             public ::testing::WithParamInterface<BlockBasedTableOptions::IndexType> {
+};
+
+TEST_P(DBTest2WithIndexType, PartitionedIndexUserToInternalKey) {
   const int kValueSize = 10500;
   const int kNumEntriesPerFile = 1000;
   const int kNumFiles = 3;
@@ -165,7 +169,7 @@ TEST_F(DBTest2, PartitionedIndexUserToInternalKey) {
   BlockBasedTableOptions table_options;
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
-  table_options.index_type = BlockBasedTableOptions::kTwoLevelIndexSearch;
+  table_options.index_type = GetParam();
   PartitionedIndexTestListener* listener = new PartitionedIndexTestListener();
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   options.listeners.emplace_back(listener);
@@ -187,6 +191,10 @@ TEST_F(DBTest2, PartitionedIndexUserToInternalKey) {
     db_->ReleaseSnapshot(s);
   }
 }
+
+INSTANTIATE_TEST_CASE_P(DBTest2WithIndexType, DBTest2WithIndexType,
+                        ::testing::Values(BlockBasedTableOptions::kTwoLevelIndexSearch,
+                                          BlockBasedTableOptions::kSpdbTwoLevelIndexSearch));
 
 #endif  // ROCKSDB_LITE
 
@@ -5445,12 +5453,12 @@ TEST_F(DBTest2, BlockBasedTablePrefixIndexSeekForPrev) {
   }
 }
 
-TEST_F(DBTest2, PartitionedIndexPrefetchFailure) {
+TEST_P(DBTest2WithIndexType, PartitionedIndexPrefetchFailure) {
   Options options = last_options_;
   options.env = env_;
   options.max_open_files = 20;
   BlockBasedTableOptions bbto;
-  bbto.index_type = BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+  bbto.index_type = GetParam();
   bbto.metadata_block_size = 128;
   bbto.block_size = 128;
   bbto.block_cache = NewLRUCache(16777216);

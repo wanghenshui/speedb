@@ -22,6 +22,9 @@
 #include "table/format.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+class SpdbSegmentIndexBuilder;
+
 // The interface for building index.
 // Instruction for adding a new concrete IndexBuilder:
 //  1. Create a subclass instantiated from IndexBuilder.
@@ -213,6 +216,7 @@ class ShortenedIndexBuilder : public IndexBuilder {
   }
 
   friend class PartitionedIndexBuilder;
+  friend class SpdbSegmentIndexBuilder;
 
  private:
   BlockBuilder index_block_builder_;

@@ -18,6 +18,7 @@
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/random.h"
+#include "table/block_based/spdb_index/spdb_segments_Index_iterator.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -30,9 +31,8 @@ class BlockBasedTableReaderTest
   bool use_direct_reads_;
 
   void SetUp() override {
-    BlockBasedTableOptions::IndexType index_type;
     bool no_block_cache;
-    std::tie(compression_type_, use_direct_reads_, index_type, no_block_cache) =
+    std::tie(compression_type_, use_direct_reads_, index_type_, no_block_cache) =
         GetParam();
 
     SetupSyncPointsToMockDirectIO();
@@ -42,7 +42,7 @@ class BlockBasedTableReaderTest
     ASSERT_OK(fs_->CreateDir(test_dir_, IOOptions(), nullptr));
 
     BlockBasedTableOptions opts;
-    opts.index_type = index_type;
+    opts.index_type = index_type_;
     opts.no_block_cache = no_block_cache;
     // spdb doesnt create a Block cache by default whereas rocksdb does. this
     // change simply adds a block cache in case we do want a block cache
@@ -115,6 +115,9 @@ class BlockBasedTableReaderTest
   std::string Path(const std::string& fname) { return test_dir_ + "/" + fname; }
 
   const std::shared_ptr<FileSystem>& fs() const { return fs_; }
+
+ protected:
+  BlockBasedTableOptions::IndexType index_type_;
 
  private:
   std::string test_dir_;
@@ -303,9 +306,20 @@ TEST_P(BlockBasedTableReaderTestVerifyChecksum, ChecksumMismatch) {
   }
   ASSERT_OK(iiter->status());
   iiter->SeekToFirst();
-  BlockHandle handle = static_cast<PartitionedIndexIterator*>(iiter)
-                           ->index_iter_->value()
-                           .handle;
+
+  BlockHandle handle;  
+  if (index_type_ == BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch) {
+    handle = static_cast<PartitionedIndexIterator*>(iiter)
+                          ->index_iter_->value()
+                          .handle;
+  } else {
+    ASSERT_EQ(index_type_, BlockBasedTableOptions::IndexType::kSpdbTwoLevelIndexSearch);
+
+    handle = static_cast<SpdbSegmentsIndexIterator*>(iiter)
+                          ->index_iter_->value()
+                          .handle;
+  }
+
   table.reset();
 
   // Corrupt the block pointed to by handle
@@ -345,7 +359,8 @@ INSTANTIATE_TEST_CASE_P(
         ::testing::ValuesIn(GetSupportedCompressions()),
         ::testing::Values(false),
         ::testing::Values(
-            BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch),
+            BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch,
+            BlockBasedTableOptions::IndexType::kSpdbTwoLevelIndexSearch),
         ::testing::Values(true)));
 
 }  // namespace ROCKSDB_NAMESPACE

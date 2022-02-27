@@ -36,7 +36,12 @@ public enum IndexType {
    * Makes the index significantly bigger (2x or more), especially when keys
    * are long.
    */
-  kBinarySearchWithFirstKey((byte) 3);
+  kBinarySearchWithFirstKey((byte) 3),
+  /**
+   * SPDB's two-level index implementation.
+   * TODO: Add Documentation
+   */
+  kSpdbTwoLevelIndexSearch((byte) 4);
 
   /**
    * Returns the byte value of the enumerations value

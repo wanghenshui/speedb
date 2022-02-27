@@ -10,14 +10,15 @@
 #include "table/block_based/index_builder.h"
 
 #include <assert.h>
-#include <cinttypes>
 
+#include <cinttypes>
 #include <list>
 #include <string>
 
 #include "rocksdb/comparator.h"
 #include "rocksdb/flush_block_policy.h"
 #include "table/block_based/partitioned_filter_block.h"
+#include "table/block_based/spdb_index/spdb_two_level_index_builder.h"
 #include "table/format.h"
 
 // Without anonymous namespace here, we fail the warning -Wmissing-prototypes
@@ -59,6 +60,11 @@ IndexBuilder* IndexBuilder::CreateIndexBuilder(
           comparator, table_opt.index_block_restart_interval,
           table_opt.format_version, use_value_delta_encoding,
           table_opt.index_shortening, /* include_first_key */ true);
+      break;
+    }
+    case BlockBasedTableOptions::kSpdbTwoLevelIndexSearch: {
+      result = SpdbTwoLevelndexBuilder::CreateIndexBuilder(
+          comparator, use_value_delta_encoding, table_opt);
       break;
     }
     default: {

@@ -1891,6 +1891,13 @@ TEST_F(DBBasicTest, MultiGetBatchedValueSizeMultiLevelMerge) {
   }
 }
 
+// TODO - Modify this test to run with kSpdbIndex and partitioned filter as we progress with the development of the index if applicable
+// At the moment, this test will fail to run using non partitioned filters. The reason is:
+// - No block cache
+// - cache_index_and_filter_blocks = false
+// => When running with full filter (non-partitioned), the filter is pinned in RAM and no access to the file
+// is needed for the filter =>
+// The ASSERT_GT(hist_index_and_filter_blocks.max, 0); FAILS
 TEST_F(DBBasicTest, MultiGetStats) {
   Options options;
   options.create_if_missing = true;
@@ -1899,9 +1906,9 @@ TEST_F(DBBasicTest, MultiGetStats) {
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   BlockBasedTableOptions table_options;
   table_options.block_size = 1;
-  table_options.index_type =
-      BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
-  table_options.partition_filters = true;
+    table_options.index_type =
+        BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+    table_options.partition_filters = true;
   table_options.no_block_cache = true;
   table_options.cache_index_and_filter_blocks = false;
   table_options.filter_policy.reset(NewBloomFilterPolicy(10, false));
@@ -1985,7 +1992,7 @@ TEST_F(DBBasicTest, MultiGetStats) {
 // Param bool - If true, use partitioned filters
 //              If false, use full filter block
 class MultiGetPrefixExtractorTest : public DBBasicTest,
-                                    public ::testing::WithParamInterface<bool> {
+                                    public ::testing::WithParamInterface<DBTestBase::TwoLevelIndexTypeConfig> {
 };
 
 TEST_P(MultiGetPrefixExtractorTest, Batched) {
@@ -1993,10 +2000,26 @@ TEST_P(MultiGetPrefixExtractorTest, Batched) {
   options.prefix_extractor.reset(NewFixedPrefixTransform(2));
   options.memtable_prefix_bloom_size_ratio = 10;
   BlockBasedTableOptions bbto;
-  if (GetParam()) {
-    bbto.index_type = BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
-    bbto.partition_filters = true;
+
+  auto two_level_index_type_config = GetParam();
+  
+  switch (two_level_index_type_config) {
+    case TwoLevelIndexTypeConfig::None:
+      break;
+    
+    case TwoLevelIndexTypeConfig::RocksdbPartitionedIndexAndFilters:
+      bbto.index_type = BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+      bbto.partition_filters = true;
+      break;
+  
+    case TwoLevelIndexTypeConfig::SpdbIndex:
+      bbto.index_type = BlockBasedTableOptions::IndexType::kSpdbTwoLevelIndexSearch;
+    break;
+
+    default:
+      FAIL();
   }
+
   bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
   bbto.whole_key_filtering = false;
   bbto.cache_index_and_filter_blocks = false;
@@ -2039,7 +2062,9 @@ TEST_P(MultiGetPrefixExtractorTest, Batched) {
 }
 
 INSTANTIATE_TEST_CASE_P(MultiGetPrefix, MultiGetPrefixExtractorTest,
-                        ::testing::Bool());
+                        ::testing::Values(DBTestBase::TwoLevelIndexTypeConfig::None, 
+                                          DBTestBase::TwoLevelIndexTypeConfig::RocksdbPartitionedIndexAndFilters,
+                                          DBTestBase::TwoLevelIndexTypeConfig::SpdbIndex));
 
 #ifndef ROCKSDB_LITE
 class DBMultiGetRowCacheTest : public DBBasicTest,

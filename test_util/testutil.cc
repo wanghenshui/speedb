@@ -266,27 +266,31 @@ const SliceTransform* RandomSliceTransform(Random* rnd, int pre_defined) {
   }
 }
 
-BlockBasedTableOptions RandomBlockBasedTableOptions(Random* rnd) {
-  BlockBasedTableOptions opt;
-  opt.cache_index_and_filter_blocks = rnd->Uniform(2);
-  opt.pin_l0_filter_and_index_blocks_in_cache = rnd->Uniform(2);
-  opt.pin_top_level_index_and_filter = rnd->Uniform(2);
-  using IndexType = BlockBasedTableOptions::IndexType;
-  const std::array<IndexType, 4> index_types = {
-      {IndexType::kBinarySearch, IndexType::kHashSearch,
-       IndexType::kTwoLevelIndexSearch, IndexType::kBinarySearchWithFirstKey}};
-  opt.index_type =
-      index_types[rnd->Uniform(static_cast<int>(index_types.size()))];
-  opt.hash_index_allow_collision = rnd->Uniform(2);
-  opt.checksum = static_cast<ChecksumType>(rnd->Uniform(3));
-  opt.block_size = rnd->Uniform(10000000);
-  opt.block_size_deviation = rnd->Uniform(100);
-  opt.block_restart_interval = rnd->Uniform(100);
-  opt.index_block_restart_interval = rnd->Uniform(100);
-  opt.whole_key_filtering = rnd->Uniform(2);
+// This function is not in use anywhere in the code.
+// I have commented it since, if in actual use, would require us
+// to add support for Speedb's index type
 
-  return opt;
-}
+// // BlockBasedTableOptions RandomBlockBasedTableOptions(Random* rnd) {
+// //   BlockBasedTableOptions opt;
+// //   opt.cache_index_and_filter_blocks = rnd->Uniform(2);
+// //   opt.pin_l0_filter_and_index_blocks_in_cache = rnd->Uniform(2);
+// //   opt.pin_top_level_index_and_filter = rnd->Uniform(2);
+// //   using IndexType = BlockBasedTableOptions::IndexType;
+// //   const std::array<IndexType, 4> index_types = {
+// //       {IndexType::kBinarySearch, IndexType::kHashSearch,
+// //        IndexType::kTwoLevelIndexSearch, IndexType::kBinarySearchWithFirstKey}};
+// //   opt.index_type =
+// //       index_types[rnd->Uniform(static_cast<int>(index_types.size()))];
+// //   opt.hash_index_allow_collision = rnd->Uniform(2);
+// //   opt.checksum = static_cast<ChecksumType>(rnd->Uniform(3));
+// //   opt.block_size = rnd->Uniform(10000000);
+// //   opt.block_size_deviation = rnd->Uniform(100);
+// //   opt.block_restart_interval = rnd->Uniform(100);
+// //   opt.index_block_restart_interval = rnd->Uniform(100);
+// //   opt.whole_key_filtering = rnd->Uniform(2);
+
+// //   return opt;
+// // }
 
 TableFactory* RandomTableFactory(Random* rnd, int pre_defined) {
 #ifndef ROCKSDB_LITE

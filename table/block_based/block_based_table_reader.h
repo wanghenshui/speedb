@@ -39,6 +39,7 @@ struct BlockBasedTableOptions;
 struct EnvOptions;
 struct ReadOptions;
 class GetContext;
+class SpdbTwoLevelndexReader;
 
 typedef std::vector<std::pair<std::string, std::string>> KVPairBlock;
 
@@ -253,6 +254,8 @@ class BlockBasedTable : public TableReader {
   friend class PartitionIndexReader;
 
   friend class UncompressionDictReader;
+
+  friend class SpdbTwoLevelndexReader;
 
  protected:
   Rep* rep_;

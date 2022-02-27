@@ -540,6 +540,7 @@ ColumnFamilyOptions* ColumnFamilyOptions::OptimizeForSmallDb(
   table_options.block_cache =
       (cache != nullptr) ? *cache : std::shared_ptr<Cache>();
   table_options.cache_index_and_filter_blocks = true;
+  // TODO - Do we want to switch to spdb index in this case?
   // Two level iterator to avoid LRU cache imbalance
   table_options.index_type =
       BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;

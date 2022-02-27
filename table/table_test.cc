@@ -1764,7 +1764,8 @@ TEST_P(BlockBasedTableTest, PrefetchTest) {
 
 TEST_P(BlockBasedTableTest, TotalOrderSeekOnHashIndex) {
   BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
-  for (int i = 0; i <= 5; ++i) {
+  // There are 3 cases below for kHashSearch => add 2 to the number of index types
+  for (int i = 0; i <= static_cast<int>(BlockBasedTableOptions::kSpdbTwoLevelIndexSearch) + 2; ++i) {
     Options options;
     // Make each key/value an individual block
     table_options.block_size = 64;
@@ -1803,6 +1804,11 @@ TEST_P(BlockBasedTableTest, TotalOrderSeekOnHashIndex) {
       // Binary search with first key
       table_options.index_type =
           BlockBasedTableOptions::kBinarySearchWithFirstKey;
+      options.table_factory.reset(new BlockBasedTableFactory(table_options));
+      break;
+    case 6:
+      // Two-level index
+      table_options.index_type = BlockBasedTableOptions::kSpdbTwoLevelIndexSearch;
       options.table_factory.reset(new BlockBasedTableFactory(table_options));
       break;
     }
@@ -2171,6 +2177,18 @@ TEST_P(BlockBasedTableTest, PartitionIndexTest) {
   for (int i = 1; i <= est_max_index_size + 1; i++) {
     BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
     table_options.index_type = BlockBasedTableOptions::kTwoLevelIndexSearch;
+    table_options.metadata_block_size = i;
+    IndexTest(table_options);
+  }
+}
+
+TEST_P(BlockBasedTableTest, SpdbIndexTest) {
+  const int max_index_keys = 5;
+  const int est_max_index_key_value_size = 32;
+  const int est_max_index_size = max_index_keys * est_max_index_key_value_size;
+  for (int i = 1; i <= est_max_index_size + 1; i++) {
+    BlockBasedTableOptions table_options = GetBlockBasedTableOptions();
+    table_options.index_type = BlockBasedTableOptions::kSpdbTwoLevelIndexSearch;
     table_options.metadata_block_size = i;
     IndexTest(table_options);
   }

@@ -962,10 +962,13 @@ static void ClearCache(Cache* cache) {
   }
 }
 
-TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
+class CacheEntryRoleStatsTest : public DBBlockCacheTest,
+                                public ::testing::WithParamInterface<DBTestBase::TwoLevelIndexTypeConfig> {
+};
+
+TEST_P(CacheEntryRoleStatsTest, CacheEntryRoleStats) {
   const size_t capacity = size_t{1} << 25;
   int iterations_tested = 0;
-  for (bool partition : {false, true}) {
     for (std::shared_ptr<Cache> cache :
          {NewLRUCache(capacity), NewClockCache(capacity)}) {
       if (!cache) {
@@ -987,10 +990,28 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
       table_options.block_cache = cache;
       table_options.cache_index_and_filter_blocks = true;
       table_options.filter_policy.reset(NewBloomFilterPolicy(50));
-      if (partition) {
-        table_options.index_type = BlockBasedTableOptions::kTwoLevelIndexSearch;
-        table_options.partition_filters = true;
+
+      auto two_level_index_type_config = GetParam();
+      auto partitioned_index = false;
+      switch (two_level_index_type_config) {
+        case TwoLevelIndexTypeConfig::None:
+          break;
+        
+        case TwoLevelIndexTypeConfig::RocksdbPartitionedIndex:
+          table_options.index_type = BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+          table_options.partition_filters = true;
+          partitioned_index = true;
+          break;
+      
+        case TwoLevelIndexTypeConfig::SpdbIndex:
+          table_options.index_type = BlockBasedTableOptions::IndexType::kSpdbTwoLevelIndexSearch;
+          partitioned_index = true;
+        break;
+
+        default:
+          FAIL();
       }
+
       table_options.metadata_cache_options.top_level_index_pinning =
           PinningTier::kNone;
       table_options.metadata_cache_options.partition_pinning =
@@ -1024,7 +1045,7 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
       // First access only filters
       ASSERT_EQ("NOT_FOUND", Get("different from any key added"));
       expected[static_cast<size_t>(CacheEntryRole::kFilterBlock)] += 2;
-      if (partition) {
+      if (table_options.partition_filters) {
         expected[static_cast<size_t>(CacheEntryRole::kFilterMetaBlock)] += 2;
       }
       // Within some time window, we will get cached entry stats
@@ -1039,7 +1060,7 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
       // Now access index and data block
       ASSERT_EQ("value", Get("foo"));
       expected[static_cast<size_t>(CacheEntryRole::kIndexBlock)]++;
-      if (partition) {
+      if (partitioned_index) {
         // top-level
         expected[static_cast<size_t>(CacheEntryRole::kIndexBlock)]++;
       }
@@ -1064,7 +1085,7 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
       // The same for other file
       ASSERT_EQ("value", Get("zfoo"));
       expected[static_cast<size_t>(CacheEntryRole::kIndexBlock)]++;
-      if (partition) {
+      if (partitioned_index) {
         // top-level
         expected[static_cast<size_t>(CacheEntryRole::kIndexBlock)]++;
       }
@@ -1142,27 +1163,35 @@ TEST_F(DBBlockCacheTest, CacheEntryRoleStats) {
       cache->Release(h);
     }
     EXPECT_GE(iterations_tested, 1);
-  }
 }
+
+INSTANTIATE_TEST_CASE_P(CacheEntryRoleStats, CacheEntryRoleStatsTest,
+                        ::testing::Values(DBTestBase::TwoLevelIndexTypeConfig::None, 
+                                          DBTestBase::TwoLevelIndexTypeConfig::RocksdbPartitionedIndex,
+                                          DBTestBase::TwoLevelIndexTypeConfig::SpdbIndex));
 
 #endif  // ROCKSDB_LITE
 
 class DBBlockCachePinningTest
     : public DBTestBase,
       public testing::WithParamInterface<
-          std::tuple<bool, PinningTier, PinningTier, PinningTier>> {
+          std::tuple<DBTestBase::TwoLevelIndexTypeConfig, PinningTier, PinningTier, PinningTier>> {
  public:
   DBBlockCachePinningTest()
       : DBTestBase("/db_block_cache_test", /*env_do_fsync=*/false) {}
 
   void SetUp() override {
-    partition_index_and_filters_ = std::get<0>(GetParam());
+    auto two_level_index_type_config = std::get<0>(GetParam());
+ 
+    partition_index_and_filters_ = (two_level_index_type_config == DBTestBase::TwoLevelIndexTypeConfig::RocksdbPartitionedIndexAndFilters);
+    spdb_index_ = (two_level_index_type_config == DBTestBase::TwoLevelIndexTypeConfig::SpdbIndex);
     top_level_index_pinning_ = std::get<1>(GetParam());
     partition_pinning_ = std::get<2>(GetParam());
     unpartitioned_pinning_ = std::get<3>(GetParam());
   }
 
   bool partition_index_and_filters_;
+  bool spdb_index_;
   PinningTier top_level_index_pinning_;
   PinningTier partition_pinning_;
   PinningTier unpartitioned_pinning_;
@@ -1201,6 +1230,10 @@ TEST_P(DBBlockCachePinningTest, TwoLevelDB) {
     table_options.index_type =
         BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
     table_options.partition_filters = true;
+  } else if (spdb_index_) {
+    table_options.index_type =
+        BlockBasedTableOptions::IndexType::kSpdbTwoLevelIndexSearch;
+    table_options.partition_filters = false;
   }
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   Reopen(options);
@@ -1238,11 +1271,23 @@ TEST_P(DBBlockCachePinningTest, TwoLevelDB) {
   if (partition_index_and_filters_) {
     if (top_level_index_pinning_ == PinningTier::kNone) {
       ++expected_filter_misses;
-      ++expected_index_misses;
+      ++expected_index_misses; 
     }
     if (partition_pinning_ == PinningTier::kNone) {
       ++expected_filter_misses;
       ++expected_index_misses;
+    }
+  } else if (spdb_index_) {
+    if (top_level_index_pinning_ == PinningTier::kNone) {
+      ++expected_index_misses; 
+    }
+
+    // SPDB Index currently doesn't support pinning partitions => cache miss
+    // TODO - Decide in the next steps what to do about it
+    ++expected_index_misses;
+
+    if (unpartitioned_pinning_ == PinningTier::kNone) {
+      ++expected_filter_misses;
     }
   } else {
     if (unpartitioned_pinning_ == PinningTier::kNone) {
@@ -1277,6 +1322,20 @@ TEST_P(DBBlockCachePinningTest, TwoLevelDB) {
       ++expected_filter_misses;
       ++expected_index_misses;
     }
+  } else if (spdb_index_) {
+    if (top_level_index_pinning_ == PinningTier::kNone ||
+        top_level_index_pinning_ == PinningTier::kFlushedAndSimilar) {
+      ++expected_index_misses;
+    }
+
+    // SPDB Index currently doesn't support pinning partitions => cache miss
+    // TODO - Decide in the next steps what to do about it
+    ++expected_index_misses;
+
+    if (unpartitioned_pinning_ == PinningTier::kNone ||
+        unpartitioned_pinning_ == PinningTier::kFlushedAndSimilar) {
+      ++expected_filter_misses;
+    }
   } else {
     if (unpartitioned_pinning_ == PinningTier::kNone ||
         unpartitioned_pinning_ == PinningTier::kFlushedAndSimilar) {
@@ -1299,7 +1358,9 @@ TEST_P(DBBlockCachePinningTest, TwoLevelDB) {
 INSTANTIATE_TEST_CASE_P(
     DBBlockCachePinningTest, DBBlockCachePinningTest,
     ::testing::Combine(
-        ::testing::Bool(),
+        ::testing::Values(DBTestBase::TwoLevelIndexTypeConfig::RocksdbPartitionedIndexAndFilters,
+                          DBTestBase::TwoLevelIndexTypeConfig::None,
+                          DBTestBase::TwoLevelIndexTypeConfig::SpdbIndex),
         ::testing::Values(PinningTier::kNone, PinningTier::kFlushedAndSimilar,
                           PinningTier::kAll),
         ::testing::Values(PinningTier::kNone, PinningTier::kFlushedAndSimilar,

@@ -942,6 +942,7 @@ class DBTestBase : public testing::Test {
     kBlockBasedTableWithPartitionedIndex,
     kBlockBasedTableWithPartitionedIndexFormat4,
     kPartitionedFilterWithNewTableReaderForCompactions,
+    kBlockBasedTableWithSpdbIndex,
     kUniversalSubcompactions,
     kxxHash64Checksum,
     kUnorderedWrite,
@@ -983,6 +984,16 @@ class DBTestBase : public testing::Test {
       // MmapReads disables the iterator pinning that RangeDelAggregator
       // requires.
       kSkipMmapReads;
+
+  // Enum to be used in parametrized tests that should be run both using RocksDB's partitioned index
+  // and Speedb's Partitioned Index.
+  // Use None to use the default index type / do nothing special to set the index type
+  enum class TwoLevelIndexTypeConfig {
+    None,
+    RocksdbPartitionedIndex,
+    RocksdbPartitionedIndexAndFilters,
+    SpdbIndex
+  };
 
   // `env_do_fsync` decides whether the special Env would do real
   // fsync for files and directories. Skipping fsync can speed up

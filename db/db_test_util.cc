@@ -515,6 +515,11 @@ Options DBTestBase::GetOptions(
       table_options.index_block_restart_interval = 8;
       break;
     }
+    case kBlockBasedTableWithSpdbIndex: {
+      table_options.index_type = BlockBasedTableOptions::kSpdbTwoLevelIndexSearch;
+      options.prefix_extractor.reset(NewNoopTransform());
+      break;
+    }
     case kOptimizeFiltersForHits: {
       options.optimize_filters_for_hits = true;
       set_block_based_table_factory = true;

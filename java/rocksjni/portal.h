@@ -6387,6 +6387,9 @@ class IndexTypeJni {
       case ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexType::
           kBinarySearchWithFirstKey:
         return 0x3;
+      case ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexType::
+          kSpdbTwoLevelIndexSearch:
+        return 0x4;
       default:
         return 0x7F;  // undefined
     }
@@ -6409,6 +6412,9 @@ class IndexTypeJni {
       case 0x3:
         return ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexType::
             kBinarySearchWithFirstKey;
+      case 0x4:
+        return ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexType::
+            kSpdbTwoLevelIndexSearch;
       default:
         // undefined/default
         return ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexType::

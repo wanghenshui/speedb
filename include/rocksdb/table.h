@@ -205,6 +205,11 @@ struct BlockBasedTableOptions {
     // Makes the index significantly bigger (2x or more), especially when keys
     // are long.
     kBinarySearchWithFirstKey = 0x03,
+
+    // SPDB's two-level index implementation
+    // TODO - Add information once our index is complete to avoid writing information that
+    // soon may be obsolete or inaccurate
+    kSpdbTwoLevelIndexSearch = 0x04
   };
 
   IndexType index_type = kBinarySearch;

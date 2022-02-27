@@ -40,6 +40,7 @@
 #include "table/block_based/filter_policy_internal.h"
 #include "table/block_based/full_filter_block.h"
 #include "table/block_based/partitioned_filter_block.h"
+#include "table/block_based/spdb_index/spdb_two_level_index_builder.h"
 #include "table/format.h"
 #include "table/table_builder.h"
 #include "util/coding.h"
@@ -473,6 +474,11 @@ struct BlockBasedTableBuilder::Rep {
           &internal_comparator, use_delta_encoding_for_index_values,
           table_options);
       index_builder.reset(p_index_builder_);
+    } else if (table_options.index_type ==
+               BlockBasedTableOptions::kSpdbTwoLevelIndexSearch) {
+      index_builder.reset(SpdbTwoLevelndexBuilder::CreateIndexBuilder(
+          &internal_comparator, use_delta_encoding_for_index_values,
+          table_options));
     } else {
       index_builder.reset(IndexBuilder::CreateIndexBuilder(
           table_options.index_type, &internal_comparator,
@@ -1628,6 +1634,15 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
       rep_->props.index_partitions = rep_->p_index_builder_->NumPartitions();
       rep_->props.top_level_index_size =
           rep_->p_index_builder_->TopLevelIndexSize(rep_->offset);
+    } else if (rep_->table_options.index_type ==
+               BlockBasedTableOptions::kSpdbTwoLevelIndexSearch) {
+      assert(rep_->p_index_builder_ == nullptr);
+      assert(rep_->index_builder != nullptr);
+      auto spdb_index_builder =
+          static_cast<SpdbTwoLevelndexBuilder*>(rep_->index_builder.get());
+      rep_->props.index_partitions = spdb_index_builder->NumSegments();
+      rep_->props.top_level_index_size =
+          spdb_index_builder->TopLevelIndexSize(rep_->offset);
     }
     rep_->props.index_key_is_user_key =
         !rep_->index_builder->seperator_is_key_plus_seq();

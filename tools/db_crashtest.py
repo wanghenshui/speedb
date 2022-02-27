@@ -80,6 +80,7 @@ default_params = {
     "get_sorted_wal_files_one_in": 0,
     "get_current_wal_file_one_in": 0,
     # Temporarily disable hash index
+    # TODO - Should we add 4 (spdb_index) to the values to choose from?
     "index_type": lambda: random.choice([0, 0, 0, 2, 2, 3]),
     "mark_for_compaction_one_file_in": lambda: 10 * random.randint(0, 1),
     "max_background_compactions": 20,

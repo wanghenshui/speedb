@@ -114,6 +114,8 @@ public class TableProperties {
    * Get the total number of index partitions
    * if {@link IndexType#kTwoLevelIndexSearch} is used.
    *
+   * TODO - What do we have to do here with respect to spdb index?
+   *
    * @return the total number of index partitions.
    */
   public long getIndexPartitions() {
@@ -123,6 +125,8 @@ public class TableProperties {
   /**
    * Size of the top-level index
    * if {@link IndexType#kTwoLevelIndexSearch} is used.
+   *
+   * TODO - What do we have to do here with respect to spdb index?
    *
    * @return the size of the top-level index.
    */

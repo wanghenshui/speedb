@@ -281,6 +281,11 @@ LIB_SOURCES =                                                   \
   utilities/ttl/db_ttl_impl.cc                                  \
   utilities/write_batch_with_index/write_batch_with_index.cc    \
   utilities/write_batch_with_index/write_batch_with_index_internal.cc    \
+	table/block_based/spdb_index/spdb_two_level_index_builder.cc  \
+	table/block_based/spdb_index/spdb_segment_index_builder.cc	  \
+	table/block_based/spdb_index/spdb_two_level_index_reader.cc	  \
+	table/block_based/spdb_index/spdb_segments_Index_iterator.cc  \
+
 
 ifeq (,$(shell $(CXX) -fsyntax-only -maltivec -xc /dev/null 2>&1))
 LIB_SOURCES_ASM =\

@@ -178,7 +178,9 @@ static std::unordered_map<std::string, BlockBasedTableOptions::IndexType>
         {"kTwoLevelIndexSearch",
          BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch},
         {"kBinarySearchWithFirstKey",
-         BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey}};
+         BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey},
+        {"kSpdbTwoLevelIndexSearch",
+         BlockBasedTableOptions::IndexType::kSpdbTwoLevelIndexSearch}};
 
 static std::unordered_map<std::string,
                           BlockBasedTableOptions::DataBlockIndexType>

@@ -498,6 +498,8 @@ DEFINE_bool(partition_index_and_filters, false,
 
 DEFINE_bool(partition_index, false, "Partition index blocks");
 
+DEFINE_bool(spdb_index, false, "Use SPDB's Index");
+
 DEFINE_bool(index_with_first_key, false, "Include first key in the index");
 
 DEFINE_bool(
@@ -3993,6 +3995,9 @@ class Benchmark {
       } else if (FLAGS_index_with_first_key) {
         block_based_options.index_type =
             BlockBasedTableOptions::kBinarySearchWithFirstKey;
+      } else if (FLAGS_spdb_index) {
+        block_based_options.index_type =
+            BlockBasedTableOptions::kSpdbTwoLevelIndexSearch;
       }
       BlockBasedTableOptions::IndexShorteningMode index_shortening =
           block_based_options.index_shortening;
@@ -7868,6 +7873,30 @@ void ValidateMetadataCacheOptions() {
   }
 }
 
+void ValidateIndexTypeFlags() {
+  auto num_index_type_flags = 0U;
+
+  num_index_type_flags += static_cast<uint>(FLAGS_partition_index);
+  num_index_type_flags += static_cast<uint>(FLAGS_use_hash_search);
+  num_index_type_flags += static_cast<uint>(FLAGS_index_with_first_key);
+  num_index_type_flags += static_cast<uint>(FLAGS_spdb_index);
+
+  if (num_index_type_flags > 1) {
+    fprintf(stderr,
+            "Only one of the following flags may be set: "
+            "--partition_index, --use_hash_search, --index_with_first_key, "
+            "--spdb_index\n");
+    exit(1);
+  }
+
+  if (FLAGS_partition_index_and_filters && (FLAGS_partition_index == false)) {
+    fprintf(stdout,
+            "--partition_index must be set if --partition_index_and_filters is "
+            "set\n");
+    exit(1);
+  }
+}
+
 int db_bench_tool(int argc, char** argv) {
   ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   static bool initialized = false;
@@ -8013,6 +8042,7 @@ int db_bench_tool(int argc, char** argv) {
   }
 
   ValidateMetadataCacheOptions();
+  ValidateIndexTypeFlags();
 
   ROCKSDB_NAMESPACE::Benchmark benchmark;
   benchmark.Run();

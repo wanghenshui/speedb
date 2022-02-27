@@ -51,6 +51,8 @@ class BlockHandle {
   uint64_t size() const { return size_; }
   void set_size(uint64_t _size) { size_ = _size; }
 
+  uint64_t GetEndOffset() const { return offset_ + size_; }
+
   void EncodeTo(std::string* dst) const;
   Status DecodeFrom(Slice* input);
   Status DecodeSizeFrom(uint64_t offset, Slice* input);
@@ -58,14 +60,29 @@ class BlockHandle {
   // Return a string that contains the copy of handle.
   std::string ToString(bool hex = true) const;
 
+  bool IsInitialized() const {
+    return (offset_ != InvalidOffset) and (size_ != InvalidSize);
+  }
+
   // if the block handle's offset and size are both "0", we will view it
   // as a null block handle that points to no where.
   bool IsNull() const { return offset_ == 0 && size_ == 0; }
 
+  bool IsValid() const { return (IsInitialized() and (IsNull() == false)); }
+
   static const BlockHandle& NullBlockHandle() { return kNullBlockHandle; }
+
+  void Clear() {
+    offset_ = InvalidOffset;
+    size_ = InvalidSize;
+  }
 
   // Maximum encoding length of a BlockHandle
   enum { kMaxEncodedLength = 10 + 10 };
+
+  friend bool operator<(const BlockHandle& lhs, const BlockHandle& rhs) {
+    return (lhs.offset_ < rhs.offset_);
+  }
 
   inline bool operator==(const BlockHandle& rhs) const {
     return offset_ == rhs.offset_ && size_ == rhs.size_;
@@ -73,6 +90,10 @@ class BlockHandle {
   inline bool operator!=(const BlockHandle& rhs) const {
     return !(*this == rhs);
   }
+
+ private:
+  static constexpr uint64_t InvalidOffset = ~static_cast<uint64_t>(0);
+  static constexpr uint64_t InvalidSize = ~static_cast<uint64_t>(0);
 
  private:
   uint64_t offset_;
@@ -106,6 +127,8 @@ struct IndexValue {
                 const BlockHandle* previous_handle) const;
   Status DecodeFrom(Slice* input, bool have_first_key,
                     const BlockHandle* previous_handle);
+
+  bool IsValid() const { return handle.IsValid(); }
 
   std::string ToString(bool hex, bool have_first_key) const;
 };
@@ -339,8 +362,7 @@ extern Status ReifyDbHostIdProperty(Env* env, std::string* db_host_id);
 // TODO(andrewkr): we should prefer one way of representing a null/uninitialized
 // BlockHandle. Currently we use zeros for null and use negation-of-zeros for
 // uninitialized.
-inline BlockHandle::BlockHandle()
-    : BlockHandle(~static_cast<uint64_t>(0), ~static_cast<uint64_t>(0)) {}
+inline BlockHandle::BlockHandle() : BlockHandle(InvalidOffset, InvalidSize) {}
 
 inline BlockHandle::BlockHandle(uint64_t _offset, uint64_t _size)
     : offset_(_offset), size_(_size) {}

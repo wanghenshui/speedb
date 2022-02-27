@@ -75,7 +75,22 @@ class PrefetchTest
 
 INSTANTIATE_TEST_CASE_P(PrefetchTest, PrefetchTest,
                         ::testing::Combine(::testing::Bool(),
-                                           ::testing::Bool()));
+                                           ::testing::Bool()
+));
+
+class PrefetchTestWithIndexType
+    : public DBTestBase,
+      public ::testing::WithParamInterface<std::tuple<bool, bool, BlockBasedTableOptions::IndexType>> {
+ public:
+  PrefetchTestWithIndexType() : DBTestBase("/prefetch_test_with_index_type", true) {}
+};
+
+INSTANTIATE_TEST_CASE_P(PrefetchTestWithIndexType, PrefetchTestWithIndexType,
+                        ::testing::Combine(::testing::Bool(),
+                                           ::testing::Bool(),
+                                           ::testing::Values( BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch,
+                                                              BlockBasedTableOptions::IndexType::kSpdbTwoLevelIndexSearch)
+));
 
 std::string BuildKey(int num, std::string postfix = "") {
   return "my_key_" + std::to_string(num) + postfix;
@@ -178,7 +193,7 @@ TEST_P(PrefetchTest, Basic) {
 }
 
 #ifndef ROCKSDB_LITE
-TEST_P(PrefetchTest, ConfigureAutoMaxReadaheadSize) {
+TEST_P(PrefetchTestWithIndexType, ConfigureAutoMaxReadaheadSize) {
   // First param is if the mockFS support_prefetch or not
   bool support_prefetch =
       std::get<0>(GetParam()) &&
@@ -205,8 +220,7 @@ TEST_P(PrefetchTest, ConfigureAutoMaxReadaheadSize) {
   table_options.no_block_cache = true;
   table_options.cache_index_and_filter_blocks = false;
   table_options.metadata_block_size = 1024;
-  table_options.index_type =
-      BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+  table_options.index_type = std::get<2>(GetParam());
   table_options.max_auto_readahead_size = 0;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
@@ -316,7 +330,7 @@ TEST_P(PrefetchTest, ConfigureAutoMaxReadaheadSize) {
 }
 #endif  // !ROCKSDB_LITE
 
-TEST_P(PrefetchTest, PrefetchWhenReseek) {
+TEST_P(PrefetchTestWithIndexType, PrefetchWhenReseek) {
   // First param is if the mockFS support_prefetch or not
   bool support_prefetch =
       std::get<0>(GetParam()) &&
@@ -340,8 +354,7 @@ TEST_P(PrefetchTest, PrefetchWhenReseek) {
   table_options.no_block_cache = true;
   table_options.cache_index_and_filter_blocks = false;
   table_options.metadata_block_size = 1024;
-  table_options.index_type =
-      BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+  table_options.index_type = std::get<2>(GetParam());
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
   if (use_direct_io) {
@@ -541,7 +554,7 @@ TEST_P(PrefetchTest, PrefetchWhenReseek) {
   Close();
 }
 
-TEST_P(PrefetchTest, PrefetchWhenReseekwithCache) {
+TEST_P(PrefetchTestWithIndexType, PrefetchWhenReseekwithCache) {
   // First param is if the mockFS support_prefetch or not
   bool support_prefetch =
       std::get<0>(GetParam()) &&
@@ -566,8 +579,7 @@ TEST_P(PrefetchTest, PrefetchWhenReseekwithCache) {
   table_options.block_cache = cache;
   table_options.cache_index_and_filter_blocks = false;
   table_options.metadata_block_size = 1024;
-  table_options.index_type =
-      BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+  table_options.index_type = std::get<2>(GetParam());
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
   if (use_direct_io) {

@@ -506,7 +506,8 @@ INSTANTIATE_TEST_CASE_P(
         BlockBasedTableOptions::IndexType::kBinarySearch,
         BlockBasedTableOptions::IndexType::kHashSearch,
         BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch,
-        BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey));
+        BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey,
+        BlockBasedTableOptions::IndexType::kSpdbTwoLevelIndexSearch));
 
 TEST_P(DBBasicTestWithTimestampTableOptions, GetAndMultiGet) {
   Options options = GetDefaultOptions();
@@ -1628,7 +1629,8 @@ INSTANTIATE_TEST_CASE_P(
             BlockBasedTableOptions::IndexType::kBinarySearch,
             BlockBasedTableOptions::IndexType::kHashSearch,
             BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch,
-            BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey)));
+            BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey,
+            BlockBasedTableOptions::IndexType::kSpdbTwoLevelIndexSearch)));
 
 class DataVisibilityTest : public DBBasicTestWithTimestampBase {
  public:
@@ -2859,7 +2861,8 @@ INSTANTIATE_TEST_CASE_P(
             BlockBasedTableOptions::IndexType::kBinarySearch,
             BlockBasedTableOptions::IndexType::kHashSearch,
             BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch,
-            BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey)));
+            BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey,
+            BlockBasedTableOptions::IndexType::kSpdbTwoLevelIndexSearch)));
 
 class DBBasicTestWithTsIterTombstones
     : public DBBasicTestWithTimestampBase,
@@ -2957,7 +2960,8 @@ INSTANTIATE_TEST_CASE_P(
             BlockBasedTableOptions::IndexType::kBinarySearch,
             BlockBasedTableOptions::IndexType::kHashSearch,
             BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch,
-            BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey)));
+            BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey,
+            BlockBasedTableOptions::IndexType::kSpdbTwoLevelIndexSearch)));
 
 }  // namespace ROCKSDB_NAMESPACE
 

@@ -803,6 +803,10 @@ set(SOURCES
         table/block_based/partitioned_index_reader.cc
         table/block_based/reader_common.cc
         table/block_based/uncompression_dict_reader.cc
+        table/block_based/spdb_index/spdb_two_level_index_builder.cc
+        table/block_based/spdb_index/spdb_segment_index_builder.cc
+        table/block_based/spdb_index/spdb_two_level_index_reader.cc
+        table/block_based/spdb_index/spdb_segments_Index_iterator.cc
         table/block_fetcher.cc
         table/cuckoo/cuckoo_table_builder.cc
         table/cuckoo/cuckoo_table_factory.cc

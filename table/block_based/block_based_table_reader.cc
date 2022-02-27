@@ -49,6 +49,7 @@
 #include "table/block_based/hash_index_reader.h"
 #include "table/block_based/partitioned_filter_block.h"
 #include "table/block_based/partitioned_index_reader.h"
+#include "table/block_based/spdb_index/spdb_two_level_index_reader.h"
 #include "table/block_fetcher.h"
 #include "table/format.h"
 #include "table/get_context.h"
@@ -960,7 +961,8 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
 
   // pin the first level of index
   const bool pin_index =
-      index_type == BlockBasedTableOptions::kTwoLevelIndexSearch
+      (index_type == BlockBasedTableOptions::kTwoLevelIndexSearch ||
+       index_type == BlockBasedTableOptions::kSpdbTwoLevelIndexSearch)
           ? pin_top_level_index
           : pin_unpartitioned;
   // prefetch the first level of index
@@ -3128,6 +3130,11 @@ Status BlockBasedTable::CreateIndexReader(
                                        meta_index_iter, use_cache, prefetch,
                                        pin, lookup_context, index_reader);
       }
+    }
+    case BlockBasedTableOptions::kSpdbTwoLevelIndexSearch: {
+      return SpdbTwoLevelndexReader::Create(this, ro, prefetch_buffer,
+                                            use_cache, prefetch, pin,
+                                            lookup_context, index_reader);
     }
     default: {
       std::string error_message =
