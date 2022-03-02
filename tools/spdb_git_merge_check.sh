@@ -46,9 +46,9 @@ if ! (cd "$REPO_ROOT" && git merge-base --is-ancestor "$REMOTE/$TARGET_BRANCH" "
 	bail "error: $TARGET_BRANCH is not an ancestor of $MERGE_BRANCH"
 fi
 
-# Verify that we pass clang-format for the changes that were made
-if ! (cd "$REPO_ROOT" && FORMAT_UPSTREAM="$REMOTE/$TARGET_BRANCH" ./build_tools/format-diff.sh -c > /dev/null); then
-	bail "error: some files require formatting. Please run format-diff.sh"
+# Verify that we pass code style checks for the changes that were made
+if ! (cd "$REPO_ROOT" && FORMAT_UPSTREAM="$REMOTE/$TARGET_BRANCH" ./tools/spdb-check-diff.sh 1>&2); then
+	bail "error: some files require formatting. Please check the output above"
 fi
 
 # Verify that all of the commits contain the right JIRA key

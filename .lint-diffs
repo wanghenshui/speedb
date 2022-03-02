@@ -1,0 +1,15 @@
+# Disbale pylint
+[pylint]
+extensions=
+
+# Disable clang-tidy (can't work without a compilation database)
+[clang-tidy]
+extensions=
+
+[flake8]
+extensions=.py
+
+[clang-format]
+extensions=.c .cc .cpp .cxx .c++ .h .hpp
+command=./tools/clang-format-check.py
+regex=(?P<file>[^:]+):(?P<line>\d+):[^:]+: (?P<err>.+)

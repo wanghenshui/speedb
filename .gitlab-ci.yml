@@ -10,7 +10,8 @@ verify_merge:
   stage: .pre
   before_script:
     - *base_packages
-    - apk add clang-extra-tools
+    - apk add py3-pip clang-extra-tools shellcheck
+    - python3 -m pip install lint-diffs flake8
   script:
     - export "PATH=$PATH:/usr/share/clang"
     - JIRA_ID=$($CI_PROJECT_DIR/tools/spdb_git_merge_check.sh "$CI_COMMIT_REF_NAME" "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME")
