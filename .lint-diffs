@@ -8,6 +8,7 @@ extensions=
 
 [flake8]
 extensions=.py
+command=flake8 --max-line-length 88
 
 [clang-format]
 extensions=.c .cc .cpp .cxx .c++ .h .hpp
