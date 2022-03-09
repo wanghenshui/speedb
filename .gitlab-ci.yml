@@ -28,8 +28,9 @@ verify_build:
   stage: build
   before_script:
     - *base_packages
-    - apk add gcc g++ cmake ninja
+    - apk add gcc g++ cmake ninja ccache
     - apk add openjdk10 gflags-dev snappy-dev lz4-dev bzip2-dev zstd-dev zlib-dev linux-headers
+    - mkdir -p "${CI_PROJECT_DIR}/.ccache"
   script:
     - |
       if [ -d "$CI_PROJECT_DIR/build" ]; then
@@ -37,6 +38,9 @@ verify_build:
       fi
     - mkdir -p "$CI_PROJECT_DIR/build"
     - cd "$CI_PROJECT_DIR/build"
+    - export "CCACHE_BASEDIR=$CI_PROJECT_DIR"
+    - export "CCACHE_DIR=$CI_PROJECT_DIR/.ccache"
+    - export "CCACHE_COMPILERCHECK=content"
     - >
       cmake .. -GNinja -DWITH_GFLAGS=1
       -DWITH_ZLIB=1 -DWITH_SNAPPY=1 -DWITH_BZ2=1 -DWITH_LZ4=1 -DWITH_ZSTD=1
@@ -44,6 +48,10 @@ verify_build:
       -DWITH_BENCHMARK_TOOLS=1 -DWITH_CORE_TOOLS=1 -DWITH_TOOLS=1
       -DWITH_TESTS=1 -DWITH_ALL_TESTS=1 -DWITH_EXAMPLES=1
     - ninja
+  cache:
+    key: $CI_JOB_NAME
+    paths:
+      - $CI_PROJECT_DIR/.ccache/
   only:
     - merge_requests
 
