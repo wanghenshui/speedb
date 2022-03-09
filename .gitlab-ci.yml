@@ -55,6 +55,68 @@ verify_build:
   only:
     - merge_requests
 
+verify_optimised_build:
+  stage: build
+  before_script:
+    - *base_packages
+    - apk add gcc g++ cmake ninja ccache
+    - apk add openjdk10 gflags-dev snappy-dev lz4-dev bzip2-dev zstd-dev zlib-dev linux-headers
+    - mkdir -p "${CI_PROJECT_DIR}/.ccache"
+  script:
+    - |
+      if [ -d "$CI_PROJECT_DIR/build" ]; then
+        echo >&2 "error: the build directory should not exist" && false
+      fi
+    - mkdir -p "$CI_PROJECT_DIR/build"
+    - cd "$CI_PROJECT_DIR/build"
+    - export "CCACHE_BASEDIR=$CI_PROJECT_DIR"
+    - export "CCACHE_DIR=$CI_PROJECT_DIR/.ccache"
+    - export "CCACHE_COMPILERCHECK=content"
+    - >
+      cmake .. -DCMAKE_BUILD_TYPE=Release -GNinja -DWITH_GFLAGS=1
+      -DWITH_ZLIB=1 -DWITH_SNAPPY=1 -DWITH_BZ2=1 -DWITH_LZ4=1 -DWITH_ZSTD=1
+      -DWITH_JNI=1 -DJAVA_HOME=/usr/lib/jvm/default-jvm
+      -DWITH_BENCHMARK_TOOLS=1 -DWITH_CORE_TOOLS=1 -DWITH_TOOLS=1
+      -DWITH_TESTS=1 -DWITH_ALL_TESTS=1 -DWITH_EXAMPLES=1
+    - ninja
+  cache:
+    key: $CI_JOB_NAME
+    paths:
+      - $CI_PROJECT_DIR/.ccache/
+  only:
+    - merge_requests
+
+verify_clang_build:
+  stage: build
+  before_script:
+    - *base_packages
+    - apk add g++ clang cmake ninja ccache # we need g++ for headers, crt objects and libgcc
+    - apk add openjdk10 gflags-dev snappy-dev lz4-dev bzip2-dev zstd-dev zlib-dev linux-headers
+    - mkdir -p "${CI_PROJECT_DIR}/.ccache"
+  script:
+    - |
+      if [ -d "$CI_PROJECT_DIR/build" ]; then
+        echo >&2 "error: the build directory should not exist" && false
+      fi
+    - mkdir -p "$CI_PROJECT_DIR/build"
+    - cd "$CI_PROJECT_DIR/build"
+    - export "CCACHE_BASEDIR=$CI_PROJECT_DIR"
+    - export "CCACHE_DIR=$CI_PROJECT_DIR/.ccache"
+    - export "CCACHE_COMPILERCHECK=content"
+    - >
+      CC=clang CXX=clang++ cmake .. -GNinja -DWITH_GFLAGS=1
+      -DWITH_ZLIB=1 -DWITH_SNAPPY=1 -DWITH_BZ2=1 -DWITH_LZ4=1 -DWITH_ZSTD=1
+      -DWITH_JNI=1 -DJAVA_HOME=/usr/lib/jvm/default-jvm
+      -DWITH_BENCHMARK_TOOLS=1 -DWITH_CORE_TOOLS=1 -DWITH_TOOLS=1
+      -DWITH_TESTS=1 -DWITH_ALL_TESTS=1 -DWITH_EXAMPLES=1
+    - ninja
+  cache:
+    key: $CI_JOB_NAME
+    paths:
+      - $CI_PROJECT_DIR/.ccache/
+  only:
+    - merge_requests
+
 bump_version:
   stage: deploy
   variables:
