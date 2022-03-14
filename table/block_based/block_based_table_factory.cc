@@ -453,8 +453,6 @@ BlockBasedTableFactory::BlockBasedTableFactory(
 }
 
 void BlockBasedTableFactory::InitializeOptions() {
-  table_options_.data_block_index_type =
-      BlockBasedTableOptions::kDataBlockBinaryAndHash;
   if (table_options_.filter_policy == nullptr) {
     table_options_.filter_policy.reset(NewSpdbHybridFilterPolicy());
   } else if (SpdbIsNoFilterPolicy(table_options_.filter_policy.get())) {
