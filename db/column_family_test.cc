@@ -1806,6 +1806,7 @@ TEST_P(ColumnFamilyTest, SameCFManualAutomaticCompactions) {
   one.num_levels = 1;
   // trigger compaction if there are >= 4 files
   one.level0_file_num_compaction_trigger = 4;
+  one.level0_slowdown_writes_trigger = 4;
   one.write_buffer_size = 120000;
 
   Reopen({default_cf, one});
@@ -2272,8 +2273,12 @@ TEST_P(ColumnFamilyTest, SanitizeOptions) {
               ASSERT_GE(result.num_levels, 2);
             } else {
               ASSERT_GE(result.num_levels, 1);
-              if (original.num_levels >= 1) {
-                EXPECT_EQ(result.num_levels, original.num_levels);
+              // num levels is sanitized in SetOptions in
+              // db/compaction/compaction_picker_hybrid.h
+              if (original.num_levels == 1) {
+                EXPECT_EQ(result.num_levels, 26);
+              } else if (original.num_levels == 2) {
+                EXPECT_EQ(result.num_levels, 50);
               }
             }
 
@@ -2562,7 +2567,9 @@ TEST_P(ColumnFamilyTest, CreateAndDropRace) {
 }
 #endif  // !ROCKSDB_LITE
 
-TEST_P(ColumnFamilyTest, WriteStallSingleColumnFamily) {
+// spdb doesnt stall with write_controller_ in db/db_impl/db_impl_write.cc
+// caused by commit ece154d385e1af4aaa3199fe174cde0ab903c156
+TEST_P(ColumnFamilyTest, DISABLED_WriteStallSingleColumnFamily) {
   const uint64_t kBaseRate = 800000u;
   db_options_.delayed_write_rate = kBaseRate;
   db_options_.max_background_compactions = 6;
@@ -2746,7 +2753,9 @@ TEST_P(ColumnFamilyTest, WriteStallSingleColumnFamily) {
   ASSERT_EQ(kBaseRate / 1.25, GetDbDelayedWriteRate());
 }
 
-TEST_P(ColumnFamilyTest, CompactionSpeedupSingleColumnFamily) {
+// Disabled for lack of relevance. spdb doesnt use
+// estimated_compaction_needed_bytes to control delay
+TEST_P(ColumnFamilyTest, DISABLED_CompactionSpeedupSingleColumnFamily) {
   db_options_.max_background_compactions = 6;
   Open({"default"});
   const size_t max_allowed_compactions =
@@ -2812,7 +2821,8 @@ TEST_P(ColumnFamilyTest, CompactionSpeedupSingleColumnFamily) {
   ASSERT_EQ(1, dbfull()->TEST_BGCompactionsAllowed());
 }
 
-TEST_P(ColumnFamilyTest, WriteStallTwoColumnFamilies) {
+// Disabled for the same reason as WriteStallSingleColumnFamily.
+TEST_P(ColumnFamilyTest, DISABLED_WriteStallTwoColumnFamilies) {
   const uint64_t kBaseRate = 810000u;
   db_options_.delayed_write_rate = kBaseRate;
   Open();
@@ -2887,7 +2897,8 @@ TEST_P(ColumnFamilyTest, WriteStallTwoColumnFamilies) {
   ASSERT_EQ(kBaseRate / 1.25, GetDbDelayedWriteRate());
 }
 
-TEST_P(ColumnFamilyTest, CompactionSpeedupTwoColumnFamilies) {
+// Disabled for the same reason as CompactionSpeedupSingleColumnFamily
+TEST_P(ColumnFamilyTest, DISABLED_CompactionSpeedupTwoColumnFamilies) {
   db_options_.max_background_compactions = 6;
   column_family_options_.soft_pending_compaction_bytes_limit = 200;
   column_family_options_.hard_pending_compaction_bytes_limit = 2000;
@@ -3041,6 +3052,7 @@ TEST_P(ColumnFamilyTest, IteratorCloseWALFile1) {
   SpecialEnv env(Env::Default());
   db_options_.env = &env;
   db_options_.max_background_flushes = 1;
+  db_options_.avoid_unnecessary_blocking_io = true;
   column_family_options_.memtable_factory.reset(new SpecialSkipListFactory(2));
   Open();
   CreateColumnFamilies({"one"});
@@ -3073,10 +3085,20 @@ TEST_P(ColumnFamilyTest, IteratorCloseWALFile1) {
   ASSERT_OK(db_->Put(wo, handles_[1], "fodor", "mirko"));
 
   ASSERT_EQ(2, env.num_open_wal_file_.load());
+  // avoid_unnecessary_blocking_io == true causes the iterator to
+  // defer the cleanup by scheduling a purge job. wait for that purge to finish.
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({
+      {"DBImpl::BGWorkPurge:end", "ColumnFamilyTest::IteratorCloseWALFile1:0"},
+  });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
   // Deleting the iterator will clear its super version, triggering
   // closing all files
   delete it;
+  TEST_SYNC_POINT("ColumnFamilyTest::IteratorCloseWALFile1:0");
+
   ASSERT_EQ(1, env.num_open_wal_file_.load());
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 
   sleeping_task.WakeUp();
   sleeping_task.WaitUntilDone();

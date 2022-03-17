@@ -620,12 +620,16 @@ TEST_P(DBWriteBufferManagerTest, MixedSlowDownOptionsMultipleDB) {
   ASSERT_LT(cache->GetUsage(), 256 * 1024);
   cost_cache_ = GetParam();
 
+  // speedb requires more memory than rocksdb and hit a stall where none
+  // should have been. in write_buffer_manager.h:IsStallThresholdExceeded()
+  // memory_usage() of rocksdb 94512, of speedb 108848
+  // buffer_size_ was set to 100000
   if (cost_cache_) {
     options.write_buffer_manager.reset(
-        new WriteBufferManager(100000, cache, true));
+        new WriteBufferManager(110000, cache, true));
   } else {
     options.write_buffer_manager.reset(
-        new WriteBufferManager(100000, nullptr, true));
+        new WriteBufferManager(110000, nullptr, true));
   }
   CreateAndReopenWithCF({"cf1", "cf2"}, options);
 

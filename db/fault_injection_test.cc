@@ -449,7 +449,13 @@ TEST_P(FaultInjectionTest, UninstalledCompaction) {
   }
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
-  int kNumKeys = 1000;
+  // in spdb, increase kNumKeys to increase ssts which would in turn cause a
+  // compaction that the test was expecting. speedb wasnt doing the compaction
+  // because it merges memtables when it needs to flush and more than one are
+  // waiting. so it created fewer ssts than rocksdb. speedb also sets
+  // level0_file_num_compaction_trigger to be 8 instread of 6 which also
+  // contributed to not starting a compaction
+  int kNumKeys = 2000;
   Build(WriteOptions(), 0, kNumKeys);
   FlushOptions flush_options;
   flush_options.wait = true;

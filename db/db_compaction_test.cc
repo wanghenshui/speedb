@@ -504,6 +504,7 @@ TEST_F(DBCompactionTest, TestTableReaderForCompaction) {
   options.new_table_reader_for_compaction_inputs = true;
   options.max_open_files = 20;
   options.level0_file_num_compaction_trigger = 3;
+  options.level0_slowdown_writes_trigger = 3;
   // Avoid many shards with small max_open_files, where as little as
   // two table insertions could lead to an LRU eviction, depending on
   // hash values.
@@ -659,8 +660,8 @@ TEST_P(DBCompactionTestWithParam, CompactionDeletionTriggerReopen) {
     ASSERT_GT(3 * db_size[0] / 5, db_size[2]);
   }
 }
-
-TEST_F(DBCompactionTest, CompactRangeBottomPri) {
+// this test checks manual compaction and is therefore disabled in speedb
+TEST_F(DBCompactionTest, DISABLED_CompactRangeBottomPri) {
   ASSERT_OK(Put(Key(50), ""));
   ASSERT_OK(Flush());
   ASSERT_OK(Put(Key(100), ""));
@@ -3228,7 +3229,8 @@ static std::string ShortKey(int i) {
   return std::string(buf);
 }
 
-TEST_P(DBCompactionTestWithParam, ForceBottommostLevelCompaction) {
+// this test checks manual compaction and is therefore disabled in speedb
+TEST_P(DBCompactionTestWithParam, DISABLED_ForceBottommostLevelCompaction) {
   int32_t trivial_move = 0;
   int32_t non_trivial_move = 0;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
@@ -4454,7 +4456,10 @@ TEST_F(DBCompactionTest, CompactRangeDelayedByL0FileCount) {
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
     Random rnd(301);
-    for (int j = 0; j < kNumL0FilesLimit - 1; ++j) {
+    // CompactRange doesnt get delayed in WaitUntilFlushWouldNotStallWrites
+    // because speedb needs one more L0 file than rocksdb to get delayed. from
+    // logic of GetWriteStallConditionAndCause.
+    for (int j = 0; j < kNumL0FilesLimit; ++j) {
       for (int k = 0; k < 2; ++k) {
         ASSERT_OK(Put(Key(k), rnd.RandomString(1024)));
       }
@@ -4478,7 +4483,7 @@ TEST_F(DBCompactionTest, CompactRangeDelayedByImmMemTableCount) {
   // Verify that, when `CompactRangeOptions::allow_write_stall == false`, manual
   // compaction only triggers flush after it's sure stall won't be triggered for
   // immutable memtable count going too high.
-  const int kNumImmMemTableLimit = 8;
+  int NumImmMemTableLimit = 8;
   // i == 0: verifies normal case where stall is avoided by delay
   // i == 1: verifies no delay in edge case where stall trigger is same as flush
   //         trigger, so stall can't be avoided
@@ -4487,9 +4492,12 @@ TEST_F(DBCompactionTest, CompactRangeDelayedByImmMemTableCount) {
     options.disable_auto_compactions = true;
     // the delay limit is one less than the stop limit. This test focuses on
     // avoiding delay limit, but this option sets stop limit, so add one.
-    options.max_write_buffer_number = kNumImmMemTableLimit + 1;
+    options.max_write_buffer_number = NumImmMemTableLimit + 1;
     if (i == 1) {
-      options.min_write_buffer_number_to_merge = kNumImmMemTableLimit;
+      // speedb doesnt account for min_write_buffer_number_to_merge in the
+      // decision to delay so remove the stall on compact range by reducing the
+      // number of unflushed memtables by 1
+      NumImmMemTableLimit = NumImmMemTableLimit - 1;
     }
     Reopen(options);
 
@@ -4509,7 +4517,8 @@ TEST_F(DBCompactionTest, CompactRangeDelayedByImmMemTableCount) {
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
     Random rnd(301);
-    for (int j = 0; j < kNumImmMemTableLimit - 1; ++j) {
+    // speedb needs 1 more immutable memtable to reach the delay.
+    for (int j = 0; j < NumImmMemTableLimit; ++j) {
       ASSERT_OK(Put(Key(0), rnd.RandomString(1024)));
       FlushOptions flush_opts;
       flush_opts.wait = false;
@@ -4538,7 +4547,10 @@ TEST_F(DBCompactionTest, CompactRangeShutdownWhileDelayed) {
   const int kNumL0FilesLimit = 8;
   Options options = CurrentOptions();
   options.level0_file_num_compaction_trigger = kNumL0FilesTrigger;
-  options.level0_slowdown_writes_trigger = kNumL0FilesLimit;
+  // speedb's L0 compaction logic requires that level0_slowdown_writes_trigger
+  // be lower than 8 if we want to set level0_file_num_compaction_trigger to be
+  // lower than 8
+  options.level0_slowdown_writes_trigger = kNumL0FilesLimit - 1;
   // i == 0: DB::DropColumnFamily() on CompactRange's target CF unblocks it
   // i == 1: DB::CancelAllBackgroundWork() unblocks CompactRange. This is to
   //         simulate what happens during Close as we can't call Close (it
@@ -4596,7 +4608,8 @@ TEST_F(DBCompactionTest, CompactRangeSkipFlushAfterDelay) {
   const int kNumL0FilesTrigger = 4;
   const int kNumL0FilesLimit = 8;
   Options options = CurrentOptions();
-  options.level0_slowdown_writes_trigger = kNumL0FilesLimit;
+  // same as CompactRangeShutdownWhileDelayed.
+  options.level0_slowdown_writes_trigger = kNumL0FilesLimit - 1;
   options.level0_file_num_compaction_trigger = kNumL0FilesTrigger;
   Reopen(options);
 

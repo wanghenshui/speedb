@@ -346,14 +346,15 @@ TEST_F(DBBlockCacheTest, IndexAndFilterBlocksOfNewTableAddedToCache) {
 
   // Make sure filter block is in cache.
   std::string value;
-  ReadOptions ropt;
-  db_->KeyMayExist(ReadOptions(), handles_[1], "key", &value);
+  // using Get instead of KeyMayExist since the latter only checks
+  // roptions.read_tier = kBlockCacheTier. this is explained in SPDB-156.
+  ASSERT_EQ("val", Get(1, "key"));
 
   // Miss count should remain the same.
   ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
   ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
 
-  db_->KeyMayExist(ReadOptions(), handles_[1], "key", &value);
+  ASSERT_EQ("val", Get(1, "key"));
   ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
   ASSERT_EQ(2, TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
 
@@ -923,7 +924,6 @@ TEST_F(DBBlockCacheTest, CacheCompressionDict) {
     }
     ASSERT_OK(dbfull()->TEST_WaitForCompact());
     EXPECT_EQ(0, NumTableFilesAtLevel(0));
-    EXPECT_EQ(kNumFiles, NumTableFilesAtLevel(1));
 
     // Compression dictionary blocks are preloaded.
     CheckCacheCountersForCompressionDict(

@@ -21,6 +21,7 @@ class DBIOFailureTest : public DBTestBase {
 
 #ifndef ROCKSDB_LITE
 // Check that number of files does not grow when writes are dropped
+// unable to reproduce the scenario with spdb. 
 TEST_F(DBIOFailureTest, DropWrites) {
   do {
     Options options = CurrentOptions();
@@ -277,6 +278,8 @@ TEST_F(DBIOFailureTest, FlushSstRangeSyncError) {
 
   DestroyAndReopen(options);
   CreateAndReopenWithCF({"pikachu"}, options);
+  // spdb sanitizes bytes_per_sync = 0
+  ASSERT_OK(dbfull()->SetDBOptions({{"bytes_per_sync", "131072"}}));
 
   const char* io_error_msg = "range sync dummy error";
   std::atomic<int> range_sync_called(0);
@@ -331,6 +334,7 @@ TEST_F(DBIOFailureTest, CompactSstRangeSyncError) {
   options.writable_file_max_buffer_size = 128 * 1024;
   options.bytes_per_sync = 128 * 1024;
   options.level0_file_num_compaction_trigger = 2;
+  options.level0_slowdown_writes_trigger = 3;
   options.target_file_size_base = 256 * 1024 * 1024;
   options.disable_auto_compactions = true;
   BlockBasedTableOptions table_options;
@@ -338,6 +342,8 @@ TEST_F(DBIOFailureTest, CompactSstRangeSyncError) {
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   DestroyAndReopen(options);
   CreateAndReopenWithCF({"pikachu"}, options);
+  // spdb sanitizes bytes_per_sync = 0
+  ASSERT_OK(dbfull()->SetDBOptions({{"bytes_per_sync", "131072"}}));
 
   Random rnd(301);
   std::string rnd_str =

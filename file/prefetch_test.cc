@@ -138,13 +138,7 @@ TEST_P(PrefetchTest, Basic) {
   ASSERT_OK(db_->Write(WriteOptions(), &batch));
 
   // compact database
-  std::string start_key = BuildKey(0);
-  std::string end_key = BuildKey(kNumKeys - 1);
-  Slice least(start_key.data(), start_key.size());
-  Slice greatest(end_key.data(), end_key.size());
-
-  // commenting out the line below causes the example to work correctly
-  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &least, &greatest));
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
 
   if (support_prefetch && !use_direct_io) {
     // If underline file system supports prefetch, and directIO is not enabled
@@ -375,12 +369,7 @@ TEST_P(PrefetchTest, PrefetchWhenReseek) {
   }
   ASSERT_OK(db_->Write(WriteOptions(), &batch));
 
-  std::string start_key = BuildKey(0);
-  std::string end_key = BuildKey(kNumKeys - 1);
-  Slice least(start_key.data(), start_key.size());
-  Slice greatest(end_key.data(), end_key.size());
-
-  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &least, &greatest));
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
 
   fs->ClearPrefetchCount();
   buff_prefetch_count = 0;
@@ -606,12 +595,7 @@ TEST_P(PrefetchTest, PrefetchWhenReseekwithCache) {
   }
   ASSERT_OK(db_->Write(WriteOptions(), &batch));
 
-  std::string start_key = BuildKey(0);
-  std::string end_key = BuildKey(kNumKeys - 1);
-  Slice least(start_key.data(), start_key.size());
-  Slice greatest(end_key.data(), end_key.size());
-
-  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &least, &greatest));
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
 
   fs->ClearPrefetchCount();
   buff_prefetch_count = 0;

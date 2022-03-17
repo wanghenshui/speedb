@@ -44,6 +44,15 @@ class BlockBasedTableReaderTest
     BlockBasedTableOptions opts;
     opts.index_type = index_type;
     opts.no_block_cache = no_block_cache;
+    // spdb doesnt create a Block cache by default whereas rocksdb does. this
+    // change simply adds a block cache in case we do want a block cache
+    // (no_block_cache==false)
+    if (!no_block_cache) {
+      LRUCacheOptions co;
+      co.capacity = 8 << 20;
+      co.high_pri_pool_ratio = 0.0;
+      opts.block_cache = NewLRUCache(co);
+    }
     table_factory_.reset(
         static_cast<BlockBasedTableFactory*>(NewBlockBasedTableFactory(opts)));
   }

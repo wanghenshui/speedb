@@ -388,6 +388,7 @@ TEST_F(DBPropertiesTest, ReadLatencyHistogramByLevel) {
   Options options = CurrentOptions();
   options.write_buffer_size = 110 << 10;
   options.level0_file_num_compaction_trigger = 6;
+  options.level0_slowdown_writes_trigger = 7;
   options.num_levels = 4;
   options.compression = kNoCompression;
   options.max_bytes_for_level_base = 4500 << 10;
@@ -994,7 +995,8 @@ TEST_F(DBPropertiesTest, ApproximateMemoryUsage) {
   ASSERT_EQ(unflushed_mem, all_mem);
 }
 
-TEST_F(DBPropertiesTest, EstimatePendingCompBytes) {
+// speedb currently does not support estimated_compaction_needed_bytes_
+TEST_F(DBPropertiesTest, DISABLED_EstimatePendingCompBytes) {
   // Set sizes to both background thread pool to be 1 and block them.
   env_->SetBackgroundThreads(1, Env::HIGH);
   env_->SetBackgroundThreads(1, Env::LOW);
@@ -1060,6 +1062,8 @@ TEST_F(DBPropertiesTest, EstimateCompressionRatio) {
   options.compression_per_level = {kNoCompression, kSnappyCompression};
   options.disable_auto_compactions = true;
   options.num_levels = 2;
+  options.table_factory->GetOptions<BlockBasedTableOptions>()
+      ->filter_policy.reset();
   Reopen(options);
 
   // compression ratio is -1.0 when no open files at level
@@ -1341,7 +1345,8 @@ TEST_F(DBPropertiesTest, UserDefinedTablePropertiesContext) {
 }
 
 #ifndef ROCKSDB_LITE
-TEST_F(DBPropertiesTest, TablePropertiesNeedCompactTest) {
+// spdb does not support files_marked_for_compaction_ atm
+TEST_F(DBPropertiesTest, DISABLED_TablePropertiesNeedCompactTest) {
   Random rnd(301);
 
   Options options;
@@ -1411,6 +1416,7 @@ TEST_F(DBPropertiesTest, TablePropertiesNeedCompactTest) {
     iter->Seek(Key(kMaxKey - 100));
     while (iter->Valid() && iter->key().compare(Key(kMaxKey + 100)) < 0) {
       iter->Next();
+      ++c;
     }
     ASSERT_OK(iter->status());
     ASSERT_EQ(c, 0);
@@ -1420,7 +1426,10 @@ TEST_F(DBPropertiesTest, TablePropertiesNeedCompactTest) {
   }
 }
 
-TEST_F(DBPropertiesTest, NeedCompactHintPersistentTest) {
+// same as previous test DBPropertiesTest.TablePropertiesNeedCompactTest ,
+// test is assuming compaction will happen because of files marked for
+// compaction using the table properties collector.
+TEST_F(DBPropertiesTest, DISABLED_NeedCompactHintPersistentTest) {
   Random rnd(301);
 
   Options options;

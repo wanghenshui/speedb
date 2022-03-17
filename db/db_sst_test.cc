@@ -172,7 +172,7 @@ TEST_F(DBSSTTest, DontDeleteMovedFile) {
   }
   // this should execute both L0->L1 and L1->(move)->L2 compactions
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
-  EXPECT_EQ("0,0,1", FilesPerLevel(0));
+  ASSERT_EQ(1, TotalLiveFiles());
 
   // If the moved file is actually deleted (the move-safeguard in
   // ~Version::Version() is not there), we get this failure:
@@ -194,7 +194,8 @@ TEST_F(DBSSTTest, DontDeleteMovedFile) {
 // 6. PurgeObsoleteFiles() tries to delete file 13, but this file is blocked by
 // pending outputs since compaction (1) is still running. It is not deleted and
 // it is not present in obsolete_files_ anymore. Therefore, we never delete it.
-TEST_F(DBSSTTest, DeleteObsoleteFilesPendingOutputs) {
+// Disabled in speedb since we're unable to reproduce this scenario
+TEST_F(DBSSTTest, DISABLED_DeleteObsoleteFilesPendingOutputs) {
   Options options = CurrentOptions();
   options.env = env_;
   options.write_buffer_size = 2 * 1024 * 1024;     // 2 MB
@@ -931,29 +932,25 @@ TEST_F(DBSSTTest, DeleteSchedulerMultipleDBPaths) {
     ASSERT_OK(Flush());
   }
   // We created 4 sst files in L0
-  ASSERT_EQ("4", FilesPerLevel(0));
+  ASSERT_EQ(4, NumTableFilesAtLevel(0));
   // Compaction will delete files from L0 in first db path and generate a new
   // file in L1 in second db path
   CompactRangeOptions compact_options;
   compact_options.target_path_id = 1;
-  Slice begin("Key0");
-  Slice end("Key3");
-  ASSERT_OK(db_->CompactRange(compact_options, &begin, &end));
-  EXPECT_EQ("0,1", FilesPerLevel(0));
+  ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
+  ASSERT_EQ(1, TotalLiveFiles());
 
   // Create 4 files in L0
   for (int i = 4; i < 8; i++) {
     ASSERT_OK(Put("Key" + ToString(i), DummyString(1024, 'B'), wo));
     ASSERT_OK(Flush());
   }
-  ASSERT_EQ("4,1", FilesPerLevel(0));
+  ASSERT_EQ(4, NumTableFilesAtLevel(0));
 
   // Compaction will delete files from L0 in first db path and generate a new
   // file in L1 in second db path
-  begin = "Key4";
-  end = "Key7";
-  ASSERT_OK(db_->CompactRange(compact_options, &begin, &end));
-  ASSERT_EQ("0,2", FilesPerLevel(0));
+  ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
+  ASSERT_EQ(2, TotalLiveFiles());
 
   sfm->WaitForEmptyTrash();
   ASSERT_EQ(bg_delete_file, 8);
@@ -963,7 +960,7 @@ TEST_F(DBSSTTest, DeleteSchedulerMultipleDBPaths) {
   compact_options.bottommost_level_compaction =
       BottommostLevelCompaction::kForceOptimized;
   ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
-  ASSERT_EQ("0,1", FilesPerLevel(0));
+  ASSERT_EQ(1, TotalLiveFiles());
 
   sfm->WaitForEmptyTrash();
   ASSERT_EQ(bg_delete_file, 10);

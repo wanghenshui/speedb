@@ -216,6 +216,11 @@ TEST_F(DeleteFileTest, PurgeObsoleteFilesTest) {
   CheckFileTypeCounts(dbname_, 0, 3, 1);
   delete itr;
   // 1 sst after iterator deletion
+  // in spdb, avoid_unnecessary_blocking_io is sanitized to true. this leads to
+  // defering bg work such as purging obsolete files held by an iterator. for
+  // this reason we need to reopen the db in order for the sst files to be
+  // deleted.
+  TryReopen(options);
   CheckFileTypeCounts(dbname_, 0, 1, 1);
 }
 

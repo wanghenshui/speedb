@@ -660,8 +660,10 @@ TEST_F(DBBasicTest, Snapshot) {
       ASSERT_EQ("0v4", Get(0, "foo"));
       ASSERT_EQ("1v4", Get(1, "foo"));
     }
-
-    EXPECT_EQ(2U, GetNumSnapshots());
+    // spdb saves the last snapshot since
+    // 3ebbeff37fcf1689ab63592d4081f2b47a22188a . which adds an additional
+    // snapshot.
+    EXPECT_EQ(2U + 1, GetNumSnapshots());
     ASSERT_EQ(time_snap1, GetTimeOldestSnapshots());
     ASSERT_EQ(GetSequenceOldestSnapshots(), s1->GetSequenceNumber());
     ASSERT_EQ("0v1", Get(0, "foo", s1.get()));
@@ -676,13 +678,12 @@ TEST_F(DBBasicTest, Snapshot) {
     ASSERT_EQ("1v2", Get(1, "foo", s2.get()));
     ASSERT_EQ("0v4", Get(0, "foo"));
     ASSERT_EQ("1v4", Get(1, "foo"));
-    ASSERT_EQ(1U, GetNumSnapshots());
+    ASSERT_EQ(1U + 1, GetNumSnapshots());
     ASSERT_LT(time_snap1, GetTimeOldestSnapshots());
     ASSERT_EQ(GetSequenceOldestSnapshots(), s2->GetSequenceNumber());
 
     s2.reset();
-    ASSERT_EQ(0U, GetNumSnapshots());
-    ASSERT_EQ(GetSequenceOldestSnapshots(), 0);
+    ASSERT_EQ(0U + 1, GetNumSnapshots());
     ASSERT_EQ("0v4", Get(0, "foo"));
     ASSERT_EQ("1v4", Get(1, "foo"));
   } while (ChangeOptions());
@@ -706,6 +707,8 @@ class DBBasicMultiConfigs : public DBBasicTest,
   }
 };
 
+// last_snapshot_ stops compaction from deleting old key-values
+// implement resetting of last_snapshot_
 TEST_P(DBBasicMultiConfigs, CompactBetweenSnapshots) {
   anon::OptionsOverride options_override;
   options_override.skip_policy = kSkipNoSnapshot;
@@ -802,6 +805,8 @@ TEST_F(DBBasicTest, DBOpen_Options) {
   db = nullptr;
 }
 
+// last_snapshot_ stops compaction from deleting old key-values
+// implement resetting of last_snapshot_
 TEST_F(DBBasicTest, CompactOnFlush) {
   anon::OptionsOverride options_override;
   options_override.skip_policy = kSkipNoSnapshot;
