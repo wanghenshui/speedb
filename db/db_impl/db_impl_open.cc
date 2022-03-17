@@ -1754,7 +1754,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     persist_options_status = impl->WriteOptionsFile(
         false /*need_mutex_lock*/, false /*need_enter_write_thread*/);
 
-    impl->opened_successfully_ = true;
+    impl->SetOpenedSuccessfully();
     impl->MaybeScheduleFlushOrCompaction();
   } else {
     persist_options_status.PermitUncheckedError();
