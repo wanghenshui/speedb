@@ -5450,7 +5450,26 @@ class HistogramTypeJni {
       case ROCKSDB_NAMESPACE::Histograms::NUM_SST_READ_PER_LEVEL:
         return 0x31;
       case ROCKSDB_NAMESPACE::Histograms::ERROR_HANDLER_AUTORESUME_RETRY_COUNT:
-        return 0x31;
+        return 0x32;
+      case ROCKSDB_NAMESPACE::Histograms::COMPACTION_CPU_TIME:
+        return 0x33;
+      case ROCKSDB_NAMESPACE::Histograms::DB_GET_MEMTABLE:
+        return 0x34;
+      case ROCKSDB_NAMESPACE::Histograms::DB_GET_INDEX1:
+        return 0x35;
+      case ROCKSDB_NAMESPACE::Histograms::DB_GET_INDEX2:
+        return 0x36;
+      case ROCKSDB_NAMESPACE::Histograms::DB_GET_FILTER1:
+        return 0x37;
+      case ROCKSDB_NAMESPACE::Histograms::DB_GET_FILTER2:
+        return 0x38;
+      case ROCKSDB_NAMESPACE::Histograms::DB_WRITE_WAIT_FOR_WAL:
+        return 0x39;
+      case ROCKSDB_NAMESPACE::Histograms::DB_WRITE_WAIT_FOR_WAL_WITH_MUTEX:
+        return 0x3A;
+      case ROCKSDB_NAMESPACE::Histograms::DB_WAL_WRITE_TIME:
+        return 0x3B;
+
       case ROCKSDB_NAMESPACE::Histograms::HISTOGRAM_ENUM_MAX:
         // 0x1F for backwards compatibility on current minor version.
         return 0x1F;

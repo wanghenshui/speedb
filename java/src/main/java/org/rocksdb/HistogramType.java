@@ -180,6 +180,17 @@ public enum HistogramType {
    */
   ERROR_HANDLER_AUTORESUME_RETRY_COUNT((byte) 0x32),
 
+  COMPACTION_CPU_TIME((byte) 0x33),
+  
+  DB_GET_MEMTABLE((byte) 0x34),
+  DB_GET_INDEX1((byte) 0x35),
+  DB_GET_INDEX2((byte) 0x36),
+  DB_GET_FILTER1((byte) 0x37),
+  DB_GET_FILTER2((byte) 0x38),
+  DB_WRITE_WAIT_FOR_WAL((byte) 0x39),
+  DB_WRITE_WAIT_FOR_WAL_WITH_MUTEX((byte) 0x3A),
+  DB_WAL_WRITE_TIME((byte) 0x3B),
+
   // 0x1F for backwards compatibility on current minor version.
   HISTOGRAM_ENUM_MAX((byte) 0x1F);
 
