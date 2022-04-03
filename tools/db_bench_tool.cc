@@ -541,6 +541,10 @@ DEFINE_bool(
     " Note `cache_index_and_filter_blocks` must be true for this option to have"
     " any effect.");
 
+DEFINE_bool(
+    spdb_cache_counters, true,
+    "Maintain SPDB's additional block cache counters");
+
 DEFINE_int32(block_size,
              static_cast<int32_t>(
                  ROCKSDB_NAMESPACE::BlockBasedTableOptions().block_size),
@@ -4038,7 +4042,8 @@ class Benchmark {
       block_based_options.metadata_cache_options.unpartitioned_pinning =
           FLAGS_unpartitioned_pinning ? PinningTier::kAll
                                       : PinningTier::kFallback;
-
+      block_based_options.spdb_maintain_additional_block_cache_counters =    
+          FLAGS_spdb_cache_counters;
       block_based_options.block_cache = cache_;
       block_based_options.block_cache_compressed = compressed_cache_;
       block_based_options.block_size = FLAGS_block_size;
@@ -8003,7 +8008,6 @@ int db_bench_tool(int argc, char** argv) {
   }
 
   ValidateMetadataCacheOptions();
-
   ROCKSDB_NAMESPACE::Benchmark benchmark;
   benchmark.Run();
 

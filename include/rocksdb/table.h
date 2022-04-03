@@ -180,6 +180,13 @@ struct BlockBasedTableOptions {
   // overflowing block cache.
   MetadataCacheOptions metadata_cache_options;
 
+  // SPDB-589: We have added multiple counters that provide visibility into
+  // the internals of the block cache to aid in performance analysis.
+  // In our performance tests, we haven't noticed any significant affect on
+  // performance.
+  // This flag controls whether these flags will be maintained or not
+  bool spdb_maintain_additional_block_cache_counters = true;
+
   // The index type that will be used for this table.
   enum IndexType : char {
     // A space efficient index block that is optimized for

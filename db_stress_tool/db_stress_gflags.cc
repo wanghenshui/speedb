@@ -305,6 +305,10 @@ DEFINE_int32(
     "Type of pinning for unpartitioned metadata blocks (see `enum PinningTier` "
     "in table.h)");
 
+DEFINE_bool(
+    spdb_cache_counters, true,
+    "Maintain SPDB's additional block cache counters");
+
 DEFINE_bool(use_clock_cache, false,
             "Replace default LRU block cache with clock cache.");
 

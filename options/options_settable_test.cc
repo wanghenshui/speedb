@@ -161,6 +161,7 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
       "metadata_cache_options={top_level_index_pinning=kFallback;"
       "partition_pinning=kAll;"
       "unpartitioned_pinning=kFlushedAndSimilar;};"
+      "spdb_maintain_additional_block_cache_counters=true;"
       "pin_l0_filter_and_index_blocks_in_cache=1;"
       "pin_top_level_index_and_filter=1;"
       "index_type=kHashSearch;"
