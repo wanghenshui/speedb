@@ -73,6 +73,7 @@ class CacheShard {
 class ShardedCache : public Cache {
  public:
   ShardedCache(size_t capacity, int num_shard_bits, bool strict_capacity_limit,
+               bool spdb_cache_counters,
                std::shared_ptr<MemoryAllocator> memory_allocator = nullptr);
   virtual ~ShardedCache() = default;
   virtual CacheShard* GetShard(uint32_t shard) = 0;

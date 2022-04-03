@@ -94,20 +94,30 @@ struct LRUCacheOptions {
   // A SecondaryCache instance to use a the non-volatile tier
   std::shared_ptr<SecondaryCache> secondary_cache;
 
+  // SPDB-589: We have added multiple counters that provide visibility into
+  // the internals of the block cache to aid in performance analysis.
+  // In our performance tests, we haven't noticed any significant affect on
+  // performance.
+  // This flag controls whether these flags will be maintained or not
+  bool spdb_cache_counters = false;
+
   LRUCacheOptions() {}
   LRUCacheOptions(size_t _capacity, int _num_shard_bits,
                   bool _strict_capacity_limit, double _high_pri_pool_ratio,
                   std::shared_ptr<MemoryAllocator> _memory_allocator = nullptr,
                   bool _use_adaptive_mutex = kDefaultToAdaptiveMutex,
                   CacheMetadataChargePolicy _metadata_charge_policy =
-                      kDefaultCacheMetadataChargePolicy)
+                      kDefaultCacheMetadataChargePolicy,
+                  bool _spdb_cache_counters = false
+                  )
       : capacity(_capacity),
         num_shard_bits(_num_shard_bits),
         strict_capacity_limit(_strict_capacity_limit),
         high_pri_pool_ratio(_high_pri_pool_ratio),
         memory_allocator(std::move(_memory_allocator)),
         use_adaptive_mutex(_use_adaptive_mutex),
-        metadata_charge_policy(_metadata_charge_policy) {}
+        metadata_charge_policy(_metadata_charge_policy),
+        spdb_cache_counters(_spdb_cache_counters) {}
 };
 
 // Create a new cache with a fixed size capacity. The cache is sharded
@@ -124,8 +134,9 @@ extern std::shared_ptr<Cache> NewLRUCache(
     std::shared_ptr<MemoryAllocator> memory_allocator = nullptr,
     bool use_adaptive_mutex = kDefaultToAdaptiveMutex,
     CacheMetadataChargePolicy metadata_charge_policy =
-        kDefaultCacheMetadataChargePolicy);
-
+        kDefaultCacheMetadataChargePolicy,
+    bool spdb_cache_counters = false);
+    
 extern std::shared_ptr<Cache> NewLRUCache(const LRUCacheOptions& cache_opts);
 
 // Similar to NewLRUCache, but create a cache based on CLOCK algorithm with

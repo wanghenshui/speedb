@@ -266,7 +266,8 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
                 double high_pri_pool_ratio, bool use_adaptive_mutex,
                 CacheMetadataChargePolicy metadata_charge_policy,
                 int max_upper_hash_bits,
-                const std::shared_ptr<SecondaryCache>& secondary_cache);
+                const std::shared_ptr<SecondaryCache>& secondary_cache,
+                bool spdb_cache_counters);
   virtual ~LRUCacheShard() override = default;
 
   // Separate from constructor so caller can easily make an array of LRUCache
@@ -392,7 +393,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
   // Dummy head of LRU list.
   // lru.prev is newest entry, lru.next is oldest entry.
   // LRU contains items which can be evicted, ie reference only by cache
-  LRUHandle lru_;
+  LRUH andle lru_;
 
   // Pointer to head of low-pri pool in LRU list.
   LRUHandle* lru_low_pri_;
@@ -416,12 +417,6 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
   // Memory size for entries residing only in the LRU list
   size_t lru_usage_;
 
-  size_t usage_low_ = 0U;
-  size_t lru_usage_low_ = 0U;
-
-  size_t num_high_ = 0U;
-  size_t num_low_ = 0U;
-
   // mutex_ protects the following state.
   // We don't count mutex_ as the cache's internal state so semantically we
   // don't mind mutex_ invoking the non-const actions.
@@ -442,7 +437,21 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
 
   uint64_t GetPriValue(const LRUHandle* e) {return static_cast<uint64_t>(e->IsHighPri()? Cache::Priority::HIGH : Cache::Priority::LOW);}
   
-  AdditionalCacheStats additional_stats_;
+  private:
+    struct SpdbCountersAuxVars {    
+      size_t usage_low_ = 0U;
+      size_t lru_usage_low_ = 0U;
+
+      size_t num_high_ = 0U;
+      size_t num_low_ = 0U;
+    };
+
+  private:
+    // Main flag that controls whether SPDB counters are maintained or not
+    bool spdb_cache_counters_;
+    SpdbCountersAuxVars spdb_counters_aux_vars_;
+    
+    AdditionalCacheStats additional_stats_;
 };
 
 class LRUCache
@@ -457,7 +466,8 @@ class LRUCache
            bool use_adaptive_mutex = kDefaultToAdaptiveMutex,
            CacheMetadataChargePolicy metadata_charge_policy =
                kDontChargeCacheMetadata,
-           const std::shared_ptr<SecondaryCache>& secondary_cache = nullptr);
+           const std::shared_ptr<SecondaryCache>& secondary_cache = nullptr,
+           bool spdb_cache_counters = false);
   virtual ~LRUCache();
   virtual const char* Name() const override { return "LRUCache"; }
   virtual CacheShard* GetShard(uint32_t shard) override;

@@ -185,7 +185,7 @@ struct BlockBasedTableOptions {
   // In our performance tests, we haven't noticed any significant affect on
   // performance.
   // This flag controls whether these flags will be maintained or not
-  bool spdb_maintain_additional_block_cache_counters = true;
+  bool spdb_block_cache_counters = true;
 
   // The index type that will be used for this table.
   enum IndexType : char {

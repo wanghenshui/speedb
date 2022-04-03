@@ -108,9 +108,10 @@ void LRUHandleTable::Resize() {
 
 LRUCacheShard::LRUCacheShard(
     size_t capacity, bool strict_capacity_limit, double high_pri_pool_ratio,
-    bool use_adaptive_mutex, CacheMetadataChargePolicy metadata_charge_policy,
+    bool use_adaptive_mutex, CacheMetaspdb_cache_counters_dataChargePolicy metadata_charge_policy,
     int max_upper_hash_bits,
-    const std::shared_ptr<SecondaryCache>& secondary_cache)
+    const std::shared_ptr<SecondaryCache>& secondary_cache,
+    bool spdb_cache_counters)
     : capacity_(0),
       high_pri_pool_usage_(0),
       strict_capacity_limit_(strict_capacity_limit),
@@ -122,7 +123,8 @@ LRUCacheShard::LRUCacheShard(
       usage_low_(0),
       lru_usage_low_(0),
       mutex_(use_adaptive_mutex),
-      secondary_cache_(secondary_cache) {
+      secondary_cache_(secondary_cache),
+      spdb_cache_counters_(spdb_cache_counters) {
   set_metadata_charge_policy(metadata_charge_policy);
   // Make empty circular linked list
   lru_.next = &lru_;
@@ -784,8 +786,10 @@ LRUCache::LRUCache(size_t capacity, int num_shard_bits,
                    std::shared_ptr<MemoryAllocator> allocator,
                    bool use_adaptive_mutex,
                    CacheMetadataChargePolicy metadata_charge_policy,
-                   const std::shared_ptr<SecondaryCache>& secondary_cache)
+                   const std::shared_ptr<SecondaryCache>& secondary_cache,
+                   bool spdb_cache_counters)
     : ShardedCache(capacity, num_shard_bits, strict_capacity_limit,
+                   spdb_cache_counters,
                    std::move(allocator)) {
   num_shards_ = 1 << num_shard_bits;
   shards_ = reinterpret_cast<LRUCacheShard*>(
@@ -908,7 +912,8 @@ std::shared_ptr<Cache> NewLRUCache(
     double high_pri_pool_ratio,
     std::shared_ptr<MemoryAllocator> memory_allocator, bool use_adaptive_mutex,
     CacheMetadataChargePolicy metadata_charge_policy,
-    const std::shared_ptr<SecondaryCache>& secondary_cache) {
+    const std::shared_ptr<SecondaryCache>& secondary_cache,
+    bool spdb_cache_counters) {
   if (num_shard_bits >= 20) {
     return nullptr;  // the cache cannot be sharded into too many fine pieces
   }
@@ -922,7 +927,7 @@ std::shared_ptr<Cache> NewLRUCache(
   return std::make_shared<LRUCache>(
       capacity, num_shard_bits, strict_capacity_limit, high_pri_pool_ratio,
       std::move(memory_allocator), use_adaptive_mutex, metadata_charge_policy,
-      secondary_cache);
+      secondary_cache, spdb_cache_counters);
 }
 
 std::shared_ptr<Cache> NewLRUCache(const LRUCacheOptions& cache_opts) {
@@ -930,16 +935,19 @@ std::shared_ptr<Cache> NewLRUCache(const LRUCacheOptions& cache_opts) {
       cache_opts.capacity, cache_opts.num_shard_bits,
       cache_opts.strict_capacity_limit, cache_opts.high_pri_pool_ratio,
       cache_opts.memory_allocator, cache_opts.use_adaptive_mutex,
-      cache_opts.metadata_charge_policy, cache_opts.secondary_cache);
+      cache_opts.metadata_charge_policy, cache_opts.secondary_cache,
+      cache_opts.spdb_cache_counters);
 }
 
 std::shared_ptr<Cache> NewLRUCache(
     size_t capacity, int num_shard_bits, bool strict_capacity_limit,
     double high_pri_pool_ratio,
     std::shared_ptr<MemoryAllocator> memory_allocator, bool use_adaptive_mutex,
-    CacheMetadataChargePolicy metadata_charge_policy) {
+    CacheMetadataChargePolicy metadata_charge_policy,
+    bool spdb_cache_counters) {
   return NewLRUCache(capacity, num_shard_bits, strict_capacity_limit,
                      high_pri_pool_ratio, memory_allocator, use_adaptive_mutex,
-                     metadata_charge_policy, nullptr);
+                     metadata_charge_policy, nullptr,
+                     spdb_cache_counters);
 }
 }  // namespace ROCKSDB_NAMESPACE
