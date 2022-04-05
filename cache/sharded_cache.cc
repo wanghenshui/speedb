@@ -29,7 +29,6 @@ inline uint32_t HashSlice(const Slice& s) {
 
 ShardedCache::ShardedCache(size_t capacity, int num_shard_bits,
                            bool strict_capacity_limit,
-                           bool spdb_cache_counters,
                            std::shared_ptr<MemoryAllocator> allocator)
     : Cache(std::move(allocator)),
       shard_mask_((uint32_t{1} << num_shard_bits) - 1),

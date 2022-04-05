@@ -393,7 +393,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
   // Dummy head of LRU list.
   // lru.prev is newest entry, lru.next is oldest entry.
   // LRU contains items which can be evicted, ie reference only by cache
-  LRUH andle lru_;
+  LRUHandle lru_;
 
   // Pointer to head of low-pri pool in LRU list.
   LRUHandle* lru_low_pri_;
