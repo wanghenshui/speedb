@@ -1871,7 +1871,7 @@ Status BlockBasedTable::RetrieveBlock(
   assert(block_entry->IsEmpty());
 
   Status s;
-  if (use_cache) {
+  if (use_cache and (block_type != BlockType::kData)) {
     s = MaybeReadBlockAndLoadToCache(
         prefetch_buffer, ro, handle, uncompression_dict, wait_for_cache,
         block_entry, block_type, get_context, lookup_context,
