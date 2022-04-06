@@ -1128,7 +1128,7 @@ Status BlockBasedTable::GetDataBlockFromCache(
   Cache::Handle* block_cache_compressed_handle = nullptr;
   Statistics* statistics = rep_->ioptions.statistics.get();
   bool using_zstd = rep_->blocks_definitely_zstd_compressed;
-  const FilterPolicy* filter_policy = rep_->filter_policy;
+  const FilterPolicy* filter_policy = rep_->filter_policy;`
   Cache::CreateCallback create_cb = GetCreateCallback<TBlocklike>(
       read_amp_bytes_per_bit, statistics, using_zstd, filter_policy);
 
