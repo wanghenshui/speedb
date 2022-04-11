@@ -2,7 +2,7 @@
 
 #define SPEEDB_MAJOR 1
 #define SPEEDB_MINOR 5
-#define SPEEDB_PATCH 12
+#define SPEEDB_PATCH 13
 
 namespace ROCKSDB_NAMESPACE {
 // Returns the current version of SpeeDB as a string (e.g. "1.5.0").
