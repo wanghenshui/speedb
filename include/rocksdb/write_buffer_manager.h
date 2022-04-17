@@ -157,6 +157,8 @@ class WriteBufferManager {
 
   void RemoveDBFromQueue(StallInterface* wbm_stall);
 
+  std::string GetPrintableOptions() const;  
+
  private:
   std::atomic<size_t> buffer_size_;
   std::atomic<size_t> mutable_limit_;

@@ -225,4 +225,20 @@ void WriteBufferManager::RemoveDBFromQueue(StallInterface* wbm_stall) {
   }
 }
 
+std::string WriteBufferManager::GetPrintableOptions() const {
+  std::string ret;
+  const int kBufferSize = 200;
+  char buffer[kBufferSize];
+
+  // The assumed width of the callers display code
+  int field_width = 47;
+  
+  snprintf(buffer, kBufferSize, "%*s: %" PRIu64 "\n",
+           field_width, "size", buffer_size());
+  ret.append(buffer);
+
+  return ret;
+}
+
+
 }  // namespace ROCKSDB_NAMESPACE
