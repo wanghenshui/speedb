@@ -946,6 +946,11 @@ double ColumnFamilyData::CalculateWriteDelayIncrement(
   if (needs_flush_speedup != nullptr && memtable_increment > 0) {
     *needs_flush_speedup = true;
   }
+  // as part of SPDB-570 - dont delay based on L0 when the user disables auto
+  // compactions
+  if (current_->GetMutableCFOptions().disable_auto_compactions) {
+    return memtable_increment;
+  }
 
   const int extra_l0_ssts = vstorage->NumLevelFiles(0) -
                             mutable_cf_options_.level0_slowdown_writes_trigger;
