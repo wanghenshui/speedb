@@ -592,8 +592,8 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   uint64_t hard_pending_compaction_bytes_limit = 256 * 1073741824ull;
 
-  // The compaction style. Default: kCompactionStyleLevel
-  CompactionStyle compaction_style = kCompactionStyleLevel;
+  // The compaction style. Default: kCompactionStyleHybrid (SpeeDB's default)
+  CompactionStyle compaction_style = kCompactionStyleHybrid;
 
   // If level compaction_style = kCompactionStyleLevel, for each level,
   // which files are prioritized to be picked to compact.

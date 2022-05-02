@@ -175,10 +175,14 @@ struct CompactionJob::SubcompactionState {
   // The number of bytes overlapping between the current output and
   // grandparent files used in ShouldStopBefore().
   uint64_t overlapped_bytes = 0;
+  // A flag to determine whether the key has been seen in ShouldStopBefore()
+  bool seen_key = false;
+
   // the first key in the current file
   std::string first_key_prefix;
   std::vector<size_t> max_sizes;
   size_t prefix_table_size;
+  bool hybrid;
 
   SubcompactionState(Compaction* c, Slice* _start, Slice* _end,
                      size_t prefix_size, uint64_t size)
@@ -195,6 +199,9 @@ struct CompactionJob::SubcompactionState {
         overlapped_bytes(0),
         prefix_table_size(prefix_size) {
     assert(compaction != nullptr);
+    hybrid = (compaction->column_family_data()->ioptions()->compaction_style ==
+              kCompactionStyleHybrid);
+
     const std::vector<FileMetaData*>& grandparents = compaction->grandparents();
     auto maxFileSize = compaction->max_output_file_size();
     max_sizes.resize(grandparents.size() + 1);
@@ -232,6 +239,8 @@ struct CompactionJob::SubcompactionState {
     first_key_prefix = std::move(o.first_key_prefix);
     max_sizes = std::move(o.max_sizes);
     prefix_table_size = std::move(o.prefix_table_size);
+    hybrid = std::move(o.hybrid);
+
     return *this;
   }
 
@@ -251,7 +260,7 @@ struct CompactionJob::SubcompactionState {
 
   // Returns true iff we should stop building the current output
   // before processing "internal_key".
-  bool ShouldStopBefore(const Slice& user_key, uint64_t curr_file_size) {
+  bool ShouldStopBeforeHybrid(const Slice& user_key, uint64_t curr_file_size) {
     auto ucmp = compaction->column_family_data()->user_comparator();
 
     const std::vector<FileMetaData*>& grandparents = compaction->grandparents();
@@ -307,6 +316,41 @@ struct CompactionJob::SubcompactionState {
     }
 
     return ret;
+  }
+
+  // Returns true iff we should stop building the current output
+  // before processing "internal_key".
+  bool ShouldStopBefore(const Slice& internal_key, uint64_t curr_file_size) {
+    if (hybrid)
+      return ShouldStopBeforeHybrid(ExtractUserKey(internal_key),
+                                    curr_file_size);
+
+    const InternalKeyComparator* icmp =
+        &compaction->column_family_data()->internal_comparator();
+    const std::vector<FileMetaData*>& grandparents = compaction->grandparents();
+
+    // Scan to find earliest grandparent file that contains key.
+    while (grandparent_index < grandparents.size() &&
+           icmp->Compare(internal_key,
+                         grandparents[grandparent_index]->largest.Encode()) >
+               0) {
+      if (seen_key) {
+        overlapped_bytes += grandparents[grandparent_index]->fd.GetFileSize();
+      }
+      assert(grandparent_index + 1 >= grandparents.size() ||
+             icmp->Compare(
+                 grandparents[grandparent_index]->largest.Encode(),
+                 grandparents[grandparent_index + 1]->smallest.Encode()) <= 0);
+      grandparent_index++;
+    }
+    seen_key = true;
+    if (overlapped_bytes + curr_file_size >
+        compaction->max_compaction_bytes()) {
+      // Too much overlap for current output; start new output
+      overlapped_bytes = 0;
+      return true;
+    }
+    return false;
   }
 };
 
@@ -1302,7 +1346,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     // ShouldStopBefore() maintains state based on keys processed so far. The
     // compaction loop always calls it on the "next" key, thus won't tell it the
     // first key. So we do that here.
-    sub_compact->ShouldStopBefore(c_iter->user_key(),
+    sub_compact->ShouldStopBefore(c_iter->key(),
                                   sub_compact->current_output_file_size);
   }
   const auto& c_iter_stats = c_iter->iter_stats();
@@ -1395,7 +1439,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
                        sub_compact->current_output_file_size)) == kRequired) ||
                   (sub_compact->compaction->output_level() != 0 &&
                    sub_compact->ShouldStopBefore(
-                       c_iter->user_key(),
+                       c_iter->key(),
                        sub_compact->current_output_file_size)))) {
         // (2) this key belongs to the next file. For historical reasons, the
         // iterator status after advancing will be given to

@@ -2273,12 +2273,8 @@ TEST_P(ColumnFamilyTest, SanitizeOptions) {
               ASSERT_GE(result.num_levels, 2);
             } else {
               ASSERT_GE(result.num_levels, 1);
-              // num levels is sanitized in SetOptions in
-              // db/compaction/compaction_picker_hybrid.h
-              if (original.num_levels == 1) {
-                EXPECT_EQ(result.num_levels, 26);
-              } else if (original.num_levels == 2) {
-                EXPECT_EQ(result.num_levels, 50);
+              if (original.num_levels >= 1) {
+                ASSERT_EQ(result.num_levels, original.num_levels);
               }
             }
 

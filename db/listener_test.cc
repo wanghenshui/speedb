@@ -169,8 +169,6 @@ TEST_F(EventListenerTest, OnSingleDBCompactionTest) {
   options.env = CurrentOptions().env;
   options.create_if_missing = true;
   options.write_buffer_size = kEntrySize * kEntriesPerBuffer;
-  // We force hybrid style so might as well make it explicit
-  options.compaction_style = kCompactionStyleHybrid;
   options.target_file_size_base = options.write_buffer_size;
   options.max_bytes_for_level_base = options.target_file_size_base * 2;
   options.max_bytes_for_level_multiplier = 2;
@@ -545,8 +543,6 @@ TEST_F(EventListenerTest, CompactionReasonLevel) {
 
   options.level0_file_num_compaction_trigger = 4;
   options.level0_slowdown_writes_trigger = 5;
-  // We force hybrid style so might as well make it explicit
-  options.compaction_style = kCompactionStyleHybrid;
 
   DestroyAndReopen(options);
   Random rnd(301);
@@ -617,8 +613,7 @@ TEST_F(EventListenerTest, CompactionReasonUniversal) {
   TestCompactionReasonListener* listener = new TestCompactionReasonListener();
   options.listeners.emplace_back(listener);
 
-  // The compaction style is overwritten by Speedb to be kCompactionStyleHybrid
-  // regardless of user's request
+  // The compaction style is kCompactionStyleHybrid by default
   options.compaction_style = kCompactionStyleUniversal;
 
   Random rnd(301);
@@ -628,9 +623,6 @@ TEST_F(EventListenerTest, CompactionReasonUniversal) {
   options.compaction_options_universal.size_ratio = 100000;
   DestroyAndReopen(options);
   listener->compaction_reasons_.clear();
-
-  // Speedb uses hybrid compaction by default
-  ASSERT_EQ(kCompactionStyleHybrid, dbfull()->GetOptions().compaction_style);
 
   // Write 8 files in L0
   for (int i = 0; i < 8; i++) {

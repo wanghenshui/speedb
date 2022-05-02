@@ -62,8 +62,6 @@ class HybridCompactionPicker : public CompactionPicker {
 
   // set and optimize the cf options to work with hybrid compaction
   static void SetOptions(ColumnFamilyOptions& options) {
-    options.compaction_style = kCompactionStyleHybrid;
-
     const int required_mult =
         (options.compaction_options_universal.min_merge_width <
              kLevelsToMergeMin ||

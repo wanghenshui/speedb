@@ -909,6 +909,7 @@ TEST_F(DBSSTTest, DeleteSchedulerMultipleDBPaths) {
   options.disable_auto_compactions = true;
   options.db_paths.emplace_back(dbname_, 1024 * 100);
   options.db_paths.emplace_back(dbname_ + "_2", 1024 * 100);
+  options.compaction_style = kCompactionStyleLevel;
   options.env = env_;
 
   int64_t rate_bytes_per_sec = 1024 * 1024;  // 1 Mb / Sec

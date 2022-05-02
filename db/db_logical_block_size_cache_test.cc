@@ -64,6 +64,7 @@ TEST_F(DBLogicalBlockSizeCacheTest, OpenClose) {
   Options options;
   options.create_if_missing = true;
   options.env = env_.get();
+  options.compaction_style = kCompactionStyleLevel;
   options.db_paths = {{data_path_0_, 2048}, {data_path_1_, 2048}};
 
   for (int i = 0; i < 2; i++) {
@@ -128,6 +129,7 @@ TEST_F(DBLogicalBlockSizeCacheTest, CreateColumnFamily) {
   options.create_if_missing = true;
   options.env = env_.get();
   ColumnFamilyOptions cf_options;
+  cf_options.compaction_style = kCompactionStyleLevel;
   cf_options.cf_paths = {{cf_path_0_, 1024}, {cf_path_1_, 2048}};
 
   DB* db;
