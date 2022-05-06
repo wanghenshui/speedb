@@ -3,6 +3,9 @@ import re
 import sys
 from enum import Enum, auto
 from dataclasses import dataclass
+import difflib
+
+cmdline_args = ""
 
 
 class TestResult(Enum):
@@ -141,6 +144,7 @@ class DiffInfo:
     new_iter_params: str = None
     misc1: any = None
     misc2: any = None
+    misc3: any = None
 
     def __lt__(self, other):
         if self.test_file_name != other.test_file_name:
@@ -161,7 +165,8 @@ class DiffInfo:
                 "Ref Line-Num",
                 "New Line-Num",
                 "Misc1",
-                "Misc2"]
+                "Misc2",
+                "Misc3"]
 
     def get_iters_for_csv(self):
         iterations = ""
@@ -199,6 +204,7 @@ class DiffInfo:
             self.new_unified_log_line_num else ""
         misc1 = self.misc1 if self.misc1 else ""
         misc2 = self.misc2 if self.misc2 else ""
+        misc3 = self.misc3 if self.misc3 else ""
 
         csv_row = [
             test_file_name,
@@ -210,7 +216,8 @@ class DiffInfo:
             ref_line_num,
             new_line_num,
             misc1,
-            misc2]
+            misc2,
+            misc3]
 
         return csv_row
 
@@ -243,8 +250,7 @@ class ErrorInfo:
 # A dummy value to indicate an invalid iteration number
 NO_ITER_VALUE = 2 ** 20
 MIN_REF_TEST_TIME_MS_TO_CHECK_NEW_TIME = 100
-TIME_INCREASE_MAX_ALLOWED_RATIO = 1.3
-COMMENT_LINE_REGEX = r"############.*############"
+MAX_ALLOWED_TIME_INCREASE_PERCENT = 30
 
 # Record the script's exit code in case an error occurred but
 # the script continues to run
@@ -313,6 +319,14 @@ def normalize_test_log_with_iter(test_name, test_result, iter_num,
     return re.sub(r"[0-9]+ ms", "ms", normalized_log)
 
 
+def get_diff_lines(s1, s2):
+    diff_lines = ""
+    for line in difflib.ndiff(s1.splitlines(), s2.splitlines()):
+        if line[0] == '-' or line[0] == '+':
+            diff_lines += line + "\n"
+    return diff_lines
+
+
 def are_test_logs_with_iter_equal(test_name, test_info1, test_info2):
     if test_info1.result != test_info2.result:
         return False
@@ -325,7 +339,11 @@ def are_test_logs_with_iter_equal(test_name, test_info1, test_info2):
                                                    test_info2.result,
                                                    test_info2.header.iter_num,
                                                    test_info2.log)
-    return normalized_log1 == normalized_log2
+
+    if normalized_log1 == normalized_log2:
+        return True, ""
+    else:
+        return False, get_diff_lines(normalized_log1, normalized_log2)
 
 
 def build_exception_info(e):
@@ -380,5 +398,82 @@ def get_exit_code():
 
 
 def percentage_diff_str(ref, new):
-    percentage = 100 * float(new - ref)/float(new)
+    percentage = 100 * float(new - ref)/float(ref)
     return str(int(round(percentage, 0))) + "%"
+
+
+# =============================================================================
+def add_cmdline_arg_ref_log(parser):
+    parser.add_argument("ref_log_full_name",
+                        metavar="[ref log]",
+                        help="Reference log file name")
+
+
+def add_cmdline_arg_new_log(parser):
+    parser.add_argument("new_log_full_name",
+                        metavar="[new log]",
+                        help="Reference log file name")
+
+
+def add_cmdline_arg_csv(parser):
+    parser.add_argument("diff_csv_full_name",
+                        metavar="[csv file]",
+                        help="csv file name to which the result will be "
+                             "written")
+
+
+def add_cmdline_optional_arg_description(parser):
+    parser.add_argument("-d", "--description",
+                        help="Description of the branch/version collected",
+                        default="")
+
+
+def add_cmdline_optional_arg_report_pass(parser):
+    parser.add_argument("-p", "--report-pass",
+                        help="Include in the csv information about tests "
+                             "that have passed",
+                        action="store_true",
+                        default=False)
+
+
+def add_cmdline_optional_arg_report_full_diff(parser):
+    parser.add_argument("-f", "--report-full-diff",
+                        help="Include in the csv detailed diff information "
+                             "about mismatching logs",
+                        action="store_true",
+                        default=False)
+
+
+def add_cmdline_optional_arg_ignore_too_long(parser):
+    parser.add_argument("-t", "--ignore-too-long",
+                        help="Ignore too long tests (conflicts with -m / -i)",
+                        action="store_true",
+                        default=False)
+
+
+def add_cmdline_optional_arg_min_time(parser):
+    parser.add_argument("-m", "--min-ref-time",
+                        help="Min test time (ms) to check if too long ("
+                             "conflicts with -t)",
+                        type=int,
+                        default=MIN_REF_TEST_TIME_MS_TO_CHECK_NEW_TIME)
+
+
+def add_cmdline_optional_arg_min_ref_time_increase(parser):
+    parser.add_argument("-i", "--ref-time-increase",
+                        help="Min increase in ref test time (percent) to "
+                             "report as too long (conflicts with -t)",
+                        type=int,
+                        default=MAX_ALLOWED_TIME_INCREASE_PERCENT)
+
+
+def check_cmdline_conflicts():
+    if cmdline_args.ignore_too_long:
+        if ("-m" in sys.argv or "--min-ref-time" in sys.argv or
+                "-i" in sys.argv or "--ref-time-increase" in sys.argv):
+            print("Error: -t conflicts with -m and with -i")
+            return False
+        else:
+            return True
+    else:
+        return True

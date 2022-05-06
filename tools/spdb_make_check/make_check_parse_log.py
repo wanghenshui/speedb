@@ -1,10 +1,17 @@
 import re
-import sys
 import csv
+import argparse
+
+import make_check_utils as mcu
 from make_check_utils import TestLogNameInfo, UnifiedConsts, \
     report_exception, NO_ITER_VALUE, get_exit_code, TestResult, \
     ItersGroup, TestHeader, are_test_logs_with_iter_equal, \
-    TestInfo, LogsMd, COMMENT_LINE_REGEX
+    TestInfo, LogsMd, \
+    add_cmdline_arg_csv,\
+    add_cmdline_optional_arg_report_pass
+
+
+COMMENT_LINE_REGEX = r"############.*############"
 
 
 # Parses the test name and the optional iter num from the test
@@ -206,11 +213,12 @@ def parse_logs_md(log_lines, line_num):
             logs_md.folder = folder_match[0].strip()
 
             description_match = re.findall(
-                fr"{LogsMd.DESCRIPTION_FIELD_TEXT}(.+)$", log_lines[line_num])
-            line_num += 1
-            assert description_match, "Failed matching global file's " \
-                                      "Description field"
-            logs_md.description = description_match[0].strip()
+                fr"{LogsMd.DESCRIPTION_FIELD_TEXT}(.*)$", log_lines[line_num])
+            if description_match:
+                logs_md.description = description_match[0].strip()
+                line_num += 1
+            else:
+                logs_md.description = ""
 
             md_end_delim_match = \
                 re.findall(rf"({UnifiedConsts.MD_DELIM_LINE})$",
@@ -253,7 +261,6 @@ def find_next_test_delim_line(log_lines, line_num):
 
 
 def parse_unified_log(unified_log_full_file_name):
-    print(f"Parsing {unified_log_full_file_name}")
     tests_logs = dict()
 
     with open(unified_log_full_file_name, "r") as unified_log:
@@ -263,6 +270,9 @@ def parse_unified_log(unified_log_full_file_name):
 
         line_num = 0
         line_num, logs_md = parse_logs_md(log_lines, line_num)
+
+        print(f"Parsing {unified_log_full_file_name} (D"
+              f"escription: {logs_md.description})")
 
         # Find the delimiter of the first test in the file
         line_num = find_next_test_delim_line(log_lines, line_num)
@@ -350,7 +360,7 @@ def write_iters_group_list_to_csv(csv_writer,
                                   test_file_name,
                                   test_name,
                                   iters_groups_list,
-                                  print_passing_tests):
+                                  report_passing_tests):
     for iters_group in iters_groups_list:
         assert type(iters_group) is ItersGroup
 
@@ -359,7 +369,7 @@ def write_iters_group_list_to_csv(csv_writer,
         first_group_test_info = iters_group.get_first_test()
 
         if first_group_test_info.result != TestResult.PASS or \
-                print_passing_tests:
+                report_passing_tests:
             test_csv_data = \
                 [test_file_name,
                  test_name,
@@ -378,9 +388,9 @@ def write_test_info_to_csv(csv_writer,
                            test_file_name,
                            test_name,
                            test_info,
-                           print_passing_tests):
+                           report_passing_tests):
     if test_info.result != TestResult.PASS or \
-            print_passing_tests:
+            report_passing_tests:
         test_iter = ""
         iter_params = ""
         test_csv_data = \
@@ -398,7 +408,7 @@ def write_test_info_to_csv(csv_writer,
 
 def write_parsed_log_tests_to_csv(csv_writer,
                                   parsed_log_dict,
-                                  print_passing_tests):
+                                  report_passing_tests):
     for test_file_name, file_tests_dict in parsed_log_dict.items():
         for test_name, iters_groups_list in file_tests_dict.items():
             if type(iters_groups_list) is list:
@@ -406,7 +416,7 @@ def write_parsed_log_tests_to_csv(csv_writer,
                                               test_file_name,
                                               test_name,
                                               iters_groups_list,
-                                              print_passing_tests)
+                                              report_passing_tests)
             else:
                 assert type(iters_groups_list) is TestInfo
                 test_info = iters_groups_list
@@ -414,41 +424,46 @@ def write_parsed_log_tests_to_csv(csv_writer,
                                        test_file_name,
                                        test_name,
                                        test_info,
-                                       print_passing_tests)
+                                       report_passing_tests)
 
 
 def write_parsed_log_to_csv(logs_md,
                             parsed_log_dict,
                             csv_full_file_name,
-                            print_passing_tests):
+                            report_passing_tests):
     with open(csv_full_file_name, "w") as csv_file:
         csv_writer = csv.writer(csv_file)
         write_parsed_log_csv_header(csv_writer)
         write_parsed_log_tests_to_csv(csv_writer,
                                       parsed_log_dict,
-                                      print_passing_tests)
+                                      report_passing_tests)
 
         csv_writer.writerow("")
         csv_writer.writerow([f"DESCRIPTION:{logs_md.description}"])
 
 
 if __name__ == '__main__':
-    if len(sys.argv) < 3:
-        print(f"Usage: {sys.argv[0]} <log_file_name> <csv_full_file_name> "
-              f"[print passing tests = 0 / 1]")
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument("unified_log_full_file_name",
+                        metavar="[log file name]",
+                        help="log file name generated by  "
+                             "make_check_collect_logs")
+    add_cmdline_arg_csv(parser)
+    add_cmdline_optional_arg_report_pass(parser)
+    mcu.cmdline_args = parser.parse_args()
+
+    try:
+        logs_md, parsed_logs = parse_unified_log(
+            mcu.cmdline_args.unified_log_full_file_name)
+        write_parsed_log_to_csv(logs_md, parsed_logs,
+                                f"{mcu.cmdline_args.diff_csv_full_name}",
+                                mcu.cmdline_args.report_pass)
+    except FileNotFoundError:
+        print(f"Error: {mcu.cmdline_args.unified_log_full_file_name} not "
+              f"found")
         exit(1)
 
-    unified_log_full_file_name = sys.argv[1]
-    csv_full_file_name = sys.argv[2]
-
-    print_passing_tests = False
-    if len(sys.argv) > 3:
-        print_passing_tests = bool(sys.argv[3])
-
-    logs_md, parsed_logs = parse_unified_log(unified_log_full_file_name)
-    write_parsed_log_to_csv(logs_md, parsed_logs,
-                            f"{csv_full_file_name}", print_passing_tests)
-
-    print(f"CSV File written to {csv_full_file_name}")
+    print(f"CSV File written to {mcu.cmdline_args.diff_csv_full_name}")
 
     exit(get_exit_code())

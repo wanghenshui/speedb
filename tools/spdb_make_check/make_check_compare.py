@@ -1,12 +1,20 @@
-import sys
 import csv
+import argparse
 
 import make_check_parse_log
+import make_check_utils as mcu
 from make_check_utils import NO_ITER_VALUE, DiffInfo, MismatchType,\
-    MIN_REF_TEST_TIME_MS_TO_CHECK_NEW_TIME, TIME_INCREASE_MAX_ALLOWED_RATIO,\
     TestResult, are_test_logs_with_iter_equal, TestInfo, ErrorInfo, \
     build_exception_info, report_exception, get_exit_code, \
-    report_processing_errors, percentage_diff_str
+    report_processing_errors, percentage_diff_str, \
+    add_cmdline_arg_new_log,\
+    add_cmdline_arg_ref_log,\
+    add_cmdline_arg_csv,\
+    add_cmdline_optional_arg_ignore_too_long,\
+    add_cmdline_optional_arg_min_time,\
+    add_cmdline_optional_arg_min_ref_time_increase, \
+    add_cmdline_optional_arg_report_full_diff
+
 
 UNKNOWN_TEST_NAME = ""
 
@@ -123,6 +131,7 @@ def build_diff_info(test_file_name,
         ("new_iter_params" in kwargs) else ""
     misc1 = kwargs["misc1"] if ("misc1" in kwargs) else ""
     misc2 = kwargs["misc2"] if ("misc2" in kwargs) else ""
+    misc3 = kwargs["misc3"] if ("misc3" in kwargs) else ""
 
     return DiffInfo(test_file_name=test_file_name,
                     test_name=test_name,
@@ -137,7 +146,8 @@ def build_diff_info(test_file_name,
                     ref_iter_params=ref_iter_params,
                     new_iter_params=new_iter_params,
                     misc1=misc1,
-                    misc2=misc2)
+                    misc2=misc2,
+                    misc3=misc3)
 
 
 def append_diff(diff_to_append,
@@ -267,7 +277,17 @@ def append_diff_mismatching_results(file_name, test_name, ref_test_info,
 
 
 def append_diff_mismatching_logs(file_name, test_name, ref_test_info,
-                                 new_test_info, iterations, diff_info):
+                                 new_test_info, iterations, diff_info,
+                                 diff_lines=""):
+    if mcu.cmdline_args.report_full_diff:
+        misc1 = diff_lines
+        misc2 = ref_test_info.log
+        misc3 = new_test_info.log
+    else:
+        misc1 = "Check Logs of both tests to find the differences"
+        misc2 = None
+        misc3 = None
+
     append_diff_full_details(file_name,
                              test_name,
                              MismatchType.MISMATCHING_LOGS,
@@ -275,12 +295,19 @@ def append_diff_mismatching_logs(file_name, test_name, ref_test_info,
                              new_test_info,
                              diff_info,
                              iterations=iterations,
-                             misc1="Check Logs of both tests to find "
-                                   "the differences")
+                             misc1=misc1,
+                             misc2=misc2,
+                             misc3=misc3)
+
+
+tool_long_count = 0
 
 
 def append_diff_new_test_too_long(file_name, test_name, ref_test_info,
                                   new_test_info, diff_info):
+    global tool_long_count
+    tool_long_count += 1
+
     ref_time_increase_str = percentage_diff_str(ref_test_info.time_ms,
                                                 new_test_info.time_ms)
 
@@ -351,13 +378,20 @@ def append_diff_new_test_took_too_long_if_applicable(file_name,
                                                      ref_test_info,
                                                      new_test_info,
                                                      diff_info):
+    if mcu.cmdline_args.ignore_too_long:
+        return
+
     # Report successful tests (ref & new) whose new run
     # time increased by more than 30%
     ref_test_time = ref_test_info.time_ms
     new_test_time = new_test_info.time_ms
 
-    if (ref_test_time >= MIN_REF_TEST_TIME_MS_TO_CHECK_NEW_TIME) and \
-            (new_test_time > ref_test_time * TIME_INCREASE_MAX_ALLOWED_RATIO):
+    if ((ref_test_time >= mcu.cmdline_args.min_ref_time or
+         new_test_time >= mcu.cmdline_args.min_ref_time)
+            and
+            (new_test_time >=
+             int((ref_test_time *
+                  (100 + mcu.cmdline_args.ref_time_increase)) / 100))):
         append_diff_new_test_too_long(file_name,
                                       test_name,
                                       ref_test_info,
@@ -391,15 +425,19 @@ def compare_tests(file_name,
     else:
         # Report tests that FAILED identically but their logs indicate a
         # mismatch that needs further investigation
-        if not are_test_logs_with_iter_equal(test_name,
-                                             ref_test_info,
-                                             new_test_info):
+        are_logs_equal, diff_lines =\
+            are_test_logs_with_iter_equal(test_name,
+                                          ref_test_info,
+                                          new_test_info)
+
+        if not are_logs_equal:
             append_diff_mismatching_logs(file_name,
                                          test_name,
                                          ref_test_info,
                                          new_test_info,
                                          iterations,
-                                         diff_info)
+                                         diff_info,
+                                         diff_lines)
 
 
 def expand_test_iters_info(test_iters_infos_list):
@@ -659,15 +697,17 @@ def append_new_files_and_tests_missing_in_ref(ref_tests,
 def compare_runs(ref_log_file_name, new_log_file_name):
     print(f"Comparing {ref_log_file_name} with {new_log_file_name}")
 
-    ref_logs_md, ref_tests = make_check_parse_log.parse_unified_log(
-        ref_log_file_name)
-    new_logs_md, new_tests = make_check_parse_log.parse_unified_log(
-        new_log_file_name)
-
-    print("Comparing")
-
-    diff_info = list()
     processing_errors = list()
+    diff_info = list()
+
+    try:
+        ref_logs_md, ref_tests = make_check_parse_log.parse_unified_log(
+            ref_log_file_name)
+        new_logs_md, new_tests = make_check_parse_log.parse_unified_log(
+            new_log_file_name)
+    except FileNotFoundError as e:
+        print(e)
+        exit(2)
 
     # The loop handles the following:
     # - Ref files that are missing in new run
@@ -806,15 +846,23 @@ def compare_runs_and_write_diff_to_csv(ref_log_file_name,
 
 
 if __name__ == '__main__':
-    if len(sys.argv) < 4:
-        print(f"Usage: {sys.argv[0]} <ref log> <new log> <DIFF csv file name>")
-        exit(1)
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    add_cmdline_arg_ref_log(parser)
+    add_cmdline_arg_new_log(parser)
+    add_cmdline_arg_csv(parser)
+    add_cmdline_optional_arg_ignore_too_long(parser)
+    add_cmdline_optional_arg_min_time(parser)
+    add_cmdline_optional_arg_min_ref_time_increase(parser)
+    add_cmdline_optional_arg_report_full_diff(parser)
+    mcu.cmdline_args = parser.parse_args()
 
-    ref_log_full_name = sys.argv[1]
-    new_log_full_name = sys.argv[2]
-    csv_full_file_name = sys.argv[3]
+    if not mcu.check_cmdline_conflicts():
+        exit(2)
 
-    exit_code = compare_runs_and_write_diff_to_csv(ref_log_full_name,
-                                                   new_log_full_name,
-                                                   csv_full_file_name)
+    exit_code = compare_runs_and_write_diff_to_csv(
+        mcu.cmdline_args.ref_log_full_name,
+        mcu.cmdline_args.new_log_full_name,
+        mcu.cmdline_args.diff_csv_full_name)
+
     exit(exit_code)
