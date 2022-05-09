@@ -894,7 +894,10 @@ ColumnFamilyData::GetWriteStallConditionAndCause(
   if (num_unflushed_memtables >
       mutable_cf_options.max_write_buffer_number - 1) {
     return {WriteStallCondition::kDelayed, WriteStallCause::kMemtableLimit};
-  } else if (num_l0_files > mutable_cf_options.level0_slowdown_writes_trigger) {
+  } else if (!mutable_cf_options.disable_auto_compactions &&
+             num_l0_files > mutable_cf_options.level0_slowdown_writes_trigger) {
+    // the user is responsible for L0 count when disable_auto_compactions is
+    // true.
     return {WriteStallCondition::kDelayed, WriteStallCause::kL0FileCountLimit};
   } else {
     return {WriteStallCondition::kNormal, WriteStallCause::kNone};
