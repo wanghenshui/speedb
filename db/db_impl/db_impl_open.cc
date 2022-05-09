@@ -80,13 +80,16 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
   result.env->IncBackgroundThreadsIfNeeded(bg_job_limits.max_flushes,
                                            Env::Priority::HIGH);
 
-  result.bytes_per_sync = 0;
+  // TODO: explain why spdb doesnt use rate_limiter
+  result.rate_limiter.reset();
+// as part of SPDB-516
+#if 0
   if (result.rate_limiter.get() != nullptr) {
-    result.rate_limiter.reset();
     if (result.bytes_per_sync == 0) {
-      result.bytes_per_sync = 1024 * 8;
+      result.bytes_per_sync = 1024 * 1024;
     }
   }
+#endif
 
   if (result.delayed_write_rate == 0) {
     if (result.rate_limiter.get() != nullptr) {
