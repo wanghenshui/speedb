@@ -894,13 +894,6 @@ IOStatus PosixMmapReadableFile::Read(uint64_t offset, size_t n,
     n = static_cast<size_t>(length_ - offset);
   }
   *result = Slice(reinterpret_cast<char*>(mmapped_region_) + offset, n);
-
-  if (use_direct_io()) {
-    // we need to fadvise away the entire range of pages because
-    // we do not want readahead pages to be cached.
-    Fadvise(fd_, 0, 0, POSIX_FADV_DONTNEED);  // free OS pages
-  }
-
   return s;
 }
 
