@@ -17,6 +17,10 @@
 #include "table/block_based/filter_policy_internal.h"
 #include "util/string_util.h"
 
+namespace {
+  int debug_max_key = 10000;
+}
+
 namespace ROCKSDB_NAMESPACE {
 
 namespace {
@@ -597,6 +601,46 @@ TEST_F(DBBloomFilterTest, BloomFilterRate) {
         maxKey * 0.98);
     get_perf_context()->Reset();
   }
+}
+
+TEST_F(DBBloomFilterTest, BlockBloomFilterRate) {
+    option_config_ = kFilter;
+    Options options = CurrentOptions();
+    options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+
+    BlockBasedTableOptions table_options;
+    table_options.filter_policy.reset(NewSpdbBlockBloomFilterPolicy());
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+    get_perf_context()->EnablePerLevelPerfContext();
+    CreateAndReopenWithCF({"pikachu"}, options);
+
+    // XXXX const int maxKey = 10000;
+    const int maxKey = debug_max_key;
+    for (int i = 0; i < maxKey; i++) {
+      auto key = Key(i);
+      // ASSERT_OK(Put(1, Key(i), Key(i)));
+      ASSERT_OK(Put(1, key, key));
+    }
+    // Add a large key to make the file contain wide range
+    ASSERT_OK(Put(1, Key(maxKey + 55555), Key(maxKey + 55555)));
+    Flush(1);
+
+    // Check if they can be found
+    for (int i = 0; i < maxKey; i++) {
+      EXPECT_EQ(Key(i), Get(1, Key(i)));
+    }
+    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 0);
+
+    // Check if filter is useful
+    for (int i = 0; i < maxKey; i++) {
+      ASSERT_EQ("NOT_FOUND", Get(1, Key(i + 33333)));
+    }
+    ASSERT_GE(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), maxKey * 0.98);
+    ASSERT_GE(
+        (*(get_perf_context()->level_to_perf_context))[0].bloom_filter_useful,
+        maxKey * 0.98);
+    get_perf_context()->Reset();
 }
 
 TEST_F(DBBloomFilterTest, BloomFilterCompatibility) {

@@ -209,10 +209,20 @@ class FastLocalBloomImpl {
     }
   }
 
+  static inline uint32_t HashToCacheLineIdx(uint32_t h1, uint32_t len_bytes) {
+    return FastRange32(h1, len_bytes >> 6);
+  }
+
+  static inline void PrefetchCacheLine(const char* cacheline_address) {
+    PREFETCH(cacheline_address, 0 /* rw */, 1 /* locality */);
+    PREFETCH(cacheline_address + 63, 0 /* rw */, 1 /* locality */);
+  }
+
   static inline void PrepareHash(uint32_t h1, uint32_t len_bytes,
                                  const char *data,
                                  uint32_t /*out*/ *byte_offset) {
-    uint32_t bytes_to_cache_line = FastRange32(len_bytes >> 6, h1) << 6;
+    // Select a cache line
+    uint32_t bytes_to_cache_line = FastRange32(h1, len_bytes >> 6) << 6;
     PREFETCH(data + bytes_to_cache_line, 0 /* rw */, 1 /* locality */);
     PREFETCH(data + bytes_to_cache_line + 63, 0 /* rw */, 1 /* locality */);
     *byte_offset = bytes_to_cache_line;

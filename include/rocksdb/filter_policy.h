@@ -277,5 +277,6 @@ inline const FilterPolicy* NewExperimentalRibbonFilterPolicy(
 }
 
 extern const FilterPolicy* NewSpdbHybridFilterPolicy();
+extern const FilterPolicy* NewSpdbBlockBloomFilterPolicy();
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -10,9 +10,14 @@
 #include "rocksdb/filter_policy.h"
 
 #include <array>
+#include <vector>
 #include <deque>
 #include <limits>
 #include <memory>
+#include <cmath>
+#include <utility>
+#include <algorithm>
+#include <cstring>
 
 #include "rocksdb/slice.h"
 #include "table/block_based/block_based_filter_block.h"
@@ -55,6 +60,7 @@ class XXH3pFilterBitsBuilder : public BuiltinFilterBitsBuilder {
 
   virtual void AddKey(const Slice& key) override {
     uint64_t hash = GetSliceHash64(key);
+
     // Especially with prefixes, it is common to have repetition,
     // though only adjacent repetition, which we want to immediately
     // recognize and collapse for estimating true filter space
@@ -397,6 +403,494 @@ class FastLocalBloomBitsReader : public FilterBitsReader {
   const int num_probes_;
   const uint32_t len_bytes_;
 };
+
+
+// #################### SpeedbBlockedBloom implementation ################## //
+// TODO: See description in TBD
+
+namespace {
+  constexpr double BloomBitsPerKey = 23.2;
+  constexpr size_t BatchSizeInBlocks = 128U;
+
+  constexpr size_t BatchOffsetNumBits = std::ceil(std::log2(BatchSizeInBlocks));
+  static_assert(BatchOffsetNumBits <= 8);
+
+  constexpr size_t BlockSizeInBytes = 64U;
+  constexpr size_t BlockSizeInBits = BlockSizeInBytes * 8U;
+
+  constexpr size_t BatchSizeInBytes = BatchSizeInBlocks * BlockSizeInBytes;
+
+  constexpr size_t NumBitsInBlockBloom = BlockSizeInBits - BatchOffsetNumBits;
+
+  constexpr size_t NumHashFuncs = 16;
+  static_assert(NumHashFuncs % 2 == 0, "NumHashFuncs Must Be Even");
+  constexpr size_t HashSetSize = NumHashFuncs / 2;
+
+  using EntryHashes = std::array<uint32_t, NumHashFuncs>;
+
+  EntryHashes GetHashesForEntry(uint32_t entry_hash) {
+    EntryHashes hashes;
+    static constexpr uint32_t HashSeed = uint32_t{0x9e3779b9};
+
+    hashes[0] = entry_hash * HashSeed;
+    for (auto i = 1U; i < hashes.size(); ++i) {
+      hashes[i] = hashes[i-1] * HashSeed;
+    }
+    return hashes;
+  }
+
+  struct Block {
+    // TODO: Calculate correctly
+    // 7 msb bits
+    static uint8_t GetBlockIdxOfPair(const char* block_address) {
+      return static_cast<uint8_t>(*block_address) & 0x7F;
+    }
+
+    static void SetBlockIdxOfPair(char* block_address, uint8_t pair_batch_block_idx) {
+      assert(((*block_address & 0x7F) == 0U) || ((*block_address & 0x7F) == pair_batch_block_idx));
+
+      *block_address = (pair_batch_block_idx | (*block_address & 0x80));
+    }
+
+    static bool AreAllBlockBloomBitsSet( const char* block_address,
+                                        const EntryHashes& hashes,
+                                        uint32_t hash_selector) {
+      auto start_hash_idx = hash_selector * HashSetSize;
+      for ( auto i = start_hash_idx;
+            i < start_hash_idx + HashSetSize;
+            ++i) {
+        uint32_t product = (static_cast<uint64_t>(NumBitsInBlockBloom) * hashes[i]) >> 32;
+        int bitpos = BatchOffsetNumBits + product;
+        if ((block_address[bitpos >> 3] & (char(1) << (bitpos & 7))) == 0) {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    static void SetBlockBloomBits(char* block_address,
+                                  const EntryHashes& hashes,
+                                  uint32_t hash_selector) {
+      auto start_hash_idx = hash_selector * HashSetSize;
+      for ( auto i = start_hash_idx;
+            i < start_hash_idx + HashSetSize;
+            ++i) {
+        uint32_t product = (static_cast<uint64_t>(NumBitsInBlockBloom) * hashes[i]) >> 32;
+        int bitpos = BatchOffsetNumBits + product;
+        block_address[bitpos >> 3] |= (char{1} << (bitpos & 7));
+      }
+    }
+  };
+
+  uint32_t GetContainingBatchIdx(uint32_t block_idx) {
+    return (block_idx / BatchSizeInBlocks);
+  }
+
+  uint8_t GetInBatchBlockIdx(uint32_t block_idx) {
+    return (block_idx % BatchSizeInBlocks);
+  }
+
+  uint32_t GetHashSelector(uint32_t first_idx, uint32_t second_idx) {
+    assert(first_idx < BatchSizeInBlocks && second_idx < BatchSizeInBlocks);
+    return (first_idx < second_idx)? 0U : 1U;
+  }
+
+    uint32_t GetStartBlockIdxOfBatch(uint32_t batch_idx) {
+      return batch_idx * BatchSizeInBlocks;
+    }
+
+#if 0
+    uint32_t GetEndBlockIdxOfBatch(uint32_t batch_idx) {
+      return GetStartBlockIdxOfBatch(batch_idx + 1);
+    }
+
+    std::string GetBatchStr(uint32_t batch_idx) {
+      std::ostringstream ostr;
+      ostr << "Batch# " << batch_idx << "[" << GetStartBlockIdxOfBatch(batch_idx) << "," << GetEndBlockIdxOfBatch(batch_idx) << ")";
+      return ostr.str();
+    }
+#endif    
+}
+
+// TODO: See description in TBD
+class SpeedbBlockBloomBitsReader : public FilterBitsReader {
+ public:
+  SpeedbBlockBloomBitsReader(const char* data, int num_probes, uint32_t len_bytes)
+      : data_(data), num_probes_(num_probes), len_bytes_(len_bytes) {
+    assert(num_probes == NumHashFuncs);
+  }
+
+  // No Copy allowed
+  SpeedbBlockBloomBitsReader(const SpeedbBlockBloomBitsReader&) = delete;
+  void operator=(const SpeedbBlockBloomBitsReader&) = delete;
+
+  ~SpeedbBlockBloomBitsReader() override {}
+
+  bool MayMatch(const Slice& key) override {
+    uint64_t h = GetSliceHash64(key);
+    EntryHashes hashes = GetHashesForEntry(Upper32of64(h));
+
+    uint32_t primary_block_idx = FastLocalBloomImpl::HashToCacheLineIdx(Lower32of64(h), len_bytes_);
+    const char* primary_block_address = data_ + primary_block_idx * BlockSizeInBytes;
+
+    uint32_t batch_idx = GetContainingBatchIdx(primary_block_idx);
+
+    FastLocalBloomImpl::PrefetchCacheLine(primary_block_address);
+
+    uint8_t primary_in_batch_block_idx = GetInBatchBlockIdx(primary_block_idx);
+    uint8_t secondary_in_batch_block_idx = Block::GetBlockIdxOfPair(primary_block_address);
+
+    auto primary_block_hash_selector = GetHashSelector(primary_in_batch_block_idx, secondary_in_batch_block_idx);
+    if (Block::AreAllBlockBloomBitsSet(primary_block_address, hashes, primary_block_hash_selector) == false) {
+      return false;
+    }
+
+    uint32_t secondary_block_hash_selector = GetHashSelector(secondary_in_batch_block_idx, primary_in_batch_block_idx);
+    assert(primary_block_hash_selector != secondary_block_hash_selector);
+
+    uint32_t secondary_block_idx = GetStartBlockIdxOfBatch(batch_idx) + secondary_in_batch_block_idx;
+    const char* secondary_block_address = data_ + secondary_block_idx * BlockSizeInBytes;
+
+    FastLocalBloomImpl::PrefetchCacheLine(secondary_block_address);
+    return Block::AreAllBlockBloomBitsSet(secondary_block_address, hashes, secondary_block_hash_selector);
+  }
+
+  void MayMatch(int num_keys, Slice** keys, bool* may_match) override {
+    for (auto i = 0; i < num_keys; ++i) {
+      may_match[i] = MayMatch(*keys[i]);
+    }
+  }
+
+ private:
+  const char* data_;
+  const int num_probes_;
+  const uint32_t len_bytes_;
+};
+
+class SpeedbBlockBloomBitsBuilder : public XXH3pFilterBitsBuilder {
+ public:
+  // Non-null aggregate_rounding_balance implies optimize_filters_for_memory
+  explicit SpeedbBlockBloomBitsBuilder(
+      const int /*millibits_per_key*/,
+      std::atomic<int64_t>* aggregate_rounding_balance)
+      : XXH3pFilterBitsBuilder(aggregate_rounding_balance)
+      // ,
+      // millibits_per_key_(millibits_per_key)
+      {
+    millibits_per_key_ = BloomBitsPerKey * 1000;
+    // assert(millibits_per_key >= 1000);
+  }
+
+  private:
+    struct BlockHistogramInfo {
+      size_t num_keys = 0U;
+      uint32_t original_batch_block_idx;
+
+      bool operator<(const BlockHistogramInfo& other) {
+        if (num_keys < other.num_keys) {
+          return true;
+        } else {
+          return (original_batch_block_idx < other.original_batch_block_idx);
+        }
+      }
+    };
+
+    struct PairingInfo {
+      uint32_t secondary_batch_block_idx;
+      uint32_t hash_set_selector;
+    };
+
+    using BatchBlocksHistogram = std::array<BlockHistogramInfo, BatchSizeInBlocks>;
+    using BatchPairingInfo = std::array<PairingInfo, BatchSizeInBlocks>;
+
+    private:
+      size_t num_blocks_ = 0U;
+      size_t num_batches_ = 0U;
+
+      std::vector<BatchBlocksHistogram> blocks_histogram_;
+      std::vector<BatchPairingInfo> pairing_table_;
+
+    // No Copy allowed
+    SpeedbBlockBloomBitsBuilder(const SpeedbBlockBloomBitsBuilder&) = delete;
+    void operator=(const SpeedbBlockBloomBitsBuilder&) = delete;
+
+    ~SpeedbBlockBloomBitsBuilder() override {}
+
+#if 0
+    void PrintConstants() {
+      std::cerr << "Constants:\n"
+                << "----------\n";
+      std::cerr << "Bits Per Key:" << BloomBitsPerKey << '\n';
+      std::cerr << "Batch Size:" << BatchSizeInBytes << '\n';
+      std::cerr << "Batch Offset Num Bits :" << BatchOffsetNumBits << '\n';
+      std::cerr << "Num Batches:" << num_batches_ << '\n';
+      std::cerr << "Num Bits In Block Bloom:" << NumBitsInBlockBloom << '\n';
+      std::cerr << "Num Blocks:" << num_blocks_ << '\n';
+      std::cerr << "Num Hash Functions:" << NumHashFuncs << '\n';
+      std::cerr << '\n';
+    }
+
+    void PrintBatchBlocksHistogram(const std::string& title, uint32_t batch_idx) {
+      std::cerr << "Histogram (" << title << ") - " << GetBatchStr(batch_idx) << ":\n";
+
+      const auto& batch_blocks_histrogram = blocks_histogram_[batch_idx];
+
+      for (auto in_batch_block_idx = 0U; in_batch_block_idx < batch_blocks_histrogram.size(); ++in_batch_block_idx) {
+        std::cerr << "Block[" << batch_idx << "][" << in_batch_block_idx << "]:" << batch_blocks_histrogram[in_batch_block_idx].num_keys
+                  << " (" << batch_blocks_histrogram[in_batch_block_idx].original_batch_block_idx << ")\n";
+      }
+    }
+
+    void PrintBatchPairingInfo(uint32_t batch_idx) {
+      std::cerr << "\nPairing Info (" << GetBatchStr(batch_idx) << "):\n";
+
+      const auto& batch_pairing_info = pairing_table_[batch_idx];
+
+      for (auto in_batch_block_idx = 0U; in_batch_block_idx < batch_pairing_info.size(); ++in_batch_block_idx) {
+        std::cerr << in_batch_block_idx << "==>" << batch_pairing_info[in_batch_block_idx].secondary_batch_block_idx
+                  << std::boolalpha << "(" << batch_pairing_info[in_batch_block_idx].hash_set_selector << ")\n";
+      }
+    }
+#endif
+
+    void InitVars(size_t num_entries) {
+      // Aligned means to the batch size - Being a multiple of BatchSizeInBlocks
+      const size_t UnalignedNumBlocks = num_entries * BloomBitsPerKey / BlockSizeInBits;
+      const size_t AlignedNumBlocksMaybeOdd = std::ceil(UnalignedNumBlocks / BatchSizeInBlocks) * BatchSizeInBlocks;
+
+      num_blocks_ = AlignedNumBlocksMaybeOdd + (AlignedNumBlocksMaybeOdd % 2);
+      num_blocks_ = std::max<size_t>(num_blocks_, BatchSizeInBlocks);
+      assert(num_blocks_ % 2 == 0);
+      assert(num_blocks_ % BatchSizeInBlocks == 0);
+
+      num_batches_ = num_blocks_ / BatchSizeInBlocks;
+      assert(num_batches_ > 0U);
+
+      pairing_table_.resize(num_batches_);
+
+      // PrintConstants();
+    }
+
+  virtual Slice Finish(std::unique_ptr<const char[]>* buf) override {
+    const size_t num_entries = hash_entries_.size();
+
+    InitVars(num_entries);
+
+    // const size_t len_with_metadata = CalculateSpace(num_entries);
+    const size_t len_with_metadata = num_blocks_ * BlockSizeInBytes + kMetadataLen;
+
+    std::unique_ptr<char[]> mutable_buf;
+    mutable_buf.reset(new char[len_with_metadata]());
+
+    // TODO: Consider the ROCKSDB_MALLOC_USABLE_SIZE code inside AllocateMaybeRounding
+    // // len_with_metadata =
+    // //     AllocateMaybeRounding(len_with_metadata, num_entries, &mutable_buf);
+
+    assert(mutable_buf);
+    assert(len_with_metadata >= kMetadataLen);
+
+    // Max size supported by implementation
+    assert(len_with_metadata <= 0xffffffffU);
+
+    // Compute num_probes after any rounding / adjustments
+    // TODO: NOAM?
+    // // // int num_probes = GetNumProbes(num_entries, len_with_metadata);
+    const int num_probes = NumHashFuncs;
+
+    uint32_t len = static_cast<uint32_t>(len_with_metadata - kMetadataLen);
+    if (len > 0) {
+      AddAllEntries(mutable_buf.get(), len, num_probes);
+    }
+
+    assert(hash_entries_.empty());
+
+    // See BloomFilterPolicy::GetBloomBitsReader re: metadata
+    // -1 = Marker for newer Bloom implementations
+    mutable_buf[len] = static_cast<char>(-1);
+    // 1 = Marker for this sub-implementation
+    mutable_buf[len + 1] = static_cast<char>(1);
+    // num_probes (and 0 in upper bits for 64-byte block size)
+    mutable_buf[len + 2] = static_cast<char>(num_probes);
+    // rest of metadata stays zero
+
+    Slice rv(mutable_buf.get(), len_with_metadata);
+    *buf = std::move(mutable_buf);
+    return rv;
+  }
+
+  size_t ApproximateNumEntries(size_t bytes) override {
+    size_t bytes_no_meta =
+        bytes >= kMetadataLen ? RoundDownUsableSpace(bytes) - kMetadataLen : 0;
+    return static_cast<size_t>(uint64_t{8000} * bytes_no_meta /
+                               millibits_per_key_);
+  }
+
+  size_t CalculateSpace(size_t num_entries) override {
+    // If not for cache line blocks in the filter, what would the target
+    // length in bytes be?
+    size_t raw_target_len = static_cast<size_t>(
+        (uint64_t{num_entries} * millibits_per_key_ + 7999) / 8000);
+
+    if (raw_target_len >= size_t{0xffffffc0}) {
+      // Max supported for this data structure implementation
+      raw_target_len = size_t{0xffffffc0};
+    }
+
+    // Round up to nearest multiple of 64 (block size). This adjustment is
+    // used for target FP rate only so that we don't receive complaints about
+    // lower FP rate vs. historic Bloom filter behavior.
+    return ((raw_target_len + 63) & ~size_t{63}) + kMetadataLen;
+  }
+
+  double EstimatedFpRate(size_t keys, size_t len_with_metadata) override {
+    int num_probes = GetNumProbes(keys, len_with_metadata);
+    return FastLocalBloomImpl::EstimatedFpRate(
+        keys, len_with_metadata - kMetadataLen, num_probes, /*hash bits*/ 64);
+  }
+
+ protected:
+  size_t RoundDownUsableSpace(size_t available_size) override {
+    size_t rv = available_size - kMetadataLen;
+
+    if (rv >= size_t{0xffffffc0}) {
+      // Max supported for this data structure implementation
+      rv = size_t{0xffffffc0};
+    }
+
+    // round down to multiple of 64 (block size)
+    rv &= ~size_t{63};
+
+    return rv + kMetadataLen;
+  }
+
+ private:
+  // Compute num_probes after any rounding / adjustments
+  int GetNumProbes(size_t keys, size_t len_with_metadata) {
+    uint64_t millibits = uint64_t{len_with_metadata - kMetadataLen} * 8000;
+    int actual_millibits_per_key =
+        static_cast<int>(millibits / std::max(keys, size_t{1}));
+    // BEGIN XXX/TODO(peterd): preserving old/default behavior for now to
+    // minimize unit test churn. Remove this some time.
+    if (!aggregate_rounding_balance_) {
+      actual_millibits_per_key = millibits_per_key_;
+    }
+    // END XXX/TODO
+    return FastLocalBloomImpl::ChooseNumProbes(actual_millibits_per_key);
+  }
+
+  void InitBlockHistogram() {
+    blocks_histogram_.resize(num_batches_);
+
+    for (auto batch_idx = 0U; batch_idx < blocks_histogram_.size(); ++batch_idx) {
+      for (auto in_batch_block_idx = 0U; in_batch_block_idx < blocks_histogram_[batch_idx].size(); ++in_batch_block_idx) {
+        blocks_histogram_[batch_idx][in_batch_block_idx].original_batch_block_idx = in_batch_block_idx;
+      }
+    }
+  }
+
+  void BuildBlocksHistogram(uint32_t len) {
+    for (auto i = 0U; i < hash_entries_.size(); ++i) {
+      uint64_t h = hash_entries_[i];
+      auto block_idx = FastLocalBloomImpl::HashToCacheLineIdx(Lower32of64(h), len);
+      ++blocks_histogram_[GetContainingBatchIdx(block_idx)][GetInBatchBlockIdx(block_idx)].num_keys;
+    }
+  }
+
+  void BubbleSortBatchBlocksHistogram(uint32_t batch_idx) {
+    auto& batch_blocks_histrogram = blocks_histogram_[batch_idx];
+
+    for (auto i = 0U; i < batch_blocks_histrogram.size(); ++i) {
+      for(auto j = i+1; j < batch_blocks_histrogram.size(); j++) {
+        if(batch_blocks_histrogram[j].num_keys < batch_blocks_histrogram[i].num_keys) {
+          std::swap(batch_blocks_histrogram[i], batch_blocks_histrogram[j]);
+        }
+      }
+    }
+  }
+
+  void PairBatchBlocks(uint32_t batch_idx) {
+    //PrintBatchBlocksHistogram("Before Sorting", batch_idx);
+
+    // For some reason, the std::sort causes ASAN Issues - Needs further investigation
+    BubbleSortBatchBlocksHistogram(batch_idx);
+
+    //PrintBatchBlocksHistogram("After Sorting", batch_idx);
+
+    const auto& batch_blocks_histrogram = blocks_histogram_[batch_idx];
+    auto& batch_pairing_info = pairing_table_[batch_idx];
+
+    for (auto in_batch_block_idx = 0U; in_batch_block_idx < BatchSizeInBlocks; ++in_batch_block_idx) {
+      const auto pair_in_batch_idx = batch_blocks_histrogram.size() - in_batch_block_idx - 1;
+      auto original_batch_block_idx = batch_blocks_histrogram[in_batch_block_idx].original_batch_block_idx;
+
+      batch_pairing_info[original_batch_block_idx].secondary_batch_block_idx =
+        batch_blocks_histrogram[pair_in_batch_idx].original_batch_block_idx;
+      batch_pairing_info[original_batch_block_idx].hash_set_selector =
+        GetHashSelector(original_batch_block_idx, batch_blocks_histrogram[pair_in_batch_idx].original_batch_block_idx);
+    }
+  }
+
+  void PairBlocks() {
+    for (auto batch_idx = 0U; batch_idx < num_batches_; ++batch_idx) {
+      PairBatchBlocks(batch_idx);
+      // PrintBatchPairingInfo(batch_idx);
+    }
+  }
+
+
+  void BuildBlocks(char* data, uint32_t len) {
+    const size_t num_entries = hash_entries_.size();
+    for (auto i = 0U; i < num_entries; ++i) {
+      uint64_t h = hash_entries_.front();
+      hash_entries_.pop_front();
+
+      uint32_t primary_block_idx = FastLocalBloomImpl::HashToCacheLineIdx(Lower32of64(h), len);
+      uint32_t batch_idx = GetContainingBatchIdx(primary_block_idx);
+
+      EntryHashes hashes = GetHashesForEntry(Upper32of64(h));
+
+      // Primary Block
+      char* const primary_block_address = data + primary_block_idx * BlockSizeInBytes;
+
+      FastLocalBloomImpl::PrefetchCacheLine(primary_block_address);
+
+      uint8_t primary_in_batch_block_idx = GetInBatchBlockIdx(primary_block_idx);
+
+      uint32_t secondary_in_batch_block_idx = pairing_table_[batch_idx][primary_in_batch_block_idx].secondary_batch_block_idx;
+      Block::SetBlockIdxOfPair(primary_block_address, secondary_in_batch_block_idx);
+
+      auto primary_block_hash_selector = pairing_table_[batch_idx][primary_in_batch_block_idx].hash_set_selector;
+      Block::SetBlockBloomBits(primary_block_address, hashes, primary_block_hash_selector);
+
+      // Secondary Block
+      uint32_t secondary_block_idx = GetStartBlockIdxOfBatch(batch_idx) + secondary_in_batch_block_idx;
+      char* const secondary_block_address = data + secondary_block_idx * BlockSizeInBytes;
+
+      FastLocalBloomImpl::PrefetchCacheLine(secondary_block_address);
+
+      Block::SetBlockIdxOfPair(secondary_block_address, primary_in_batch_block_idx);
+
+      auto secondary_block_hash_selector = pairing_table_[batch_idx][secondary_in_batch_block_idx].hash_set_selector;
+      Block::SetBlockBloomBits(secondary_block_address, hashes, secondary_block_hash_selector);
+
+      // assert(Block::AreAllBlockBloomBitsSet( primary_block_address, hashes, primary_block_hash_selector));
+      // assert(Block::AreAllBlockBloomBitsSet(secondary_block_address, hashes, secondary_block_hash_selector));
+    }
+  }
+
+  void AddAllEntries(char* data, uint32_t len, int num_probes) {
+    assert(num_probes == NumHashFuncs);
+
+    InitBlockHistogram();
+    BuildBlocksHistogram(len);
+    PairBlocks();
+    BuildBlocks(data, len);
+  }
+
+  // Target allocation per added key, in thousandths of a bit.
+  int millibits_per_key_;
+};
+
 
 // ##################### Ribbon filter implementation ################### //
 
@@ -1030,6 +1524,8 @@ static std::string get_filter_config_spec(double bits_per_key,
   switch (mode) {
     case BloomFilterPolicy::kSpdbBloom:
       return "speedb:" + ToString(bits_per_key);
+    case BloomFilterPolicy::kSpdbBlockBloom:
+      return "speedb: Block Bloom";
     case BloomFilterPolicy::kAutoBloom:
     case BloomFilterPolicy::kLegacyBloom:
     case BloomFilterPolicy::kFastLocalBloom:
@@ -1170,6 +1666,8 @@ FilterBitsBuilder* BloomFilterPolicy::GetBuilderWithContext(
       case kFastLocalBloom:
         return new FastLocalBloomBitsBuilder(
             millibits_per_key_, offm ? &aggregate_rounding_balance_ : nullptr);
+      case kSpdbBlockBloom:
+        return new SpeedbBlockBloomBitsBuilder(millibits_per_key_, offm ? &aggregate_rounding_balance_ : nullptr);
       case kLegacyBloom:
         if (whole_bits_per_key_ >= 40 && context.info_log &&
             !warned_.load(std::memory_order_relaxed)) {
@@ -1370,6 +1868,8 @@ FilterBitsReader* BloomFilterPolicy::GetBloomBitsReader(
     if (log2_block_bytes == 6) {  // Only block size supported for now
       return new FastLocalBloomBitsReader(contents.data(), num_probes, len);
     }
+  } else if (sub_impl_val == 1) {
+      return new SpeedbBlockBloomBitsReader(contents.data(), num_probes, len);
   }
   // otherwise
   // Reserved / future safe
@@ -1398,6 +1898,10 @@ extern const FilterPolicy* NewRibbonFilterPolicy(
 
 const FilterPolicy* NewSpdbHybridFilterPolicy() {
   return new BloomFilterPolicy(32, BloomFilterPolicy::kSpdbBloom);
+}
+
+const FilterPolicy* NewSpdbBlockBloomFilterPolicy() {
+  return new BloomFilterPolicy(23.2, BloomFilterPolicy::kSpdbBlockBloom);
 }
 
 class NoFilterPolicy : public FilterPolicy {
