@@ -74,6 +74,7 @@ class BloomFilterPolicy : public FilterPolicy {
     // context at build time, including compatibility with format_version.
     kAutoBloom = 100,
     kSpdbBloom = 101,
+    kSpdbBlockBloom = 102
   };
   // All the different underlying implementations that a BloomFilterPolicy
   // might use, as a mode that says "always use this implementation."

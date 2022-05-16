@@ -339,8 +339,8 @@ struct BlockBasedTableOptions {
   // Many applications will benefit from passing the result of
   // NewBloomFilterPolicy() here.
   std::shared_ptr<const FilterPolicy> filter_policy{
-      NewSpdbHybridFilterPolicy()};
-
+      // // // NewSpdbHybridFilterPolicy()};
+      NewSpdbBlockBloomFilterPolicy()};
   // If true, place whole keys in the filter (not just prefixes).
   // This must generally be true for gets to be efficient.
   bool whole_key_filtering = true;

@@ -16,6 +16,8 @@
 #include "rocksdb/utilities/object_registry.h"
 #include "util/random.h"
 
+#include <iostream>
+
 namespace ROCKSDB_NAMESPACE {
 
 namespace {
@@ -261,9 +263,14 @@ bool DBTestBase::ChangeFilterOptions() {
     option_config_ = kFullFilterWithNewTableReaderForCompactions;
   } else if (option_config_ == kFullFilterWithNewTableReaderForCompactions) {
     option_config_ = kPartitionedFilterWithNewTableReaderForCompactions;
+  } else if (option_config_ == kPartitionedFilterWithNewTableReaderForCompactions) {
+    option_config_ = kSpdbBlockBloomFilter;
   } else {
+    std::cerr << "ChangeFilterOptions - Returns False\n";
     return false;
   }
+  std::cerr << "option_config_ = " << option_config_ << '\n';
+
   Destroy(last_options_);
 
   auto options = CurrentOptions();
@@ -430,6 +437,9 @@ Options DBTestBase::GetOptions(
           BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
       options.new_table_reader_for_compaction_inputs = true;
       options.compaction_readahead_size = 10 * 1024 * 1024;
+      break;
+    case kSpdbBlockBloomFilter:
+      table_options.filter_policy.reset(NewSpdbBlockBloomFilterPolicy());
       break;
     case kUncompressed:
       options.compression = kNoCompression;

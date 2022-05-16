@@ -946,6 +946,8 @@ class DBTestBase : public testing::Test {
     kUniversalSubcompactions,
     kxxHash64Checksum,
     kUnorderedWrite,
+    kSpdbBlockBloomFilter,
+    
     // This must be the last line
     kEnd,
   };

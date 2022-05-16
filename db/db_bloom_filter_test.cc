@@ -599,6 +599,69 @@ TEST_F(DBBloomFilterTest, BloomFilterRate) {
   }
 }
 
+template<class T>
+std::string FormatWithCommas(T value)
+{
+    std::stringstream ss;
+    ss.imbue(std::locale(""));
+    ss << std::fixed << value;
+    return ss.str();
+}
+
+TEST_F(DBBloomFilterTest, DISABLED_SpdbBlockBloomFilterRate) {
+    option_config_ = kSpdbBlockBloomFilter;
+    Options options = CurrentOptions();
+    options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+
+    get_perf_context()->EnablePerLevelPerfContext();
+    CreateAndReopenWithCF({"pikachu"}, options);
+
+    int num_keys = 1000 * 1000;
+    int first_key = num_keys;
+    int last_key = first_key + num_keys - 1;
+    for (auto i = first_key; i <= last_key; i++) {
+      ASSERT_OK(Put(1, Key(i), Key(i)));
+    }
+
+    // Add a large key to make the file contain wide range
+    int very_large_key_val = 1 << 31;
+    ASSERT_OK(Put(1, Key(very_large_key_val), Key(very_large_key_val)));
+    Flush(1);
+
+    // Check if they can be found
+    std::cerr << "Checking that " << FormatWithCommas(num_keys) << " keys that are in the filter are found\n";
+    for (auto i = first_key; i <= last_key; i++) {
+      ASSERT_EQ(Key(i), Get(1, Key(i)));
+    }
+
+    // Check if filter is useful
+    int multiplier = 10;
+    int num_not_found_keys = num_keys * multiplier;
+
+    std::cerr << "Checking that " << FormatWithCommas(num_not_found_keys) << " keys that are NOT in the filter are NOT found\n";
+    auto first_not_found_key = last_key + 1;
+    auto last_not_found_key = first_not_found_key + num_not_found_keys - 1;
+    for (int not_found_key = first_not_found_key; not_found_key <= last_not_found_key; ++not_found_key) {
+      if ((not_found_key - first_not_found_key)  % 1000000 == 0) std::cerr << not_found_key << " Keys\n";
+      ASSERT_EQ("NOT_FOUND", Get(1, Key(not_found_key)));
+    } 
+
+    std::cerr << "AFTER Get() for  " << num_not_found_keys << " Keys NOT IN THE DB\n";
+    auto useful = TestGetTickerCount(options, BLOOM_FILTER_USEFUL);
+    auto full_positive = TestGetTickerCount(options, BLOOM_FILTER_FULL_POSITIVE);
+    auto true_positive = TestGetTickerCount(options, BLOOM_FILTER_FULL_TRUE_POSITIVE);
+
+    std::cerr << "BLOOM_FILTER_USEFUL = " << FormatWithCommas(useful) << '\n';
+    std::cerr << "BLOOM_FILTER_FULL_POSITIVE = " << FormatWithCommas(full_positive) << '\n';
+    std::cerr << "BLOOM_FILTER_FULL_TRUE_POSITIVE = " << FormatWithCommas(true_positive) << '\n';
+
+    auto false_positive = full_positive - true_positive;
+    auto fpr = false_positive / static_cast<double>(useful + false_positive);
+    std::cerr << "FPR = 1 in " << static_cast<double>(1 / fpr) << '\n';
+
+    get_perf_context()->Reset();
+}
+
 TEST_F(DBBloomFilterTest, BloomFilterCompatibility) {
   Options options = CurrentOptions();
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
