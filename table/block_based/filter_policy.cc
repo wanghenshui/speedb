@@ -29,6 +29,7 @@
 #include "util/hash.h"
 #include "util/ribbon_config.h"
 #include "util/ribbon_impl.h"
+#include "util/fastrange.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -405,27 +406,28 @@ class FastLocalBloomBitsReader : public FilterBitsReader {
 };
 
 
-// #################### SpeedbBlockedBloom implementation ################## //
+// #################### SpeedbBlockedBloom implementation ##################
 // TODO: See description in TBD
 
-namespace {
+namespace spdb_bloom {
   constexpr double BloomBitsPerKey = 23.2;
   constexpr size_t BatchSizeInBlocks = 128U;
 
-  constexpr size_t BatchOffsetNumBits = std::ceil(std::log2(BatchSizeInBlocks));
-  static_assert(BatchOffsetNumBits <= 8);
+  constexpr size_t InBatchIdxNumBits = std::ceil(std::log2(BatchSizeInBlocks));
+  static_assert(InBatchIdxNumBits <= 8);
 
   constexpr size_t BlockSizeInBytes = 64U;
   constexpr size_t BlockSizeInBits = BlockSizeInBytes * 8U;
 
   constexpr size_t BatchSizeInBytes = BatchSizeInBlocks * BlockSizeInBytes;
 
-  constexpr size_t NumBitsInBlockBloom = BlockSizeInBits - BatchOffsetNumBits;
+  constexpr size_t NumBitsInBlockBloom = BlockSizeInBits - InBatchIdxNumBits;
 
   constexpr size_t NumHashFuncs = 16;
   static_assert(NumHashFuncs % 2 == 0, "NumHashFuncs Must Be Even");
   constexpr size_t HashSetSize = NumHashFuncs / 2;
 
+  using InBatchBlockIdx = uint8_t;
   using EntryHashes = std::array<uint32_t, NumHashFuncs>;
 
   EntryHashes GetHashesForEntry(uint32_t entry_hash) {
@@ -439,77 +441,98 @@ namespace {
     return hashes;
   }
 
-  struct Block {
-    // TODO: Calculate correctly
-    // 7 msb bits
-    static uint8_t GetBlockIdxOfPair(const char* block_address) {
-      return static_cast<uint8_t>(*block_address) & 0x7F;
-    }
+  // A Bloom Block (Cache-Line)
+  // A contiguous region of 512 bits (64 bytes)
+  // The first InBatchIdxNumBits bits are used to store the in-batch index of the pair block
 
-    static void SetBlockIdxOfPair(char* block_address, uint8_t pair_batch_block_idx) {
-      assert(((*block_address & 0x7F) == 0U) || ((*block_address & 0x7F) == pair_batch_block_idx));
+  namespace block {
+    constexpr uint8_t InBatchIdxMask = (uint8_t {1U} << InBatchIdxNumBits) - 1;
+    constexpr uint8_t FirstByteBitsMask = ~InBatchIdxMask;
+    static_assert((InBatchIdxMask | FirstByteBitsMask) == 0xFF);
 
-      *block_address = (pair_batch_block_idx | (*block_address & 0x80));
-    }
-
-    static bool AreAllBlockBloomBitsSet( const char* block_address,
-                                        const EntryHashes& hashes,
-                                        uint32_t hash_selector) {
-      auto start_hash_idx = hash_selector * HashSetSize;
-      for ( auto i = start_hash_idx;
-            i < start_hash_idx + HashSetSize;
-            ++i) {
-        uint32_t product = (static_cast<uint64_t>(NumBitsInBlockBloom) * hashes[i]) >> 32;
-        int bitpos = BatchOffsetNumBits + product;
-        if ((block_address[bitpos >> 3] & (char(1) << (bitpos & 7))) == 0) {
-          return false;
+    class BuildBlock {
+      public:
+        BuildBlock(char* block_address, bool fetch_cache_line)
+          : block_address_(block_address)
+        {
+          if (fetch_cache_line) {
+            FastLocalBloomImpl::PrefetchCacheLine(block_address_);
+          }
         }
-      }
-      return true;
-    }
 
-    static void SetBlockBloomBits(char* block_address,
-                                  const EntryHashes& hashes,
-                                  uint32_t hash_selector) {
-      auto start_hash_idx = hash_selector * HashSetSize;
-      for ( auto i = start_hash_idx;
-            i < start_hash_idx + HashSetSize;
-            ++i) {
-        uint32_t product = (static_cast<uint64_t>(NumBitsInBlockBloom) * hashes[i]) >> 32;
-        int bitpos = BatchOffsetNumBits + product;
-        block_address[bitpos >> 3] |= (char{1} << (bitpos & 7));
+        void SetBlockIdxOfPair(InBatchBlockIdx pair_batch_block_idx) {
+          assert( ((*block_address_ & InBatchIdxMask) == 0U) ||
+                  ((*block_address_ & InBatchIdxMask) == pair_batch_block_idx));
+
+          *block_address_ = (pair_batch_block_idx | (*block_address_ & FirstByteBitsMask));
+        }
+
+        void SetBlockBloomBits( const EntryHashes& hashes,
+                                uint32_t hash_selector) {
+          auto start_hash_idx = hash_selector * HashSetSize;
+          for ( auto i = start_hash_idx;
+                i < start_hash_idx + HashSetSize;
+                ++i) {
+            int bitpos = InBatchIdxNumBits + FastRange32(hashes[i], NumBitsInBlockBloom);
+
+            block_address_[bitpos >> 3] |= (char{1} << (bitpos & InBatchIdxNumBits));
+          }
+        }
+
+      private:
+        char* const block_address_;
+    };
+
+    class ReadBlock {
+      public:
+        ReadBlock(const char* block_address, bool fetch_cache_line)
+          : block_address_(block_address)
+        {
+          if (fetch_cache_line) {
+            FastLocalBloomImpl::PrefetchCacheLine(block_address_);
+          }
+        }
+
+        uint8_t GetBlockIdxOfPair() const {
+          return static_cast<uint8_t>(*block_address_) & InBatchIdxMask;
+        }
+
+        bool AreAllBlockBloomBitsSet( const EntryHashes& hashes,
+                                      uint32_t hash_selector) const {
+          auto start_hash_idx = hash_selector * HashSetSize;
+          for ( auto i = start_hash_idx;
+                i < start_hash_idx + HashSetSize;
+                ++i) {
+            int bitpos = InBatchIdxNumBits + FastRange32(hashes[i], NumBitsInBlockBloom);
+            if ((block_address_[bitpos >> 3] & (char{1} << (bitpos & InBatchIdxNumBits))) == 0) {
+              return false;
+            }
+          }
+          return true;
       }
-    }
-  };
+
+      private:
+        const char* const block_address_;
+
+    };
+  }
 
   uint32_t GetContainingBatchIdx(uint32_t block_idx) {
-    return (block_idx / BatchSizeInBlocks);
+    return (block_idx / spdb_bloom::BatchSizeInBlocks);
   }
 
   uint8_t GetInBatchBlockIdx(uint32_t block_idx) {
-    return (block_idx % BatchSizeInBlocks);
+    return (block_idx % spdb_bloom::BatchSizeInBlocks);
   }
 
   uint32_t GetHashSelector(uint32_t first_idx, uint32_t second_idx) {
-    assert(first_idx < BatchSizeInBlocks && second_idx < BatchSizeInBlocks);
+    assert(first_idx < spdb_bloom::BatchSizeInBlocks && second_idx < spdb_bloom::BatchSizeInBlocks);
     return (first_idx < second_idx)? 0U : 1U;
   }
 
-    uint32_t GetStartBlockIdxOfBatch(uint32_t batch_idx) {
-      return batch_idx * BatchSizeInBlocks;
-    }
-
-#if 0
-    uint32_t GetEndBlockIdxOfBatch(uint32_t batch_idx) {
-      return GetStartBlockIdxOfBatch(batch_idx + 1);
-    }
-
-    std::string GetBatchStr(uint32_t batch_idx) {
-      std::ostringstream ostr;
-      ostr << "Batch# " << batch_idx << "[" << GetStartBlockIdxOfBatch(batch_idx) << "," << GetEndBlockIdxOfBatch(batch_idx) << ")";
-      return ostr.str();
-    }
-#endif    
+  uint32_t GetStartBlockIdxOfBatch(uint32_t batch_idx) {
+    return batch_idx * spdb_bloom::BatchSizeInBlocks;
+  }
 }
 
 // TODO: See description in TBD
@@ -517,7 +540,7 @@ class SpeedbBlockBloomBitsReader : public FilterBitsReader {
  public:
   SpeedbBlockBloomBitsReader(const char* data, int num_probes, uint32_t len_bytes)
       : data_(data), num_probes_(num_probes), len_bytes_(len_bytes) {
-    assert(num_probes == NumHashFuncs);
+    assert(num_probes == spdb_bloom::NumHashFuncs);
   }
 
   // No Copy allowed
@@ -528,31 +551,31 @@ class SpeedbBlockBloomBitsReader : public FilterBitsReader {
 
   bool MayMatch(const Slice& key) override {
     uint64_t h = GetSliceHash64(key);
-    EntryHashes hashes = GetHashesForEntry(Upper32of64(h));
+    spdb_bloom::EntryHashes hashes = spdb_bloom::GetHashesForEntry(Upper32of64(h));
 
     uint32_t primary_block_idx = FastLocalBloomImpl::HashToCacheLineIdx(Lower32of64(h), len_bytes_);
-    const char* primary_block_address = data_ + primary_block_idx * BlockSizeInBytes;
+    const char* primary_block_address = data_ + primary_block_idx * spdb_bloom::BlockSizeInBytes;
 
-    uint32_t batch_idx = GetContainingBatchIdx(primary_block_idx);
+    uint32_t batch_idx = spdb_bloom::GetContainingBatchIdx(primary_block_idx);
 
-    FastLocalBloomImpl::PrefetchCacheLine(primary_block_address);
+    spdb_bloom::block::ReadBlock primary_block(primary_block_address, true);
 
-    uint8_t primary_in_batch_block_idx = GetInBatchBlockIdx(primary_block_idx);
-    uint8_t secondary_in_batch_block_idx = Block::GetBlockIdxOfPair(primary_block_address);
+    uint8_t secondary_in_batch_block_idx = primary_block.GetBlockIdxOfPair();
 
-    auto primary_block_hash_selector = GetHashSelector(primary_in_batch_block_idx, secondary_in_batch_block_idx);
-    if (Block::AreAllBlockBloomBitsSet(primary_block_address, hashes, primary_block_hash_selector) == false) {
+    uint8_t primary_in_batch_block_idx = spdb_bloom::GetInBatchBlockIdx(primary_block_idx);
+    auto primary_block_hash_selector = spdb_bloom::GetHashSelector(primary_in_batch_block_idx, secondary_in_batch_block_idx);
+    if (primary_block.AreAllBlockBloomBitsSet(hashes, primary_block_hash_selector) == false) {
       return false;
     }
 
-    uint32_t secondary_block_hash_selector = GetHashSelector(secondary_in_batch_block_idx, primary_in_batch_block_idx);
+    uint32_t secondary_block_hash_selector = spdb_bloom::GetHashSelector(secondary_in_batch_block_idx, primary_in_batch_block_idx);
     assert(primary_block_hash_selector != secondary_block_hash_selector);
 
-    uint32_t secondary_block_idx = GetStartBlockIdxOfBatch(batch_idx) + secondary_in_batch_block_idx;
-    const char* secondary_block_address = data_ + secondary_block_idx * BlockSizeInBytes;
+    uint32_t secondary_block_idx = spdb_bloom::GetStartBlockIdxOfBatch(batch_idx) + secondary_in_batch_block_idx;
+    const char* secondary_block_address = data_ + secondary_block_idx * spdb_bloom::BlockSizeInBytes;
 
-    FastLocalBloomImpl::PrefetchCacheLine(secondary_block_address);
-    return Block::AreAllBlockBloomBitsSet(secondary_block_address, hashes, secondary_block_hash_selector);
+    spdb_bloom::block::ReadBlock secondary_block(secondary_block_address, true);
+    return secondary_block.AreAllBlockBloomBitsSet(hashes, secondary_block_hash_selector);
   }
 
   void MayMatch(int num_keys, Slice** keys, bool* may_match) override {
@@ -577,7 +600,7 @@ class SpeedbBlockBloomBitsBuilder : public XXH3pFilterBitsBuilder {
       // ,
       // millibits_per_key_(millibits_per_key)
       {
-    millibits_per_key_ = BloomBitsPerKey * 1000;
+    millibits_per_key_ = spdb_bloom::BloomBitsPerKey * 1000;
     // assert(millibits_per_key >= 1000);
   }
 
@@ -600,8 +623,8 @@ class SpeedbBlockBloomBitsBuilder : public XXH3pFilterBitsBuilder {
       uint32_t hash_set_selector;
     };
 
-    using BatchBlocksHistogram = std::array<BlockHistogramInfo, BatchSizeInBlocks>;
-    using BatchPairingInfo = std::array<PairingInfo, BatchSizeInBlocks>;
+    using BatchBlocksHistogram = std::array<BlockHistogramInfo, spdb_bloom::BatchSizeInBlocks>;
+    using BatchPairingInfo = std::array<PairingInfo, spdb_bloom::BatchSizeInBlocks>;
 
     private:
       size_t num_blocks_ = 0U;
@@ -620,13 +643,13 @@ class SpeedbBlockBloomBitsBuilder : public XXH3pFilterBitsBuilder {
     void PrintConstants() {
       std::cerr << "Constants:\n"
                 << "----------\n";
-      std::cerr << "Bits Per Key:" << BloomBitsPerKey << '\n';
+      std::cerr << "Bits Per Key:" << spdb_bloom::BloomBitsPerKey << '\n';
       std::cerr << "Batch Size:" << BatchSizeInBytes << '\n';
-      std::cerr << "Batch Offset Num Bits :" << BatchOffsetNumBits << '\n';
+      std::cerr << "Batch Offset Num Bits :" << InBatchIdxNumBits << '\n';
       std::cerr << "Num Batches:" << num_batches_ << '\n';
       std::cerr << "Num Bits In Block Bloom:" << NumBitsInBlockBloom << '\n';
       std::cerr << "Num Blocks:" << num_blocks_ << '\n';
-      std::cerr << "Num Hash Functions:" << NumHashFuncs << '\n';
+      std::cerr << "Num Hash Functions:" << spdb_bloom::NumHashFuncs << '\n';
       std::cerr << '\n';
     }
 
@@ -654,16 +677,16 @@ class SpeedbBlockBloomBitsBuilder : public XXH3pFilterBitsBuilder {
 #endif
 
     void InitVars(size_t num_entries) {
-      // Aligned means to the batch size - Being a multiple of BatchSizeInBlocks
-      const size_t UnalignedNumBlocks = num_entries * BloomBitsPerKey / BlockSizeInBits;
-      const size_t AlignedNumBlocksMaybeOdd = std::ceil(UnalignedNumBlocks / BatchSizeInBlocks) * BatchSizeInBlocks;
+      // Aligned means to the batch size - Being a multiple of spdb_bloom::BatchSizeInBlocks
+      const size_t UnalignedNumBlocks = num_entries * spdb_bloom::BloomBitsPerKey / spdb_bloom::BlockSizeInBits;
+      const size_t AlignedNumBlocksMaybeOdd = std::ceil(UnalignedNumBlocks / spdb_bloom::BatchSizeInBlocks) * spdb_bloom::BatchSizeInBlocks;
 
       num_blocks_ = AlignedNumBlocksMaybeOdd + (AlignedNumBlocksMaybeOdd % 2);
-      num_blocks_ = std::max<size_t>(num_blocks_, BatchSizeInBlocks);
+      num_blocks_ = std::max<size_t>(num_blocks_, spdb_bloom::BatchSizeInBlocks);
       assert(num_blocks_ % 2 == 0);
-      assert(num_blocks_ % BatchSizeInBlocks == 0);
+      assert(num_blocks_ % spdb_bloom::BatchSizeInBlocks == 0);
 
-      num_batches_ = num_blocks_ / BatchSizeInBlocks;
+      num_batches_ = num_blocks_ / spdb_bloom::BatchSizeInBlocks;
       assert(num_batches_ > 0U);
 
       pairing_table_.resize(num_batches_);
@@ -677,7 +700,7 @@ class SpeedbBlockBloomBitsBuilder : public XXH3pFilterBitsBuilder {
     InitVars(num_entries);
 
     // const size_t len_with_metadata = CalculateSpace(num_entries);
-    const size_t len_with_metadata = num_blocks_ * BlockSizeInBytes + kMetadataLen;
+    const size_t len_with_metadata = num_blocks_ * spdb_bloom::BlockSizeInBytes + kMetadataLen;
 
     std::unique_ptr<char[]> mutable_buf;
     mutable_buf.reset(new char[len_with_metadata]());
@@ -695,7 +718,7 @@ class SpeedbBlockBloomBitsBuilder : public XXH3pFilterBitsBuilder {
     // Compute num_probes after any rounding / adjustments
     // TODO: NOAM?
     // // // int num_probes = GetNumProbes(num_entries, len_with_metadata);
-    const int num_probes = NumHashFuncs;
+    const int num_probes = spdb_bloom::NumHashFuncs;
 
     uint32_t len = static_cast<uint32_t>(len_with_metadata - kMetadataLen);
     if (len > 0) {
@@ -792,7 +815,7 @@ class SpeedbBlockBloomBitsBuilder : public XXH3pFilterBitsBuilder {
     for (auto i = 0U; i < hash_entries_.size(); ++i) {
       uint64_t h = hash_entries_[i];
       auto block_idx = FastLocalBloomImpl::HashToCacheLineIdx(Lower32of64(h), len);
-      ++blocks_histogram_[GetContainingBatchIdx(block_idx)][GetInBatchBlockIdx(block_idx)].num_keys;
+      ++blocks_histogram_[spdb_bloom::GetContainingBatchIdx(block_idx)][spdb_bloom::GetInBatchBlockIdx(block_idx)].num_keys;
     }
   }
 
@@ -819,14 +842,14 @@ class SpeedbBlockBloomBitsBuilder : public XXH3pFilterBitsBuilder {
     const auto& batch_blocks_histrogram = blocks_histogram_[batch_idx];
     auto& batch_pairing_info = pairing_table_[batch_idx];
 
-    for (auto in_batch_block_idx = 0U; in_batch_block_idx < BatchSizeInBlocks; ++in_batch_block_idx) {
+    for (auto in_batch_block_idx = 0U; in_batch_block_idx < spdb_bloom::BatchSizeInBlocks; ++in_batch_block_idx) {
       const auto pair_in_batch_idx = batch_blocks_histrogram.size() - in_batch_block_idx - 1;
       auto original_batch_block_idx = batch_blocks_histrogram[in_batch_block_idx].original_batch_block_idx;
 
       batch_pairing_info[original_batch_block_idx].secondary_batch_block_idx =
         batch_blocks_histrogram[pair_in_batch_idx].original_batch_block_idx;
       batch_pairing_info[original_batch_block_idx].hash_set_selector =
-        GetHashSelector(original_batch_block_idx, batch_blocks_histrogram[pair_in_batch_idx].original_batch_block_idx);
+        spdb_bloom::GetHashSelector(original_batch_block_idx, batch_blocks_histrogram[pair_in_batch_idx].original_batch_block_idx);
     }
   }
 
@@ -845,41 +868,35 @@ class SpeedbBlockBloomBitsBuilder : public XXH3pFilterBitsBuilder {
       hash_entries_.pop_front();
 
       uint32_t primary_block_idx = FastLocalBloomImpl::HashToCacheLineIdx(Lower32of64(h), len);
-      uint32_t batch_idx = GetContainingBatchIdx(primary_block_idx);
+      uint32_t batch_idx = spdb_bloom::GetContainingBatchIdx(primary_block_idx);
 
-      EntryHashes hashes = GetHashesForEntry(Upper32of64(h));
+      spdb_bloom::EntryHashes hashes = spdb_bloom::GetHashesForEntry(Upper32of64(h));
 
       // Primary Block
-      char* const primary_block_address = data + primary_block_idx * BlockSizeInBytes;
+      char* const primary_block_address = data + primary_block_idx * spdb_bloom::BlockSizeInBytes;
 
-      FastLocalBloomImpl::PrefetchCacheLine(primary_block_address);
 
-      uint8_t primary_in_batch_block_idx = GetInBatchBlockIdx(primary_block_idx);
-
+      uint8_t primary_in_batch_block_idx = spdb_bloom::GetInBatchBlockIdx(primary_block_idx);
       uint32_t secondary_in_batch_block_idx = pairing_table_[batch_idx][primary_in_batch_block_idx].secondary_batch_block_idx;
-      Block::SetBlockIdxOfPair(primary_block_address, secondary_in_batch_block_idx);
-
       auto primary_block_hash_selector = pairing_table_[batch_idx][primary_in_batch_block_idx].hash_set_selector;
-      Block::SetBlockBloomBits(primary_block_address, hashes, primary_block_hash_selector);
+
+      spdb_bloom::block::BuildBlock primary_block(primary_block_address, true);
+      primary_block.SetBlockIdxOfPair(secondary_in_batch_block_idx);
+      primary_block.SetBlockBloomBits(hashes, primary_block_hash_selector);
 
       // Secondary Block
-      uint32_t secondary_block_idx = GetStartBlockIdxOfBatch(batch_idx) + secondary_in_batch_block_idx;
-      char* const secondary_block_address = data + secondary_block_idx * BlockSizeInBytes;
-
-      FastLocalBloomImpl::PrefetchCacheLine(secondary_block_address);
-
-      Block::SetBlockIdxOfPair(secondary_block_address, primary_in_batch_block_idx);
-
+      uint32_t secondary_block_idx = spdb_bloom::GetStartBlockIdxOfBatch(batch_idx) + secondary_in_batch_block_idx;
       auto secondary_block_hash_selector = pairing_table_[batch_idx][secondary_in_batch_block_idx].hash_set_selector;
-      Block::SetBlockBloomBits(secondary_block_address, hashes, secondary_block_hash_selector);
+      char* const secondary_block_address = data + secondary_block_idx * spdb_bloom::BlockSizeInBytes;
 
-      // assert(Block::AreAllBlockBloomBitsSet( primary_block_address, hashes, primary_block_hash_selector));
-      // assert(Block::AreAllBlockBloomBitsSet(secondary_block_address, hashes, secondary_block_hash_selector));
+      spdb_bloom::block::BuildBlock secondary_block(secondary_block_address, true);
+      secondary_block.SetBlockIdxOfPair(primary_in_batch_block_idx);
+      secondary_block.SetBlockBloomBits(hashes, secondary_block_hash_selector);
     }
   }
 
   void AddAllEntries(char* data, uint32_t len, int num_probes) {
-    assert(num_probes == NumHashFuncs);
+    assert(num_probes == spdb_bloom::NumHashFuncs);
 
     InitBlockHistogram();
     BuildBlocksHistogram(len);
