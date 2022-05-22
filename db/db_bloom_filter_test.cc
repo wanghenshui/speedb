@@ -17,10 +17,6 @@
 #include "table/block_based/filter_policy_internal.h"
 #include "util/string_util.h"
 
-namespace {
-  int debug_max_key = 10000;
-}
-
 namespace ROCKSDB_NAMESPACE {
 
 namespace {
@@ -603,6 +599,15 @@ TEST_F(DBBloomFilterTest, BloomFilterRate) {
   }
 }
 
+template<class T>
+std::string FormatWithCommas(T value)
+{
+    std::stringstream ss;
+    ss.imbue(std::locale(""));
+    ss << std::fixed << value;
+    return ss.str();
+}
+
 TEST_F(DBBloomFilterTest, BlockBloomFilterRate) {
     option_config_ = kFilter;
     Options options = CurrentOptions();
@@ -615,31 +620,72 @@ TEST_F(DBBloomFilterTest, BlockBloomFilterRate) {
     get_perf_context()->EnablePerLevelPerfContext();
     CreateAndReopenWithCF({"pikachu"}, options);
 
-    // XXXX const int maxKey = 10000;
-    const int maxKey = debug_max_key;
+    std::cerr << "BEFORE Putting Any Keys\n";
+    std::cerr << "BLOOM_FILTER_USEFUL = " << FormatWithCommas(TestGetTickerCount(options, BLOOM_FILTER_USEFUL)) << '\n';
+    std::cerr << "BLOOM_FILTER_FULL_POSITIVE = " << FormatWithCommas(TestGetTickerCount(options, BLOOM_FILTER_FULL_POSITIVE)) << '\n';
+    std::cerr << "BLOOM_FILTER_FULL_TRUE_POSITIVE = " << FormatWithCommas(TestGetTickerCount(options, BLOOM_FILTER_FULL_TRUE_POSITIVE)) << '\n';
+
+    int maxKey = 1000 * 1000;
     for (int i = 0; i < maxKey; i++) {
-      auto key = Key(i);
-      // ASSERT_OK(Put(1, Key(i), Key(i)));
-      ASSERT_OK(Put(1, key, key));
+      ASSERT_OK(Put(1, Key(i), Key(i)));
     }
+
+    std::cerr << "AFTER Putting " << maxKey << " Keys\n";
+    std::cerr << "BLOOM_FILTER_USEFUL = " << FormatWithCommas(TestGetTickerCount(options, BLOOM_FILTER_USEFUL)) << '\n';
+    std::cerr << "BLOOM_FILTER_FULL_POSITIVE = " << FormatWithCommas(TestGetTickerCount(options, BLOOM_FILTER_FULL_POSITIVE)) << '\n';
+    std::cerr << "BLOOM_FILTER_FULL_TRUE_POSITIVE = " << FormatWithCommas(TestGetTickerCount(options, BLOOM_FILTER_FULL_TRUE_POSITIVE)) << '\n';
+
     // Add a large key to make the file contain wide range
-    ASSERT_OK(Put(1, Key(maxKey + 55555), Key(maxKey + 55555)));
+    int very_large_key_val = 1 << 31;
+    ASSERT_OK(Put(1, Key(very_large_key_val), Key(very_large_key_val)));
     Flush(1);
 
     // Check if they can be found
+    std::cerr << "Checking that " << FormatWithCommas(maxKey) << " keys that are in the filter are found\n";
     for (int i = 0; i < maxKey; i++) {
-      EXPECT_EQ(Key(i), Get(1, Key(i)));
+      ASSERT_EQ(Key(i), Get(1, Key(i)));
     }
-    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 0);
+
+    std::cerr << "AFTER Get() for all keys in the DB (" << maxKey << " Keys)\n";
+    auto useful1 = TestGetTickerCount(options, BLOOM_FILTER_USEFUL);
+    auto full_positive1 = TestGetTickerCount(options, BLOOM_FILTER_FULL_POSITIVE);
+    auto true_positive1 = TestGetTickerCount(options, BLOOM_FILTER_FULL_TRUE_POSITIVE);
+
+    std::cerr << "BLOOM_FILTER_USEFUL = " << FormatWithCommas(useful1) << '\n';
+    std::cerr << "BLOOM_FILTER_FULL_POSITIVE = " << FormatWithCommas(full_positive1) << '\n';
+    std::cerr << "BLOOM_FILTER_FULL_TRUE_POSITIVE = " << FormatWithCommas(true_positive1) << '\n';
 
     // Check if filter is useful
-    for (int i = 0; i < maxKey; i++) {
-      ASSERT_EQ("NOT_FOUND", Get(1, Key(i + 33333)));
-    }
-    ASSERT_GE(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), maxKey * 0.98);
-    ASSERT_GE(
-        (*(get_perf_context()->level_to_perf_context))[0].bloom_filter_useful,
-        maxKey * 0.98);
+    int multiplier = 10;
+    int num_not_found_keys = maxKey * multiplier;
+
+    std::cerr << "Checking that " << FormatWithCommas(num_not_found_keys) << " keys that are NOT in the filter are NOT found\n";
+    for (int i = 1; i <= multiplier; ++i) {
+      std::cerr << "Iteration #" << i << '\n';
+      for (int j = 1; j < maxKey; ++j) {
+        auto not_found_key = i*maxKey + j;
+        ASSERT_EQ("NOT_FOUND", Get(1, Key(not_found_key)));
+      }
+    } 
+
+    std::cerr << "AFTER Get() for  " << num_not_found_keys << " Keys NOT IN THE DB\n";
+    std::cerr << "BLOOM_FILTER_USEFUL = " << FormatWithCommas(TestGetTickerCount(options, BLOOM_FILTER_USEFUL)) << '\n';
+    std::cerr << "BLOOM_FILTER_FULL_POSITIVE = " << FormatWithCommas(TestGetTickerCount(options, BLOOM_FILTER_FULL_POSITIVE)) << '\n';
+    std::cerr << "BLOOM_FILTER_FULL_TRUE_POSITIVE = " << FormatWithCommas(TestGetTickerCount(options, BLOOM_FILTER_FULL_TRUE_POSITIVE)) << '\n';
+
+#if 0    
+    auto useful2 = TestGetTickerCount(options, BLOOM_FILTER_USEFUL);
+    auto full_positive2 = TestGetTickerCount(options, BLOOM_FILTER_FULL_POSITIVE);
+    auto true_positive2 = TestGetTickerCount(options, BLOOM_FILTER_FULL_TRUE_POSITIVE);
+
+    std::cerr << "BLOOM_FILTER_USEFUL = " << FormatWithCommas(useful2 - useful1) << '\n';
+    std::cerr << "BLOOM_FILTER_FULL_POSITIVE = " << FormatWithCommas(full_positive2 - full_positive1) << '\n';
+    std::cerr << "BLOOM_FILTER_FULL_TRUE_POSITIVE = " << FormatWithCommas(true_positive2 - true_positive1) << '\n';
+#endif
+    // ASSERT_GE(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), maxKey * 0.98);
+    // ASSERT_GE(
+    //     (*(get_perf_context()->level_to_perf_context))[0].bloom_filter_useful,
+    //     maxKey * 0.98);
     get_perf_context()->Reset();
 }
 
