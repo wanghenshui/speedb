@@ -547,14 +547,10 @@ class SpeedbBlockBloomBitsBuilder : public XXH3pFilterBitsBuilder {
   private:
     struct BlockHistogramInfo {
       size_t num_keys = 0U;
-      uint32_t original_batch_block_idx;
+      uint32_t original_batch_block_idx = std::numeric_limits<uint32_t>::max();
 
       bool operator<(const BlockHistogramInfo& other) {
-        if (num_keys < other.num_keys) {
-          return true;
-        } else {
-          return (original_batch_block_idx < other.original_batch_block_idx);
-        }
+        return (num_keys < other.num_keys);
       }
     };
 
@@ -714,34 +710,21 @@ class SpeedbBlockBloomBitsBuilder : public XXH3pFilterBitsBuilder {
     }
   }
 
-  void BuildBlocksHistogram(uint32_t len) {
+  void BuildBlocksHistogram(uint32_t data_len_bytes) {
     for (auto i = 0U; i < hash_entries_.size(); ++i) {
       uint64_t h = hash_entries_[i];
-      auto block_idx = FastLocalBloomImpl::HashToCacheLineIdx(Lower32of64(h), len);
+      auto block_idx = FastLocalBloomImpl::HashToCacheLineIdx(Lower32of64(h), data_len_bytes);
       ++blocks_histogram_[spdb_bloom::GetContainingBatchIdx(block_idx)][spdb_bloom::GetInBatchBlockIdx(block_idx)].num_keys;
     }
   }
 
-  void BubbleSortBatchBlocksHistogram(uint32_t batch_idx) {
-    // BatchBlocksHistogram& blocks_histogram = blocks_histogram_[batch_idx];
-    // std::sort(std::begin(blocks_histogram), std::end(blocks_histogram));
-    auto& batch_blocks_histrogram = blocks_histogram_[batch_idx];
-
-    for (auto i = 0U; i < batch_blocks_histrogram.size(); ++i) {
-      for(auto j = i+1; j < batch_blocks_histrogram.size(); j++) {
-        if(batch_blocks_histrogram[j].num_keys < batch_blocks_histrogram[i].num_keys) {
-          std::swap(batch_blocks_histrogram[i], batch_blocks_histrogram[j]);
-        }
-      }
-    }
-  }
-
   void PairBatchBlocks(uint32_t batch_idx) {
-    // For some reason, the std::sort causes ASAN Issues - Needs further investigation
-    // TODO: Use an efficient sorting algorithm
-    BubbleSortBatchBlocksHistogram(batch_idx);
+    assert(batch_idx < num_batches_);
 
-    const auto& batch_blocks_histrogram = blocks_histogram_[batch_idx];
+    BatchBlocksHistogram& batch_blocks_histrogram = blocks_histogram_[batch_idx];
+    
+    std::sort(batch_blocks_histrogram.begin(), batch_blocks_histrogram.end());
+
     auto& batch_pairing_info = pairing_table_[batch_idx];
 
     for (auto in_batch_block_idx = 0U; in_batch_block_idx < spdb_bloom::BatchSizeInBlocks; ++in_batch_block_idx) {
@@ -758,50 +741,54 @@ class SpeedbBlockBloomBitsBuilder : public XXH3pFilterBitsBuilder {
   void PairBlocks() {
     for (auto batch_idx = 0U; batch_idx < num_batches_; ++batch_idx) {
       PairBatchBlocks(batch_idx);
-      // PrintBatchPairingInfo(batch_idx);
     }
   }
 
-  void BuildBlocks(char* data, uint32_t len) {
-    const size_t num_entries = hash_entries_.size();
-    for (auto i = 0U; i < num_entries; ++i) {
+  void BuildBlocks(char* data, uint32_t data_len_bytes) {
+    for (auto i = 0U; i < hash_entries_.size(); ++i) {
       uint64_t h = hash_entries_.front();
       hash_entries_.pop_front();
-
-      uint32_t primary_block_idx = FastLocalBloomImpl::HashToCacheLineIdx(Lower32of64(h), len);
-      uint32_t batch_idx = spdb_bloom::GetContainingBatchIdx(primary_block_idx);
+      
+      const uint32_t primary_block_idx = FastLocalBloomImpl::HashToCacheLineIdx(Lower32of64(h), data_len_bytes);
+      const uint32_t batch_idx = spdb_bloom::GetContainingBatchIdx(primary_block_idx);
 
       // Primary Block
+      const uint8_t primary_in_batch_block_idx = spdb_bloom::GetInBatchBlockIdx(primary_block_idx);
+      const uint32_t secondary_in_batch_block_idx = pairing_table_[batch_idx][primary_in_batch_block_idx].secondary_batch_block_idx;
+
+      const auto primary_block_hash_selector = pairing_table_[batch_idx][primary_in_batch_block_idx].hash_set_selector;
+      assert(primary_block_hash_selector == 0 || primary_block_hash_selector == 1);
+
+      const uint32_t upper_32_bits_of_hash = Upper32of64(h);
+      const spdb_bloom::EntryHashSet primary_hashes = spdb_bloom::GetHashSetForEntry(Upper32of64(h), primary_block_hash_selector);
+
       char* const primary_block_address = data + primary_block_idx * spdb_bloom::BlockSizeInBytes;
-
-      uint8_t primary_in_batch_block_idx = spdb_bloom::GetInBatchBlockIdx(primary_block_idx);
-      uint32_t secondary_in_batch_block_idx = pairing_table_[batch_idx][primary_in_batch_block_idx].secondary_batch_block_idx;
-      auto primary_block_hash_selector = pairing_table_[batch_idx][primary_in_batch_block_idx].hash_set_selector;
-      spdb_bloom::EntryHashSet primary_hashes = spdb_bloom::GetHashSetForEntry(Upper32of64(h), primary_block_hash_selector);
-
-      spdb_bloom::block::BuildBlock primary_block(primary_block_address, true);
+      spdb_bloom::block::BuildBlock primary_block(primary_block_address, true);      
       primary_block.SetBlockIdxOfPair(secondary_in_batch_block_idx);
       primary_block.SetBlockBloomBits(primary_hashes);
 
       // Secondary Block
-      uint32_t secondary_block_idx = spdb_bloom::GetStartBlockIdxOfBatch(batch_idx) + secondary_in_batch_block_idx;
-      char* const secondary_block_address = data + secondary_block_idx * spdb_bloom::BlockSizeInBytes;
-      auto secondary_block_hash_selector = pairing_table_[batch_idx][secondary_in_batch_block_idx].hash_set_selector;
-      spdb_bloom::EntryHashSet secondary_hashes = spdb_bloom::GetHashSetForEntry(Upper32of64(h), secondary_block_hash_selector);
+      const uint32_t secondary_block_idx = spdb_bloom::GetStartBlockIdxOfBatch(batch_idx) + secondary_in_batch_block_idx;
 
+      auto secondary_block_hash_selector = 1 - primary_block_hash_selector;
+      assert(secondary_block_hash_selector == pairing_table_[batch_idx][secondary_in_batch_block_idx].hash_set_selector);
+
+      const spdb_bloom::EntryHashSet secondary_hashes = spdb_bloom::GetHashSetForEntry(upper_32_bits_of_hash, secondary_block_hash_selector);
+
+      char* const secondary_block_address = data + secondary_block_idx * spdb_bloom::BlockSizeInBytes;
       spdb_bloom::block::BuildBlock secondary_block(secondary_block_address, true);
       secondary_block.SetBlockIdxOfPair(primary_in_batch_block_idx);
       secondary_block.SetBlockBloomBits(secondary_hashes);
     }
   }
 
-  void AddAllEntries(char* data, uint32_t len, int num_probes) {
+  void AddAllEntries(char* data, uint32_t data_len_bytes, int num_probes) {
     assert(num_probes == spdb_bloom::NumHashFuncs);
 
     InitBlockHistogram();
-    BuildBlocksHistogram(len);
+    BuildBlocksHistogram(data_len_bytes);
     PairBlocks();
-    BuildBlocks(data, len);
+    BuildBlocks(data, data_len_bytes);
   }
 
   // Target allocation per added key, in thousandths of a bit.
@@ -834,7 +821,8 @@ class SpeedbBlockBloomBitsReader : public FilterBitsReader {
     uint8_t secondary_in_batch_block_idx = primary_block.GetBlockIdxOfPair();
     auto primary_block_hash_selector = spdb_bloom::GetHashSelector(primary_in_batch_block_idx, secondary_in_batch_block_idx);
 
-    spdb_bloom::EntryHashSet primary_hashes = spdb_bloom::GetHashSetForEntry(Upper32of64(h), primary_block_hash_selector);
+    const uint32_t upper_32_bits_of_hash = Upper32of64(h);
+    spdb_bloom::EntryHashSet primary_hashes = spdb_bloom::GetHashSetForEntry(upper_32_bits_of_hash, primary_block_hash_selector);
 
     if (primary_block.AreAllBlockBloomBitsSet(primary_hashes) == false) {
       return false;
@@ -848,7 +836,7 @@ class SpeedbBlockBloomBitsReader : public FilterBitsReader {
     const char* secondary_block_address = data_ + secondary_block_idx * spdb_bloom::BlockSizeInBytes;
 
     spdb_bloom::block::ReadBlock secondary_block(secondary_block_address, true);
-    spdb_bloom::EntryHashSet secondary_hashes = spdb_bloom::GetHashSetForEntry(Upper32of64(h), secondary_block_hash_selector);
+    spdb_bloom::EntryHashSet secondary_hashes = spdb_bloom::GetHashSetForEntry(upper_32_bits_of_hash, secondary_block_hash_selector);
     return secondary_block.AreAllBlockBloomBitsSet(secondary_hashes);
   }
 
