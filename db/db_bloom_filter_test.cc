@@ -636,11 +636,6 @@ TEST_F(DBBloomFilterTest, BlockBloomFilterRate) {
       ASSERT_EQ(Key(i), Get(1, Key(i)));
     }
 
-    std::cerr << "AFTER Get() for all keys in the DB (" << maxKey << " Keys)\n";
-    std::cerr << "BLOOM_FILTER_USEFUL = " << FormatWithCommas(TestGetTickerCount(options, BLOOM_FILTER_USEFUL)) << '\n';
-    std::cerr << "BLOOM_FILTER_FULL_POSITIVE = " << FormatWithCommas(TestGetTickerCount(options, BLOOM_FILTER_FULL_POSITIVE)) << '\n';
-    std::cerr << "BLOOM_FILTER_FULL_TRUE_POSITIVE = " << FormatWithCommas(TestGetTickerCount(options, BLOOM_FILTER_FULL_TRUE_POSITIVE)) << '\n';
-
     // Check if filter is useful
     int multiplier = 10;
     int num_not_found_keys = maxKey * multiplier;
