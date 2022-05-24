@@ -589,8 +589,6 @@ class SpeedbBlockBloomBitsBuilder : public XXH3pFilterBitsBuilder {
       assert(num_batches_ > 0U);
 
       pairing_table_.resize(num_batches_);
-
-      // PrintConstants();
     }
 
   virtual Slice Finish(std::unique_ptr<const char[]>* buf) override {

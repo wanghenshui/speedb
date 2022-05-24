@@ -608,20 +608,18 @@ std::string FormatWithCommas(T value)
     return ss.str();
 }
 
-TEST_F(DBBloomFilterTest, BlockBloomFilterRate) {
-    option_config_ = kFilter;
+TEST_F(DBBloomFilterTest, SpdbBlockBloomFilterRate) {
+    option_config_ = kSpdbBlockBloomFilter;
     Options options = CurrentOptions();
     options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
-
-    BlockBasedTableOptions table_options;
-    table_options.filter_policy.reset(NewSpdbBlockBloomFilterPolicy());
-    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
     get_perf_context()->EnablePerLevelPerfContext();
     CreateAndReopenWithCF({"pikachu"}, options);
 
-    int maxKey = 1000 * 1000;
-    for (int i = 0; i < maxKey; i++) {
+    int num_keys = 1000 * 1000;
+    int first_key = num_keys;
+    int last_key = first_key + num_keys - 1;
+    for (auto i = first_key; i <= last_key; i++) {
       ASSERT_OK(Put(1, Key(i), Key(i)));
     }
 
@@ -631,19 +629,20 @@ TEST_F(DBBloomFilterTest, BlockBloomFilterRate) {
     Flush(1);
 
     // Check if they can be found
-    std::cerr << "Checking that " << FormatWithCommas(maxKey) << " keys that are in the filter are found\n";
-    for (int i = 0; i < maxKey; i++) {
+    std::cerr << "Checking that " << FormatWithCommas(num_keys) << " keys that are in the filter are found\n";
+    for (auto i = first_key; i <= last_key; i++) {
       ASSERT_EQ(Key(i), Get(1, Key(i)));
     }
 
     // Check if filter is useful
     int multiplier = 10;
-    int num_not_found_keys = maxKey * multiplier;
+    int num_not_found_keys = num_keys * multiplier;
 
     std::cerr << "Checking that " << FormatWithCommas(num_not_found_keys) << " keys that are NOT in the filter are NOT found\n";
-    for (int i = 1; i <= num_not_found_keys; ++i) {
-      if (i % 1000000 == 0) std::cerr << i << " Keys\n";
-      auto not_found_key = maxKey + i;
+    auto first_not_found_key = last_key + 1;
+    auto last_not_found_key = first_not_found_key + num_not_found_keys - 1;
+    for (int not_found_key = first_not_found_key; not_found_key <= last_not_found_key; ++not_found_key) {
+      if ((not_found_key - first_not_found_key)  % 1000000 == 0) std::cerr << not_found_key << " Keys\n";
       ASSERT_EQ("NOT_FOUND", Get(1, Key(not_found_key)));
     } 
 
