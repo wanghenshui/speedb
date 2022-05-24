@@ -549,7 +549,7 @@ class SpeedbBlockBloomBitsBuilder : public XXH3pFilterBitsBuilder {
       size_t num_keys = 0U;
       uint32_t original_batch_block_idx = std::numeric_limits<uint32_t>::max();
 
-      bool operator<(const BlockHistogramInfo& other) {
+      bool operator<(const BlockHistogramInfo& other) const {
         return (num_keys < other.num_keys);
       }
     };
@@ -723,7 +723,7 @@ class SpeedbBlockBloomBitsBuilder : public XXH3pFilterBitsBuilder {
 
     BatchBlocksHistogram& batch_blocks_histrogram = blocks_histogram_[batch_idx];
     
-    std::sort(batch_blocks_histrogram.begin(), batch_blocks_histrogram.end());
+    std::stable_sort(batch_blocks_histrogram.begin(), batch_blocks_histrogram.end());
 
     auto& batch_pairing_info = pairing_table_[batch_idx];
 
@@ -745,7 +745,7 @@ class SpeedbBlockBloomBitsBuilder : public XXH3pFilterBitsBuilder {
   }
 
   void BuildBlocks(char* data, uint32_t data_len_bytes) {
-    for (auto i = 0U; i < hash_entries_.size(); ++i) {
+    while (hash_entries_.empty() == false) {
       uint64_t h = hash_entries_.front();
       hash_entries_.pop_front();
       
