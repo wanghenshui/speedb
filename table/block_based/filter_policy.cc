@@ -1533,7 +1533,8 @@ BloomFilterPolicy::BloomFilterPolicy(double bits_per_key, Mode mode)
 
 BloomFilterPolicy::~BloomFilterPolicy() {}
 
-const char* BloomFilterPolicy::Name() const { return "speedb.HybridFilter"; }
+const char* BloomFilterPolicy::Name() const {
+  return (mode_ == kSpdbBlockBloom) ? "speedb.BlockBloomFilter": "speedb.HybridFilter"; }
 
 const char* BloomFilterPolicy::FilterConfigSpec() const {
   return config_spec_.c_str();
@@ -1882,6 +1883,8 @@ FilterBuildingContext::FilterBuildingContext(
     : table_options(_table_options) {}
 
 FilterPolicy::~FilterPolicy() { }
+
+// TODO: WHAT TO DO HERE?
 
 Status FilterPolicy::CreateFromString(
     const ConfigOptions& /*options*/, const std::string& value,

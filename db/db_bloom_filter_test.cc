@@ -608,7 +608,7 @@ std::string FormatWithCommas(T value)
     return ss.str();
 }
 
-TEST_F(DBBloomFilterTest, SpdbBlockBloomFilterRate) {
+TEST_F(DBBloomFilterTest, DISABLED_SpdbBlockBloomFilterRate) {
     option_config_ = kSpdbBlockBloomFilter;
     Options options = CurrentOptions();
     options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
