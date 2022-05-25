@@ -782,7 +782,8 @@ class SpeedbBlockBloomBitsBuilder : public XXH3pFilterBitsBuilder {
 
   void AddAllEntries(char* data, uint32_t data_len_bytes, int num_probes) {
     assert(num_probes == spdb_bloom::NumHashFuncs);
-
+    (void)num_probes;
+    
     InitBlockHistogram();
     BuildBlocksHistogram(data_len_bytes);
     PairBlocks();
