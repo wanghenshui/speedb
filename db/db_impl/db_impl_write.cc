@@ -1747,9 +1747,13 @@ Status DBImpl::HandleWriteBufferManagerFlush(WriteContext* write_context) {
   if (immutable_db_options_.atomic_flush) {
     SelectColumnFamiliesForAtomicFlush(&cfds);
   } else {
+    // As part of https://github.com/speedb-io/speedb/pull/859, theres a need to
+    // schedule more flushes since the cfd picked for flush was the oldest one
+    // and not necessarily enough to resolve the stall issue.
+    // For this reason, schedule enough flushes so that the memory usage is at
+    // least below the flush trigger (kMutableLimit * buffer_size)
     int64_t total_mem_to_free =
-        write_buffer_manager()->mutable_memtable_memory_usage() -
-        write_buffer_manager()->buffer_size() * 7 / 8;
+        write_buffer_manager()->memory_above_flush_trigger();
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       if (cfd->IsDropped()) {
         continue;

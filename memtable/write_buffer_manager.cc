@@ -54,7 +54,7 @@ WriteBufferManager::WriteBufferManager(
     const FlushInitiationOptions& flush_initiation_options,
     uint16_t start_delay_percent)
     : buffer_size_(_buffer_size),
-      mutable_limit_(buffer_size_ * 7 / 8),
+      mutable_limit_(buffer_size_ * kMutableLimit),
       memory_used_(0),
       memory_inactive_(0),
       memory_being_freed_(0U),
