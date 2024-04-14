@@ -1747,9 +1747,9 @@ Status DBImpl::HandleWriteBufferManagerFlush(WriteContext* write_context) {
   if (immutable_db_options_.atomic_flush) {
     SelectColumnFamiliesForAtomicFlush(&cfds);
   } else {
-    ColumnFamilyData* cfd_picked = nullptr;
-    SequenceNumber seq_num_for_cf_picked = kMaxSequenceNumber;
-
+    int64_t total_mem_to_free =
+        write_buffer_manager()->mutable_memtable_memory_usage() -
+        write_buffer_manager()->buffer_size() * 7 / 8;
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       if (cfd->IsDropped()) {
         continue;
@@ -1759,16 +1759,15 @@ Status DBImpl::HandleWriteBufferManagerFlush(WriteContext* write_context) {
         // and no immutable memtables for which flush has yet to finish. If
         // we triggered flush on CFs already trying to flush, we would risk
         // creating too many immutable memtables leading to write stalls.
-        uint64_t seq = cfd->mem()->GetCreationSeq();
-        if (cfd_picked == nullptr || seq < seq_num_for_cf_picked) {
-          cfd_picked = cfd;
-          seq_num_for_cf_picked = seq;
+        auto mem_used = cfd->mem()->ApproximateMemoryUsageFast();
+        cfds.push_back(cfd);
+        total_mem_to_free -= mem_used;
+        if (total_mem_to_free <= 0) {
+          break;
         }
       }
     }
-    if (cfd_picked != nullptr) {
-      cfds.push_back(cfd_picked);
-    }
+
     MaybeFlushStatsCF(&cfds);
   }
   if (!cfds.empty()) {
