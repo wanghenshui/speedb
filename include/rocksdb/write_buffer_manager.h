@@ -155,7 +155,7 @@ class WriteBufferManager final {
   }
 
   int64_t memory_above_flush_trigger() {
-    return mutable_memtable_memory_usage() - buffer_size() * kMutableLimit;
+    return memory_usage() - buffer_size() * kMutableLimit;
   }
 
   // Returns the total inactive memory used by memtables.

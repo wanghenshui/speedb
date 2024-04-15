@@ -1763,7 +1763,7 @@ Status DBImpl::HandleWriteBufferManagerFlush(WriteContext* write_context) {
         // and no immutable memtables for which flush has yet to finish. If
         // we triggered flush on CFs already trying to flush, we would risk
         // creating too many immutable memtables leading to write stalls.
-        auto mem_used = cfd->mem()->ApproximateMemoryUsageFast();
+        auto mem_used = cfd->mem()->ApproximateMemoryUsage();
         cfds.push_back(cfd);
         total_mem_to_free -= mem_used;
         if (total_mem_to_free <= 0) {

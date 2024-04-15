@@ -112,6 +112,12 @@ void WriteBufferManager::ReserveMem(size_t mem) {
         memory_used_.fetch_add(mem, std::memory_order_relaxed);
     new_memory_used = old_memory_used + mem;
   }
+  for (auto loggers : loggers_to_client_ids_map_) {
+    ROCKS_LOG_WARN(loggers.first,
+                   "WBM (%p) ReserveMem called with:  %" PRIu64
+                   " , memory_used: %" PRIu64,
+                   this, mem, new_memory_used);
+  }
   if (is_enabled) {
     UpdateUsageState(new_memory_used, static_cast<int64_t>(mem), buffer_size());
     // Checking outside the locks is not reliable, but avoids locking
@@ -177,7 +183,12 @@ void WriteBufferManager::FreeMem(size_t mem) {
     assert(old_memory_used >= mem);
     new_memory_used = old_memory_used - mem;
   }
-
+  for (auto loggers : loggers_to_client_ids_map_) {
+    ROCKS_LOG_WARN(loggers.first,
+                   "WBM (%p) FreeMem called with: %" PRIu64
+                   ", memory_used: %" PRIu64,
+                   this, mem, new_memory_used);
+  }
   if (is_enabled) {
     [[maybe_unused]] const auto curr_memory_inactive =
         memory_inactive_.fetch_sub(mem, std::memory_order_relaxed);
